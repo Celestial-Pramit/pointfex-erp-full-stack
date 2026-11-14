@@ -285,6 +285,20 @@ export const SENSITIVE_ACTION_REGISTRY: readonly SensitiveActionEntry[] = [
     permissionCodes: ['performance:discipline'],
   },
   {
+    actionKey: 'kpi:disciplinary_deduction',
+    description: 'Deduct weekly KPI percentage points for documented misconduct',
+    requiresReason: true,
+    mfaRequired: true,
+    permissionCodes: ['performance:discipline', 'kpi:disciplinary_deduction'],
+  },
+  {
+    actionKey: 'kpi:weight_override',
+    description: 'Override or modify proposed task weight in CHRO verification queue',
+    requiresReason: true,
+    mfaRequired: true,
+    permissionCodes: ['performance:verify_weight', 'kpi:verify_weight'],
+  },
+  {
     actionKey: 'grievances:adjudicate_confidential',
     description: 'Adjudicate a confidential grievance or report',
     requiresReason: true,

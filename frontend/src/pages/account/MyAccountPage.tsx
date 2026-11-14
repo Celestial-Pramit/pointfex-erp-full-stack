@@ -20,6 +20,11 @@ import { Badge } from '../../components/common/Badge'
 import { MfaRecoveryCodesCard } from '../../components/common/MfaRecoveryCodesCard'
 import { AdditionalGrantedAccessCard } from '../../components/common/AdditionalGrantedAccessCard'
 import { validatePasswordStrength } from '../../utils/password-policy'
+import {
+  WeeklyKpiTrendGraph,
+  LifetimeXpStackedChart,
+  KpiXpAuditLedgerTable,
+} from '../../components/performance/KpiXpWidgets'
 
 function formatDhakaDateTime(iso?: string | null): string {
   if (!iso) return 'Never'
@@ -41,6 +46,10 @@ export function MyAccountPage() {
   const [newPassword, setNewPassword] = useState('')
   const [passwordMfaCode, setPasswordMfaCode] = useState('')
   const [changingPassword, setChangingPassword] = useState(false)
+
+  const [kpiHistory, setKpiHistory] = useState<any[]>([])
+  const [auditLogs, setAuditLogs] = useState<any[]>([])
+  const [perfSummary, setPerfSummary] = useState<any>(null)
 
   const [sessionsData, setSessionsData] = useState<{
     sessions: Array<{
@@ -81,10 +90,34 @@ export function MyAccountPage() {
         if (!cancelled) setSessionsData(res)
       })
       .catch(() => undefined)
+
+    if (currentUser?.id) {
+      void erpApi
+        .getEmployeeKpiHistory(currentUser.id)
+        .then((res) => {
+          if (!cancelled && Array.isArray(res)) setKpiHistory(res)
+        })
+        .catch(() => undefined)
+
+      void erpApi
+        .getEmployeeKpiXpAuditLogs(currentUser.id)
+        .then((res) => {
+          if (!cancelled && Array.isArray(res)) setAuditLogs(res)
+        })
+        .catch(() => undefined)
+
+      void erpApi
+        .getPerformanceSummary(currentUser.id)
+        .then((res) => {
+          if (!cancelled && res) setPerfSummary(res)
+        })
+        .catch(() => undefined)
+    }
+
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [currentUser?.id])
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -244,6 +277,16 @@ export function MyAccountPage() {
           </Button>
         </form>
       </Card>
+
+      {/* Pointfex KPI & XP Gamification Suite */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <WeeklyKpiTrendGraph data={kpiHistory} />
+        <LifetimeXpStackedChart
+          lifetimeXp={perfSummary?.lifetimeXp || (currentUser as any)?.lifetimeXp || 0}
+        />
+      </div>
+
+      {auditLogs.length > 0 && <KpiXpAuditLedgerTable logs={auditLogs} />}
 
       {/* Change Password */}
       <Card className="p-5 space-y-4">

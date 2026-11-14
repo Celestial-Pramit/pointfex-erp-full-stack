@@ -352,6 +352,34 @@ export const erpApi = {
   issueDisciplinary: (body: Record<string, unknown>) =>
     apiRequest<any>('/performance/discipline', { method: 'POST', body: JSON.stringify(body) }),
 
+  // KPI & XP Governance Suite (Pointfex HR Memorandum)
+  getChroWeightQueue: (status?: string) =>
+    apiRequest<any[]>(`/performance/chro/weight-queue${status ? `?status=${status}` : ''}`),
+  verifyTaskWeight: (id: string, body: { approvedWeight: number; notes?: string }) =>
+    apiRequest<any>(`/performance/chro/verify-weight/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  applyDisciplinaryDeduction: (body: { employeeId: string; deductionPoints: number; reason: string }) =>
+    apiRequest<any>('/performance/chro/disciplinary-deduction', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  castConsensusVote: (
+    verificationId: string,
+    body: { decision: 'APPROVE' | 'REJECT'; notes?: string },
+  ) =>
+    apiRequest<any>(`/performance/tasks/weight-verification/${verificationId}/vote`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  getEmployeeKpiHistory: (employeeId: string) =>
+    apiRequest<any[]>(`/performance/kpi-history/${employeeId}`),
+  getEmployeeKpiXpAuditLogs: (employeeId: string) =>
+    apiRequest<any[]>(`/performance/audit-log/${employeeId}`),
+  getPerformanceSummary: (employeeId: string) =>
+    apiRequest<any>(`/performance/summary/${employeeId}`),
+
   // Reports
   getReports: () => apiRequest<any[]>('/reports'),
   createReport: (body: Record<string, unknown>) =>

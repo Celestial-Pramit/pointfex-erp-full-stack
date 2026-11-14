@@ -39,6 +39,14 @@ export class CreateTaskDto {
 
   @IsOptional()
   checklist?: { text: string; completed?: boolean }[]
+
+  @IsOptional()
+  @IsString()
+  weightCategory?: 'SMALL' | 'MEDIUM' | 'LARGE' | 'CRITICAL' | 'CUSTOM'
+
+  @IsOptional()
+  @IsNumber()
+  proposedWeight?: number
 }
 
 export class UpdateTaskStatusDto {
@@ -55,6 +63,10 @@ export class ApproveTaskDto {
   @IsOptional()
   @IsNumber()
   payoutAmount?: number
+
+  @IsOptional()
+  @IsNumber()
+  evaluationGrade?: number
 }
 
 export class RejectTaskDto {

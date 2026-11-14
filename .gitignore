@@ -35,6 +35,8 @@
 **/*.sql.gz
 **/*.dump
 **/*.bak
+**/*.zip
+*.zip
 **/backups/
 **/uploads/
 
@@ -50,6 +52,43 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 
-# Local agent artifacts
+# Local agent artifacts, skills, subagents & frameworks (Never commit to remote)
 .agents/
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+*.claude*
+agents/
+skills/
+subagents/
+**/agents/
+**/skills/
+**/subagents/
 skills-lock.json
+
+# The A Stack & Private Packages
+*The_A_Stack*
+*The_A_Stack*.zip
+The_A_Stack.zip
+*A team*
+Ismail/
+
+# A-Team Framework protocols & seed docs
+docs/_seed/
+docs/INVENTORY.md
+docs/CONTEXT_PROTOCOL.md
+docs/SESSION_PROTOCOL.md
+docs/WORKFLOW.md
+docs/STACK.md
+docs/ARCHITECTURE.md
+docs/CLIENT_QUESTIONS.md
+docs/DATA_MODEL.md
+docs/DECISIONS.md
+docs/DESIGN.md
+docs/DOMAIN.md
+docs/LOG.md
+docs/PROJECT.md
+docs/ROADMAP.md
+docs/SECURITY.md
+
+

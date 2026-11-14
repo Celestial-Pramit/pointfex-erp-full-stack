@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import type React from 'react'
 import {
   Search,
   CheckCircle2,
@@ -8,7 +9,10 @@ import {
   Heart,
   TrendingUp,
   ChevronRight,
+  Scale,
+  AlertCircle,
 } from 'lucide-react'
+import { erpApi } from '../../api/client'
 import { useExecutiveData } from '../../hooks/useExecutiveData'
 import { useApp } from '../../context/AppContext'
 import { Modal } from '../../components/common/Modal'
@@ -31,10 +35,11 @@ export function ChroPerformancePage() {
     issueEmployeeRecognition,
     issueDisciplinaryAction,
     updateConfidentialComplaintStatus,
+    showToast,
   } = useApp()
 
   // Tab State
-  const [activeTab, setActiveTab] = useState<'roster' | 'squads' | 'grievances'>('roster')
+  const [activeTab, setActiveTab] = useState<'roster' | 'squads' | 'grievances' | 'weight_queue'>('roster')
 
   // Search and Filters
   const [searchQuery, setSearchQuery] = useState('')
@@ -62,6 +67,62 @@ export function ChroPerformancePage() {
   const [selectedComplaint, setSelectedComplaint] = useState<any>(null)
   const [complaintStatusInput, setComplaintStatusInput] = useState<string>('investigating')
   const [complaintMediationInput, setComplaintMediationInput] = useState('')
+
+  // Task Weight Verification Gate State
+  const [weightQueue, setWeightQueue] = useState<any[]>([])
+  const [loadingWeightQueue, setLoadingWeightQueue] = useState(false)
+  const [selectedWeightItem, setSelectedWeightItem] = useState<any>(null)
+  const [approvedWeightInput, setApprovedWeightInput] = useState<number>(3)
+  const [weightNotesInput, setWeightNotesInput] = useState('')
+  const [verifyingWeight, setVerifyingWeight] = useState(false)
+
+  const fetchWeightQueue = useCallback(async () => {
+    setLoadingWeightQueue(true)
+    try {
+      const queue = await erpApi.getChroWeightQueue()
+      if (Array.isArray(queue)) setWeightQueue(queue)
+    } catch {
+      // ignore
+    } finally {
+      setLoadingWeightQueue(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void fetchWeightQueue()
+  }, [fetchWeightQueue])
+
+  const handleVerifyWeight = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedWeightItem) return
+    setVerifyingWeight(true)
+    try {
+      await erpApi.verifyTaskWeight(selectedWeightItem.id, {
+        approvedWeight: Number(approvedWeightInput),
+        notes: weightNotesInput,
+      })
+      showToast('Task weight verified and locked successfully.', 'success')
+      setSelectedWeightItem(null)
+      void fetchWeightQueue()
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to verify weight.', 'error')
+    } finally {
+      setVerifyingWeight(false)
+    }
+  }
+
+  const handleQuickApproveWeight = async (item: any) => {
+    try {
+      await erpApi.verifyTaskWeight(item.id, {
+        approvedWeight: Number(item.proposedWeight),
+        notes: 'CHRO verified proposed weight directly',
+      })
+      showToast(`Weight ${item.proposedWeight} approved for ${item.task?.title || 'task'}.`, 'success')
+      void fetchWeightQueue()
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to approve weight.', 'error')
+    }
+  }
 
   // Combined staff roster with performance details
   const staffRoster = useMemo(() => {
@@ -324,6 +385,22 @@ export function ChroPerformancePage() {
               {confidentialComplaints.length > 0 && (
                 <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[11px] font-bold flex items-center justify-center">
                   {confidentialComplaints.length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('weight_queue')}
+              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                activeTab === 'weight_queue'
+                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+              }`}
+            >
+              <Scale className="w-4 h-4 text-amber-500" />
+              Weight Verification Gate
+              {weightQueue.length > 0 && (
+                <span className="w-5 h-5 rounded-full bg-amber-500 text-white text-[11px] font-bold flex items-center justify-center">
+                  {weightQueue.length}
                 </span>
               )}
             </button>
@@ -702,6 +779,143 @@ export function ChroPerformancePage() {
             )}
           </div>
         )}
+
+        {/* TAB 4: Task Weight Verification Gate */}
+        {activeTab === 'weight_queue' && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-amber-500 text-white shadow-xs">
+                  <Scale className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                    CHRO Task Weight Verification Gate
+                  </h3>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                    PMs propose weights; the CHRO holds final authority to verify, modify, or reject. Tasks yield exactly 10x XP.
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void fetchWeightQueue()}
+                disabled={loadingWeightQueue}
+              >
+                {loadingWeightQueue ? 'Refreshing...' : 'Refresh Queue'}
+              </Button>
+            </div>
+
+            {weightQueue.length === 0 ? (
+              <div className="p-12 text-center rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
+                <h4 className="text-base font-semibold text-slate-900 dark:text-white">
+                  Verification Queue Clear
+                </h4>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                  All proposed task and milestone weights have been verified and locked.
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100 dark:divide-slate-800 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-white dark:bg-slate-900">
+                {weightQueue.map((item) => {
+                  const weight = Number(item.approvedWeight || item.proposedWeight)
+                  const xpYield = weight * 10
+                  const isMassive = item.isMassiveXp || weight >= 50
+                  const isPending = item.status === 'PENDING_CHRO'
+
+                  return (
+                    <div
+                      key={item.id}
+                      className="p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition-colors"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                              isPending
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                            }`}
+                          >
+                            {item.status.replace('_', ' ')}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
+                            Category: {item.category}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                            Context: {item.context.replace('_', ' ')}
+                          </span>
+                          {isMassive && (
+                            <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 flex items-center gap-1">
+                              <AlertCircle className="w-3 h-3" />
+                              Massive XP ({xpYield} XP)
+                            </span>
+                          )}
+                        </div>
+
+                        <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                          {item.task?.title || item.milestone?.title || 'Untitled Deliverable'}
+                        </h4>
+
+                        <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500 dark:text-slate-400 mt-1">
+                          <span>
+                            Project:{' '}
+                            <strong className="text-slate-700 dark:text-slate-300">
+                              {item.task?.project?.name || item.milestone?.project?.name || 'General'}
+                            </strong>
+                          </span>
+                          <span>
+                            Proposed by:{' '}
+                            <strong className="text-slate-700 dark:text-slate-300">
+                              {item.proposer?.name || 'Project Manager'}
+                            </strong>
+                          </span>
+                          <span>
+                            Assignee:{' '}
+                            <strong className="text-slate-700 dark:text-slate-300">
+                              {item.task?.assignee?.name || 'Unassigned'}
+                            </strong>
+                          </span>
+                          <span>
+                            Proposed Weight: <strong className="text-amber-600">{item.proposedWeight}</strong>
+                          </span>
+                          <span>
+                            XP Yield: <strong className="text-indigo-600">{xpYield} XP</strong>
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0 w-full md:w-auto justify-end">
+                        {isPending && (
+                          <Button
+                            variant="secondary"
+                            size="xs"
+                            onClick={() => void handleQuickApproveWeight(item)}
+                          >
+                            Quick Approve
+                          </Button>
+                        )}
+                        <Button
+                          variant="primary"
+                          size="xs"
+                          onClick={() => {
+                            setSelectedWeightItem(item)
+                            setApprovedWeightInput(Number(item.proposedWeight))
+                            setWeightNotesInput(item.chroNotes || '')
+                          }}
+                        >
+                          Modify / Verify Weight
+                        </Button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* MODAL 1: Record Evaluation */}
@@ -965,6 +1179,77 @@ export function ChroPerformancePage() {
                 className="bg-purple-600 hover:bg-purple-700 text-white"
               >
                 Save HR Resolution
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* MODAL 4: Verify / Modify Task Weight & XP Yield */}
+      {selectedWeightItem && (
+        <Modal
+          isOpen={true}
+          onClose={() => setSelectedWeightItem(null)}
+          title="Verify Task Weight & XP Yield"
+        >
+          <form onSubmit={handleVerifyWeight} className="space-y-4">
+            <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900">
+              <div className="text-xs font-semibold text-amber-800 dark:text-amber-300">
+                Deliverable
+              </div>
+              <div className="text-sm font-bold text-slate-900 dark:text-white mt-0.5">
+                {selectedWeightItem.task?.title || selectedWeightItem.milestone?.title || 'Task'}
+              </div>
+              <div className="text-xs text-slate-500 mt-1">
+                Proposed Weight: {selectedWeightItem.proposedWeight} (Yields{' '}
+                {Number(selectedWeightItem.proposedWeight) * 10} XP)
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
+                Approved Task Weight (1–100)
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={100}
+                step={0.5}
+                required
+                value={approvedWeightInput}
+                onChange={(e) => setApprovedWeightInput(Number(e.target.value))}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-sm font-bold text-slate-900 dark:text-white"
+              />
+              <p className="text-xs text-indigo-600 mt-1">
+                Will disburse: <strong>{approvedWeightInput * 10} XP</strong> upon completion.
+                {approvedWeightInput >= 50 && ' (Triggering Massive XP Consensus Lock)'}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
+                CHRO Verification Notes & Justification
+              </label>
+              <textarea
+                rows={3}
+                placeholder="Reason for weight approval or adjustment..."
+                value={weightNotesInput}
+                onChange={(e) => setWeightNotesInput(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-sm text-slate-800 dark:text-slate-200"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-3">
+              <Button variant="secondary" onClick={() => setSelectedWeightItem(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                type="submit"
+                disabled={verifyingWeight}
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+              >
+                {verifyingWeight ? 'Verifying...' : 'Lock Approved Weight'}
               </Button>
             </div>
           </form>

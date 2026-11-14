@@ -143,6 +143,36 @@ export class TasksService {
         },
       })
 
+      // Determine Weight & Category for KPI & XP Engine
+      let weightCategory: any = dto.weightCategory || 'MEDIUM'
+      let proposedWeight = dto.proposedWeight || 3
+      if (dto.weightCategory === 'SMALL') proposedWeight = 1
+      else if (dto.weightCategory === 'MEDIUM') proposedWeight = 3
+      else if (dto.weightCategory === 'LARGE') proposedWeight = 5
+      else if (dto.weightCategory === 'CRITICAL') proposedWeight = 10
+      else if (dto.weightCategory === 'CUSTOM' && dto.proposedWeight) proposedWeight = dto.proposedWeight
+
+      const isExecutive = ['ceo', 'chro', 'cto', 'cfo', 'cpo'].includes(actor.role?.toLowerCase())
+      const squadContext: any = isExecutive ? 'DIRECT_EXECUTIVE' : 'MAIN_SQUAD'
+      const isMassiveXp = proposedWeight >= 50
+
+      if (tx.taskWeightVerification) {
+        await tx.taskWeightVerification.create({
+          data: {
+            taskId,
+            proposedWeight: new Prisma.Decimal(proposedWeight),
+            approvedWeight: isExecutive ? new Prisma.Decimal(proposedWeight) : null,
+            category: weightCategory,
+            context: squadContext,
+            status: isExecutive ? 'APPROVED' : 'PENDING_CHRO',
+            proposerId: actor.id,
+            chroId: isExecutive ? actor.id : null,
+            isMassiveXp,
+            massiveXpFrozen: isMassiveXp,
+          },
+        })
+      }
+
       // Log Audit
       await tx.auditLog.create({
         data: {
@@ -341,6 +371,53 @@ export class TasksService {
           badgeColor: 'emerald',
         },
       })
+
+      // KPI & XP Engine: Award 10x Task Weight XP to Assignee
+      const weightRecord = tx.taskWeightVerification
+        ? await tx.taskWeightVerification.findUnique({
+            where: { taskId: id },
+          })
+        : null
+      const approvedWeight = Number(weightRecord?.approvedWeight || weightRecord?.proposedWeight || 3)
+      const xpYield = approvedWeight * 10
+      const isFrozen = weightRecord?.massiveXpFrozen ?? false
+
+      if (!isFrozen) {
+        if (tx.employee) {
+          await tx.employee.update({
+            where: { id: task.assigneeId },
+            data: { lifetimeXp: { increment: xpYield } },
+          })
+        }
+
+        if (tx.xpLedgerEntry) {
+          await tx.xpLedgerEntry.create({
+            data: {
+              employeeId: task.assigneeId,
+              delta: Math.round(xpYield),
+              reason: `XP Award (10x approved weight ${approvedWeight}): ${task.title}`,
+              entryType: 'AWARD',
+              awardedById: actor.id,
+            },
+          })
+        }
+
+        if (tx.kpiXpAuditLog) {
+          await tx.kpiXpAuditLog.create({
+            data: {
+              employeeId: task.assigneeId,
+              metricType: 'XP',
+              deltaValue: new Prisma.Decimal(xpYield),
+              actionType: 'TASK_XP_YIELD',
+              triggerEvent: `Task Approved: ${task.title}`,
+              taskId: task.id,
+              authorizedById: actor.id,
+              authorizedRole: actor.role.toUpperCase(),
+              reason: `Approved task completion (Weight: ${approvedWeight})`,
+            },
+          })
+        }
+      }
 
       return updatedTask
     })
