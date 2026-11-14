@@ -1,4 +1,5 @@
 import { getCurrentRequestIp } from '../common/ip-address.util'
+import * as crypto from 'crypto'
 import {
   Injectable,
   NotFoundException,
@@ -153,10 +154,27 @@ export class TasksService {
       else if (dto.weightCategory === 'CUSTOM' && dto.proposedWeight) proposedWeight = dto.proposedWeight
 
       const isExecutive = ['ceo', 'chro', 'cto', 'cfo', 'cpo'].includes(actor.role?.toLowerCase())
-      const squadContext: any = isExecutive ? 'DIRECT_EXECUTIVE' : 'MAIN_SQUAD'
+      let squadContext: any = isExecutive ? 'DIRECT_EXECUTIVE' : 'MAIN_SQUAD'
+      if (!isExecutive && dto.projectId && dto.assigneeId && typeof tx.teamMembership?.findFirst === 'function') {
+        const isMainSquad = await tx.teamMembership.findFirst({
+          where: {
+            employeeId: dto.assigneeId,
+            isActive: true,
+            team: {
+              teamProjects: {
+                some: {
+                  projectId: dto.projectId,
+                  isActive: true,
+                },
+              },
+            },
+          },
+        })
+        squadContext = isMainSquad ? 'MAIN_SQUAD' : 'OUTSIDE_SQUAD'
+      }
       const isMassiveXp = proposedWeight >= 50
 
-      if (tx.taskWeightVerification) {
+      if (tx.taskWeightVerification && typeof tx.taskWeightVerification.create === 'function') {
         await tx.taskWeightVerification.create({
           data: {
             taskId,
@@ -372,39 +390,84 @@ export class TasksService {
         },
       })
 
-      // KPI & XP Engine: Award 10x Task Weight XP to Assignee
-      const weightRecord = tx.taskWeightVerification
-        ? await tx.taskWeightVerification.findUnique({
-            where: { taskId: id },
-          })
-        : null
-      const approvedWeight = Number(weightRecord?.approvedWeight || weightRecord?.proposedWeight || 3)
-      const xpYield = approvedWeight * 10
-      const isFrozen = weightRecord?.massiveXpFrozen ?? false
+      // KPI & XP Engine: Award 10x Task Weight XP to Assignee (factoring squad multiplier & inactivity return penalty)
+      const weightRecord =
+        typeof tx.taskWeightVerification?.findUnique === 'function'
+          ? await tx.taskWeightVerification.findUnique({
+              where: { taskId: id },
+            })
+          : null
+      const baseApprovedWeight = Number(weightRecord?.approvedWeight || weightRecord?.proposedWeight || 3)
+      const context = weightRecord?.context || 'MAIN_SQUAD'
+      const squadMultiplier = context === 'MAIN_SQUAD' ? 1.0 : context === 'OUTSIDE_SQUAD' ? 0.7 : 0.5
 
-      if (!isFrozen) {
-        if (tx.employee) {
+      let effectiveWeight = baseApprovedWeight * squadMultiplier
+      let inactivityPenaltyApplied = false
+
+      // Check if employee has a pending return-from-inactivity penalty (10% deduction on next evaluated task)
+      if (typeof tx.weeklyKpiRecord?.findFirst === 'function') {
+        const pendingRecord = await tx.weeklyKpiRecord.findFirst({
+          where: {
+            employeeId: task.assigneeId,
+            inactivityPenaltyPending: true,
+          },
+          orderBy: [{ year: 'desc' }, { weekNumber: 'desc' }],
+        })
+        if (pendingRecord && typeof tx.weeklyKpiRecord?.update === 'function') {
+          effectiveWeight = Math.max(0, effectiveWeight * 0.9)
+          inactivityPenaltyApplied = true
+          await tx.weeklyKpiRecord.update({
+            where: { id: pendingRecord.id },
+            data: {
+              inactivityPenaltyPending: false,
+              inactivityPenaltyApplied: true,
+            },
+          })
+        }
+      }
+
+      const xpYield = Math.round(effectiveWeight * 10)
+      const isFrozen = weightRecord?.massiveXpFrozen ?? false
+      const isWeightApproved = !weightRecord || weightRecord.status === 'APPROVED' || weightRecord.status === 'MODIFIED'
+
+      if (isWeightApproved && !isFrozen) {
+        if (typeof tx.employee?.update === 'function') {
           await tx.employee.update({
             where: { id: task.assigneeId },
             data: { lifetimeXp: { increment: xpYield } },
           })
         }
 
-        if (tx.xpLedgerEntry) {
+        if (typeof tx.xpLedgerEntry?.create === 'function') {
           await tx.xpLedgerEntry.create({
             data: {
               employeeId: task.assigneeId,
-              delta: Math.round(xpYield),
-              reason: `XP Award (10x approved weight ${approvedWeight}): ${task.title}`,
+              delta: xpYield,
+              reason: `XP Award (${effectiveWeight.toFixed(1)} effective weight, ${context}): ${task.title}`,
               entryType: 'AWARD',
               awardedById: actor.id,
             },
           })
         }
 
-        if (tx.kpiXpAuditLog) {
+        if (typeof tx.kpiXpAuditLog?.create === 'function') {
+          const lastEntry =
+            typeof tx.kpiXpAuditLog.findFirst === 'function'
+              ? await tx.kpiXpAuditLog.findFirst({
+                  orderBy: { sequence: 'desc' },
+                  select: { sequence: true, entryHash: true },
+                })
+              : null
+          const sequence = (lastEntry?.sequence || 0) + 1
+          const prevHash = lastEntry?.entryHash || '00000000000000000000000000000000'
+          const payload = `${sequence}|${prevHash}|${task.assigneeId}|XP|${xpYield}|TASK_XP_YIELD|${Date.now()}`
+          const entryHash = crypto.createHash('sha256').update(payload).digest('hex')
+
           await tx.kpiXpAuditLog.create({
             data: {
+              sequence,
+              prevHash,
+              entryHash,
               employeeId: task.assigneeId,
               metricType: 'XP',
               deltaValue: new Prisma.Decimal(xpYield),
@@ -413,9 +476,32 @@ export class TasksService {
               taskId: task.id,
               authorizedById: actor.id,
               authorizedRole: actor.role.toUpperCase(),
-              reason: `Approved task completion (Weight: ${approvedWeight})`,
+              reason: `Approved task completion (Base: ${baseApprovedWeight}, Context: ${context}, Effective: ${effectiveWeight})`,
             },
           })
+
+          if (inactivityPenaltyApplied) {
+            const seq2 = sequence + 1
+            const payload2 = `${seq2}|${entryHash}|${task.assigneeId}|XP|${-Math.round(baseApprovedWeight * squadMultiplier * 10 * 0.1)}|INACTIVITY_PENALTY|${Date.now()}`
+            const hash2 = crypto.createHash('sha256').update(payload2).digest('hex')
+
+            await tx.kpiXpAuditLog.create({
+              data: {
+                sequence: seq2,
+                prevHash: entryHash,
+                entryHash: hash2,
+                employeeId: task.assigneeId,
+                metricType: 'XP',
+                deltaValue: new Prisma.Decimal(-Math.round(baseApprovedWeight * squadMultiplier * 10 * 0.1)),
+                actionType: 'INACTIVITY_PENALTY',
+                triggerEvent: `Return-to-work 10% penalty applied on task: ${task.title}`,
+                taskId: task.id,
+                authorizedById: null,
+                authorizedRole: 'SYSTEM',
+                reason: 'Employee returned from inactive week; 10% penalty applied on next completed task',
+              },
+            })
+          }
         }
       }
 

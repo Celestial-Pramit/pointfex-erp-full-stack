@@ -2371,8 +2371,412 @@ async function main() {
   })
 
   await seedRbac(prisma)
+  await seedKpiXpGovernance(prisma)
 
   console.log('✅ Pointfex ERP Seed completed successfully! Idempotent and ready for verification.')
+}
+
+async function seedKpiXpGovernance(prisma: PrismaClient) {
+  console.log('  -> Seeding KPI & XP Governance Suite (Pointfex HR Memorandum)...')
+
+  // 1. Initial Lifetime XP on key staff
+  const staffXpMap: Record<string, number> = {
+    emp_dev_01: 2450,
+    emp_dev_02: 1820,
+    emp_dev_05: 1980,
+    emp_pm_01: 3200,
+    emp_cto_01: 4500,
+    emp_chro_01: 3800,
+  }
+
+  for (const [empId, xp] of Object.entries(staffXpMap)) {
+    await prisma.employee.updateMany({
+      where: { id: empId },
+      data: { lifetimeXp: xp },
+    })
+  }
+
+  // 2. Task Weight Verifications
+  const verifications = [
+    {
+      id: 'verif_01',
+      taskId: 'task_01',
+      proposedWeight: new Prisma.Decimal(3),
+      approvedWeight: null,
+      category: 'MEDIUM' as const,
+      status: 'PENDING_CHRO' as const,
+      context: 'MAIN_SQUAD' as const,
+      proposerId: 'emp_pm_01',
+      chroNotes: null,
+      isMassiveXp: false,
+      massiveXpFrozen: false,
+    },
+    {
+      id: 'verif_02',
+      taskId: 'task_02',
+      proposedWeight: new Prisma.Decimal(3),
+      approvedWeight: null,
+      category: 'MEDIUM' as const,
+      status: 'PENDING_CHRO' as const,
+      context: 'MAIN_SQUAD' as const,
+      proposerId: 'emp_pm_01',
+      chroNotes: null,
+      isMassiveXp: false,
+      massiveXpFrozen: false,
+    },
+    {
+      id: 'verif_03',
+      taskId: 'task_03',
+      proposedWeight: new Prisma.Decimal(5),
+      approvedWeight: null,
+      category: 'LARGE' as const,
+      status: 'PENDING_CHRO' as const,
+      context: 'MAIN_SQUAD' as const,
+      proposerId: 'emp_pm_01',
+      chroNotes: null,
+      isMassiveXp: false,
+      massiveXpFrozen: false,
+    },
+    {
+      id: 'verif_04',
+      taskId: 'task_04',
+      proposedWeight: new Prisma.Decimal(1),
+      approvedWeight: null,
+      category: 'SMALL' as const,
+      status: 'PENDING_CHRO' as const,
+      context: 'MAIN_SQUAD' as const,
+      proposerId: 'emp_pm_01',
+      chroNotes: null,
+      isMassiveXp: false,
+      massiveXpFrozen: false,
+    },
+    {
+      id: 'verif_05',
+      taskId: 'task_05',
+      proposedWeight: new Prisma.Decimal(5),
+      approvedWeight: new Prisma.Decimal(5),
+      category: 'LARGE' as const,
+      status: 'APPROVED' as const,
+      context: 'DIRECT_EXECUTIVE' as const,
+      proposerId: 'emp_cto_01',
+      chroId: 'emp_chro_01',
+      chroNotes: 'Architecture RFC deliverable verified and locked.',
+      isMassiveXp: false,
+      massiveXpFrozen: false,
+    },
+    {
+      id: 'verif_06',
+      taskId: 'task_06',
+      proposedWeight: new Prisma.Decimal(10),
+      approvedWeight: new Prisma.Decimal(10),
+      category: 'CRITICAL' as const,
+      status: 'APPROVED' as const,
+      context: 'MAIN_SQUAD' as const,
+      proposerId: 'emp_pm_05',
+      chroId: 'emp_chro_01',
+      chroNotes: 'Critical SMS gateway bypass approved.',
+      isMassiveXp: false,
+      massiveXpFrozen: false,
+    },
+    {
+      id: 'verif_massive_01',
+      milestoneId: 'ms_01_3',
+      proposedWeight: new Prisma.Decimal(50),
+      approvedWeight: new Prisma.Decimal(50),
+      category: 'CUSTOM' as const,
+      status: 'APPROVED' as const,
+      context: 'MAIN_SQUAD' as const,
+      proposerId: 'emp_pm_01',
+      chroId: 'emp_chro_01',
+      chroNotes: 'Sprint 3 Major Deliverable (500 XP) - Frozen pending C-Level consensus.',
+      isMassiveXp: true,
+      massiveXpFrozen: true,
+    },
+  ]
+
+  for (const v of verifications) {
+    await prisma.taskWeightVerification.upsert({
+      where: { id: v.id },
+      update: v,
+      create: v,
+    })
+  }
+
+  // Consensus vote on massive XP
+  await prisma.taskWeightConsensusVote.upsert({
+    where: {
+      verificationId_executiveId: {
+        verificationId: 'verif_massive_01',
+        executiveId: 'emp_cto_01',
+      },
+    },
+    update: {
+      decision: 'APPROVE',
+      notes: 'Core GIS architecture verified, awaiting 2nd C-Suite approval for XP release.',
+    },
+    create: {
+      verificationId: 'verif_massive_01',
+      executiveId: 'emp_cto_01',
+      executiveRole: 'CTO',
+      decision: 'APPROVE',
+      notes: 'Core GIS architecture verified, awaiting 2nd C-Suite approval for XP release.',
+    },
+  })
+
+  // 3. Weekly KPI Records
+  const devKpiRecords = [
+    {
+      id: 'wkpi_dev_41',
+      employeeId: 'emp_dev_01',
+      year: 2026,
+      weekNumber: 41,
+      score: new Prisma.Decimal(92.5),
+      isInactive: false,
+      inactivityPenaltyPending: false,
+      inactivityPenaltyApplied: false,
+      roleLevel: 1,
+      evaluationStatus: 'CONFIRMED' as const,
+      pmScore: new Prisma.Decimal(94),
+      ctoScore: new Prisma.Decimal(92),
+      cpoScore: new Prisma.Decimal(90),
+      cfoScore: new Prisma.Decimal(93),
+      chroScore: new Prisma.Decimal(91),
+      evaluationBreakdown: {
+        roleLevel: 1,
+        roleName: 'Developer',
+        tasksCompletedCount: 3,
+        formula: '50% PM + 15% CTO + 15% CPO + 10% CFO + 10% CHRO',
+      },
+    },
+    {
+      id: 'wkpi_dev_42',
+      employeeId: 'emp_dev_01',
+      year: 2026,
+      weekNumber: 42,
+      score: new Prisma.Decimal(88.0),
+      isInactive: false,
+      inactivityPenaltyPending: false,
+      inactivityPenaltyApplied: false,
+      roleLevel: 1,
+      evaluationStatus: 'CONFIRMED' as const,
+      pmScore: new Prisma.Decimal(88),
+      ctoScore: new Prisma.Decimal(89),
+      cpoScore: new Prisma.Decimal(87),
+      cfoScore: new Prisma.Decimal(88),
+      chroScore: new Prisma.Decimal(88),
+      evaluationBreakdown: {
+        roleLevel: 1,
+        roleName: 'Developer',
+        tasksCompletedCount: 2,
+        formula: '50% PM + 15% CTO + 15% CPO + 10% CFO + 10% CHRO',
+      },
+    },
+    {
+      id: 'wkpi_dev_43',
+      employeeId: 'emp_dev_01',
+      year: 2026,
+      weekNumber: 43,
+      score: null,
+      isInactive: true,
+      inactivityPenaltyPending: false,
+      inactivityPenaltyApplied: true,
+      roleLevel: 1,
+      evaluationStatus: 'CONFIRMED' as const,
+      pmScore: null,
+      ctoScore: null,
+      cpoScore: null,
+      cfoScore: null,
+      chroScore: null,
+      evaluationBreakdown: {
+        roleLevel: 1,
+        status: 'N/A',
+        reason: 'Inactivity: Zero tasks completed during the weekly cycle',
+        inactivityPenaltyApplied: true,
+        penaltyRule: '10% deduction on next evaluated task',
+      },
+    },
+    {
+      id: 'wkpi_dev_44',
+      employeeId: 'emp_dev_01',
+      year: 2026,
+      weekNumber: 44,
+      score: new Prisma.Decimal(81.0),
+      isInactive: false,
+      inactivityPenaltyPending: false,
+      inactivityPenaltyApplied: true,
+      roleLevel: 1,
+      evaluationStatus: 'CONFIRMED' as const,
+      pmScore: new Prisma.Decimal(90),
+      ctoScore: new Prisma.Decimal(90),
+      cpoScore: new Prisma.Decimal(90),
+      cfoScore: new Prisma.Decimal(90),
+      chroScore: new Prisma.Decimal(90),
+      evaluationBreakdown: {
+        roleLevel: 1,
+        roleName: 'Developer',
+        baseCalculatedScore: 90,
+        returnPenaltyApplied: true,
+        returnPenaltyDeduction: 10,
+        formula: '50% PM + 15% CTO + 15% CPO + 10% CFO + 10% CHRO - 10 return penalty',
+      },
+    },
+    {
+      id: 'wkpi_dev_45',
+      employeeId: 'emp_dev_01',
+      year: 2026,
+      weekNumber: 45,
+      score: new Prisma.Decimal(94.0),
+      isInactive: false,
+      inactivityPenaltyPending: false,
+      inactivityPenaltyApplied: false,
+      roleLevel: 1,
+      evaluationStatus: 'PROVISIONAL' as const,
+      pmScore: new Prisma.Decimal(95),
+      ctoScore: new Prisma.Decimal(94),
+      cpoScore: new Prisma.Decimal(93),
+      cfoScore: new Prisma.Decimal(95),
+      chroScore: new Prisma.Decimal(93),
+      evaluationBreakdown: {
+        roleLevel: 1,
+        roleName: 'Developer',
+        formula: '50% PM + 15% CTO + 15% CPO + 10% CFO + 10% CHRO',
+        provisionalAutoFilled: true,
+      },
+    },
+  ]
+
+  for (const r of devKpiRecords) {
+    await prisma.weeklyKpiRecord.upsert({
+      where: {
+        employeeId_year_weekNumber: {
+          employeeId: r.employeeId,
+          year: r.year,
+          weekNumber: r.weekNumber,
+        },
+      },
+      update: r,
+      create: r,
+    })
+  }
+
+  // emp_pm_01 L2 records
+  const pmKpiRecords = [
+    {
+      id: 'wkpi_pm_44',
+      employeeId: 'emp_pm_01',
+      year: 2026,
+      weekNumber: 44,
+      score: new Prisma.Decimal(87.5),
+      isInactive: false,
+      inactivityPenaltyPending: false,
+      inactivityPenaltyApplied: false,
+      roleLevel: 2,
+      evaluationStatus: 'CONFIRMED' as const,
+      ctoScore: new Prisma.Decimal(88),
+      cpoScore: new Prisma.Decimal(86),
+      cfoScore: new Prisma.Decimal(88),
+      chroScore: new Prisma.Decimal(89),
+      evaluationBreakdown: {
+        roleLevel: 2,
+        roleName: 'Project Manager',
+        formula: '30% CTO + 30% CPO + 20% CFO + 20% CHRO',
+      },
+    },
+    {
+      id: 'wkpi_pm_45',
+      employeeId: 'emp_pm_01',
+      year: 2026,
+      weekNumber: 45,
+      score: new Prisma.Decimal(89.0),
+      isInactive: false,
+      inactivityPenaltyPending: false,
+      inactivityPenaltyApplied: false,
+      roleLevel: 2,
+      evaluationStatus: 'PROVISIONAL' as const,
+      ctoScore: new Prisma.Decimal(88),
+      cpoScore: new Prisma.Decimal(88),
+      cfoScore: new Prisma.Decimal(90),
+      chroScore: new Prisma.Decimal(89),
+      evaluationBreakdown: {
+        roleLevel: 2,
+        roleName: 'Project Manager',
+        formula: '30% CTO + 30% CPO + 20% CFO + 20% CHRO',
+      },
+    },
+  ]
+
+  for (const r of pmKpiRecords) {
+    await prisma.weeklyKpiRecord.upsert({
+      where: {
+        employeeId_year_weekNumber: {
+          employeeId: r.employeeId,
+          year: r.year,
+          weekNumber: r.weekNumber,
+        },
+      },
+      update: r,
+      create: r,
+    })
+  }
+
+  // 4. Initial Cryptographic Audit Ledger
+  const auditEntries = [
+    {
+      id: 'kpi_audit_01',
+      sequence: 1,
+      prevHash: '00000000000000000000000000000000',
+      entryHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      employeeId: 'emp_dev_01',
+      metricType: 'XP',
+      deltaValue: new Prisma.Decimal(50),
+      resultingTotal: new Prisma.Decimal(2450),
+      actionType: 'TASK_XP_YIELD',
+      triggerEvent: 'Task Approved: Sprint 2 Architecture Sign-Off Deliverable',
+      taskId: 'task_05',
+      authorizedById: 'emp_cto_01',
+      authorizedRole: 'CTO',
+      reason: 'Approved task completion (Weight: 5, yields 50 XP)',
+    },
+    {
+      id: 'kpi_audit_02',
+      sequence: 2,
+      prevHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      entryHash: 'a7c9f2841b8a5d3f9e8b7c6a5d4e3f2b1a0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d',
+      employeeId: 'emp_dev_01',
+      metricType: 'KPI',
+      deltaValue: new Prisma.Decimal(0),
+      resultingTotal: null,
+      actionType: 'INACTIVITY_PENALTY',
+      triggerEvent: 'Week 43 Zero Activity Inactivity Flag',
+      authorizedById: null,
+      authorizedRole: 'SYSTEM',
+      reason: 'Flagged N/A Red Flag; 10% penalty pending on next task',
+    },
+    {
+      id: 'kpi_audit_03',
+      sequence: 3,
+      prevHash: 'a7c9f2841b8a5d3f9e8b7c6a5d4e3f2b1a0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d',
+      entryHash: '8b4d2f6e9c1a3b5d7f8e0a2c4e6b8d0f1a3c5e7b9d1f3a5c7e9b1d3f5a7c9e1b',
+      employeeId: 'emp_dev_01',
+      metricType: 'KPI',
+      deltaValue: new Prisma.Decimal(-10),
+      resultingTotal: new Prisma.Decimal(81),
+      actionType: 'INACTIVITY_PENALTY',
+      triggerEvent: 'Return-to-work 10% penalty applied on task',
+      authorizedById: null,
+      authorizedRole: 'SYSTEM',
+      reason: 'Employee returned from inactive week; 10% penalty applied on next completed task',
+    },
+  ]
+
+  for (const a of auditEntries) {
+    const existing = await prisma.kpiXpAuditLog.findUnique({ where: { id: a.id } }).catch(() => null)
+    if (!existing) {
+      await prisma.kpiXpAuditLog.create({ data: a }).catch(() => {})
+    }
+  }
+
+  console.log('  -> KPI & XP Governance Suite seeded successfully.')
 }
 
 main()

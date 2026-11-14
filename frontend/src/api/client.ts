@@ -379,6 +379,13 @@ export const erpApi = {
     apiRequest<any[]>(`/performance/audit-log/${employeeId}`),
   getPerformanceSummary: (employeeId: string) =>
     apiRequest<any>(`/performance/summary/${employeeId}`),
+  getExecutivePendingReviews: () =>
+    apiRequest<any[]>('/performance/executive/pending-reviews'),
+  confirmExecutiveReview: (id: string, body?: { overrideScore?: number; notes?: string }) =>
+    apiRequest<any>(`/performance/executive/reviews/${id}/confirm`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
 
   // Reports
   getReports: () => apiRequest<any[]>('/reports'),

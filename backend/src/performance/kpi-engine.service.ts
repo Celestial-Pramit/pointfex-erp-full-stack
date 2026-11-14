@@ -102,9 +102,31 @@ export class KpiEngineService {
     const cfoScore = pmScore
     const chroScore = pmScore
 
-    // Final Weekly Score: 50% PM + 15% CTO + 15% CPO + 10% CFO + 10% CHRO = 100%
-    const finalScore =
+    // Check for Return-from-Inactivity Penalty (10% deduction on next evaluated task / cycle)
+    const pendingPenaltyRecord = await this.prisma.weeklyKpiRecord.findFirst({
+      where: {
+        employeeId,
+        inactivityPenaltyPending: true,
+      },
+      orderBy: [{ year: 'desc' }, { weekNumber: 'desc' }],
+    })
+
+    let returnPenaltyApplied = false
+    let baseCalculatedScore =
       pmScore * 0.5 + ctoScore * 0.15 + cpoScore * 0.15 + cfoScore * 0.1 + chroScore * 0.1
+    let finalScore = baseCalculatedScore
+
+    if (pendingPenaltyRecord) {
+      finalScore = Math.max(0, finalScore - 10)
+      returnPenaltyApplied = true
+      await this.prisma.weeklyKpiRecord.update({
+        where: { id: pendingPenaltyRecord.id },
+        data: {
+          inactivityPenaltyPending: false,
+          inactivityPenaltyApplied: true,
+        },
+      })
+    }
 
     const existingRecord = await this.prisma.weeklyKpiRecord.findUnique({
       where: {
@@ -122,6 +144,9 @@ export class KpiEngineService {
       tasksCompletedCount: completedTasks.length,
       taskMetrics: taskBreakdowns,
       formula: '50% PM + 15% CTO + 15% CPO + 10% CFO + 10% CHRO',
+      returnPenaltyApplied,
+      returnPenaltyDeduction: returnPenaltyApplied ? 10 : 0,
+      baseCalculatedScore,
       provisionalAutoFilled: true,
       executiveSignoffs: {
         cto: { status: 'PROVISIONAL', confirmedAt: null },
@@ -205,13 +230,39 @@ export class KpiEngineService {
     const chro = ratings?.chroScore ?? 90
 
     // 30% CTO + 30% CPO + 20% CFO + 20% CHRO = 100%
-    const finalScore = cto * 0.3 + cpo * 0.3 + cfo * 0.2 + chro * 0.2
+    const baseScore = cto * 0.3 + cpo * 0.3 + cfo * 0.2 + chro * 0.2
+
+    // Check for Return-from-Inactivity Penalty (10% deduction on next evaluated cycle)
+    const pendingPenaltyRecord = await this.prisma.weeklyKpiRecord.findFirst({
+      where: {
+        employeeId,
+        inactivityPenaltyPending: true,
+      },
+      orderBy: [{ year: 'desc' }, { weekNumber: 'desc' }],
+    })
+
+    let returnPenaltyApplied = false
+    let finalScore = baseScore
+    if (pendingPenaltyRecord) {
+      finalScore = Math.max(0, finalScore - 10)
+      returnPenaltyApplied = true
+      await this.prisma.weeklyKpiRecord.update({
+        where: { id: pendingPenaltyRecord.id },
+        data: {
+          inactivityPenaltyPending: false,
+          inactivityPenaltyApplied: true,
+        },
+      })
+    }
 
     const breakdown = {
       roleLevel: 2,
       roleName: 'Project Manager',
       formula: '30% CTO + 30% CPO + 20% CFO + 20% CHRO',
       ratings: { cto, cpo, cfo, chro },
+      baseScore,
+      returnPenaltyApplied,
+      returnPenaltyDeduction: returnPenaltyApplied ? 10 : 0,
       notes: ratings?.notes || 'Weekly PM squad performance evaluation',
     }
 
@@ -557,8 +608,10 @@ export class KpiEngineService {
     })
 
     // If task was already completed and weight was pending, disburse XP now
-    if (verification.task && verification.task.status === 'completed' && !isMassiveXp) {
-      const xpYield = approvedWeight * 10
+    if (verification.task && verification.task.status === 'completed' && !isMassiveXp && verification.status === 'PENDING_CHRO') {
+      const context = verification.context || 'MAIN_SQUAD'
+      const squadMultiplier = context === 'MAIN_SQUAD' ? 1.0 : context === 'OUTSIDE_SQUAD' ? 0.7 : 0.5
+      const xpYield = Math.round(approvedWeight * squadMultiplier * 10)
       await this.prisma.employee.update({
         where: { id: verification.task.assigneeId },
         data: { lifetimeXp: { increment: xpYield } },
@@ -573,7 +626,7 @@ export class KpiEngineService {
         taskId: verification.task.id,
         authorizedById: chroActor.id,
         authorizedRole: 'CHRO',
-        reason: `CHRO verified weight ${approvedWeight} (yields ${xpYield} XP)`,
+        reason: `CHRO verified weight ${approvedWeight} (${context}, yields ${xpYield} XP)`,
       })
     }
 
@@ -631,7 +684,9 @@ export class KpiEngineService {
 
     if (votes.length >= 2 && verification.massiveXpFrozen) {
       const approvedWeight = Number(verification.approvedWeight || verification.proposedWeight)
-      const xpYield = approvedWeight * 10
+      const context = verification.context || 'MAIN_SQUAD'
+      const squadMultiplier = context === 'MAIN_SQUAD' ? 1.0 : context === 'OUTSIDE_SQUAD' ? 0.7 : 0.5
+      const xpYield = Math.round(approvedWeight * squadMultiplier * 10)
 
       await this.prisma.$transaction(async (tx) => {
         await tx.taskWeightVerification.update({
@@ -639,7 +694,9 @@ export class KpiEngineService {
           data: { massiveXpFrozen: false },
         })
 
-        if (verification.task) {
+        // Guard: Only disburse XP upon consensus if the deliverable is already completed.
+        // Otherwise, payout is unlocked and will be disbursed upon PM task approval.
+        if (verification.task && verification.task.status === 'completed') {
           await tx.employee.update({
             where: { id: verification.task.assigneeId },
             data: { lifetimeXp: { increment: xpYield } },
@@ -647,7 +704,7 @@ export class KpiEngineService {
         }
       })
 
-      if (verification.task) {
+      if (verification.task && verification.task.status === 'completed') {
         await this.appendKpiAuditLog({
           employeeId: verification.task.assigneeId,
           metricType: 'XP',
@@ -665,6 +722,130 @@ export class KpiEngineService {
     }
 
     return { status: 'VOTE_RECORDED', approvalsCount: votes.length }
+  }
+
+  // --------------------------------------------------------------------------
+  // 7B. EXECUTIVE READ-RECEIPT CONFIRMATION & REVIEW GATE
+  // --------------------------------------------------------------------------
+  async getExecutivePendingReviews(actor: AuthenticatedUser) {
+    const role = actor.role.toLowerCase()
+    const isExecutive = ['ceo', 'chro', 'cto', 'cfo', 'cpo'].includes(role)
+    if (!isExecutive) {
+      throw new ForbiddenException('Only C-Suite executives can access pending review queues')
+    }
+
+    return this.prisma.weeklyKpiRecord.findMany({
+      where: {
+        evaluationStatus: 'PROVISIONAL',
+      },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            name: true,
+            title: true,
+            avatarUrl: true,
+          },
+        },
+      },
+      orderBy: [{ year: 'desc' }, { weekNumber: 'desc' }],
+    })
+  }
+
+  async confirmExecutiveReview(
+    recordId: string,
+    executiveActor: AuthenticatedUser,
+    options?: {
+      overrideScore?: number
+      notes?: string
+    },
+  ) {
+    const role = executiveActor.role.toLowerCase()
+    const isExecutive = ['ceo', 'chro', 'cto', 'cfo', 'cpo'].includes(role)
+    if (!isExecutive) {
+      throw new ForbiddenException('Only C-Suite executives can confirm weekly evaluations')
+    }
+
+    const record = await this.prisma.weeklyKpiRecord.findUnique({
+      where: { id: recordId },
+      include: { employee: true },
+    })
+
+    if (!record) {
+      throw new NotFoundException(`Weekly KPI record ${recordId} not found`)
+    }
+
+    const execRole = executiveActor.role.toUpperCase()
+    let cto = Number(record.ctoScore ?? record.score ?? 85)
+    let cpo = Number(record.cpoScore ?? record.score ?? 85)
+    let cfo = Number(record.cfoScore ?? record.score ?? 85)
+    let chro = Number(record.chroScore ?? record.score ?? 85)
+    const pm = Number(record.pmScore ?? record.score ?? 85)
+
+    if (options?.overrideScore !== undefined) {
+      if (execRole === 'CTO') cto = options.overrideScore
+      else if (execRole === 'CPO') cpo = options.overrideScore
+      else if (execRole === 'CFO') cfo = options.overrideScore
+      else if (execRole === 'CHRO') chro = options.overrideScore
+    }
+
+    const existingBreakdown = (record.evaluationBreakdown as any) || {}
+    const penaltyApplied = existingBreakdown.returnPenaltyApplied ?? false
+
+    // Recalculate composite weekly score: 50% PM + 15% CTO + 15% CPO + 10% CFO + 10% CHRO
+    let recalculatedScore = pm * 0.5 + cto * 0.15 + cpo * 0.15 + cfo * 0.1 + chro * 0.1
+    if (penaltyApplied) {
+      recalculatedScore = Math.max(0, recalculatedScore - 10)
+    }
+
+    const reviews = existingBreakdown.executiveReviews || []
+    reviews.push({
+      executiveId: executiveActor.id,
+      executiveRole: execRole,
+      confirmedAt: new Date().toISOString(),
+      overrideScore: options?.overrideScore,
+      notes: options?.notes,
+    })
+
+    const updateData: any = {
+      score: new Prisma.Decimal(recalculatedScore.toFixed(2)),
+      ctoScore: new Prisma.Decimal(cto.toFixed(2)),
+      cpoScore: new Prisma.Decimal(cpo.toFixed(2)),
+      cfoScore: new Prisma.Decimal(cfo.toFixed(2)),
+      chroScore: new Prisma.Decimal(chro.toFixed(2)),
+      evaluationStatus: 'CONFIRMED',
+      evaluationBreakdown: {
+        ...existingBreakdown,
+        executiveReviews: reviews,
+        executiveSignoffs: {
+          ...(existingBreakdown.executiveSignoffs || {}),
+          [execRole.toLowerCase()]: {
+            status: 'CONFIRMED',
+            confirmedAt: new Date().toISOString(),
+            overrideScore: options?.overrideScore,
+          },
+        },
+      },
+    }
+
+    const updated = await this.prisma.weeklyKpiRecord.update({
+      where: { id: recordId },
+      data: updateData,
+    })
+
+    await this.appendKpiAuditLog({
+      employeeId: record.employeeId,
+      metricType: 'KPI',
+      deltaValue: new Prisma.Decimal(0),
+      resultingTotal: new Prisma.Decimal(recalculatedScore.toFixed(2)),
+      actionType: 'WEEKLY_KPI_FINAL',
+      triggerEvent: `Executive Confirmation: ${execRole} confirmed Week ${record.weekNumber} KPI`,
+      authorizedById: executiveActor.id,
+      authorizedRole: execRole,
+      reason: options?.notes || `${execRole} confirmed weekly KPI review`,
+    })
+
+    return updated
   }
 
   // --------------------------------------------------------------------------
@@ -747,6 +928,6 @@ export class KpiEngineService {
 
   private getWeekEndDate(week: number, year: number): Date {
     const start = this.getWeekStartDate(week, year)
-    return new Date(start.getTime() + 6 * 86400000)
+    return new Date(start.getTime() + 7 * 86400000 - 1)
   }
 }

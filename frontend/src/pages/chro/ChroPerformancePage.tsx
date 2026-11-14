@@ -63,6 +63,7 @@ export function ChroPerformancePage() {
   const [actionTitleInput, setActionTitleInput] = useState('')
   const [actionDescInput, setActionDescInput] = useState('')
   const [actionBonusPenaltyInput, setActionBonusPenaltyInput] = useState<number>(0)
+  const [actionKpiDeductionInput, setActionKpiDeductionInput] = useState<number>(0)
 
   const [selectedComplaint, setSelectedComplaint] = useState<any>(null)
   const [complaintStatusInput, setComplaintStatusInput] = useState<string>('investigating')
@@ -121,6 +122,19 @@ export function ChroPerformancePage() {
       void fetchWeightQueue()
     } catch (err: any) {
       showToast(err?.message || 'Failed to approve weight.', 'error')
+    }
+  }
+
+  const handleConsensusVote = async (verificationId: string, decision: 'APPROVE' | 'REJECT') => {
+    try {
+      await erpApi.castConsensusVote(verificationId, {
+        decision,
+        notes: 'C-Level consensus vote cast via HR portal',
+      })
+      showToast(`Consensus vote (${decision}) recorded.`, 'success')
+      void fetchWeightQueue()
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to record consensus vote.', 'error')
     }
   }
 
@@ -214,6 +228,7 @@ export function ChroPerformancePage() {
         : 'Repeated delays exceeding the 48-hour SLA for mandatory PR reviews.',
     )
     setActionBonusPenaltyInput(initialType === 'recognition' ? 300 : 150)
+    setActionKpiDeductionInput(initialType === 'disciplinary' ? 5 : 0)
   }
 
   const handleSaveAction = (e: React.FormEvent) => {
@@ -233,6 +248,20 @@ export function ChroPerformancePage() {
         actionDescInput,
         actionBonusPenaltyInput > 0 ? Number(actionBonusPenaltyInput) : undefined,
       )
+      if (actionKpiDeductionInput > 0) {
+        void erpApi
+          .applyDisciplinaryDeduction({
+            employeeId: selectedStaffAction.user.id,
+            deductionPoints: Number(actionKpiDeductionInput),
+            reason: `${actionTitleInput}: ${actionDescInput}`,
+          })
+          .then(() => {
+            showToast(`Deducted ${actionKpiDeductionInput} KPI points with cryptographic audit trail.`, 'info')
+          })
+          .catch((err) => {
+            showToast(err?.message || 'Failed to deduct KPI points', 'error')
+          })
+      }
     }
     setSelectedStaffAction(null)
   }
@@ -888,6 +917,29 @@ export function ChroPerformancePage() {
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0 w-full md:w-auto justify-end">
+                        {isMassive && item.massiveXpFrozen && (
+                          <div className="flex items-center gap-1.5 mr-2">
+                            <span className="text-[11px] font-semibold text-purple-600 dark:text-purple-400">
+                              {item.consensusVotes?.filter((v: any) => v.decision === 'APPROVE').length || 0}/2 Approvals:
+                            </span>
+                            <Button
+                              variant="secondary"
+                              size="xs"
+                              className="text-emerald-600 border-emerald-300 hover:bg-emerald-50 text-[11px]"
+                              onClick={() => void handleConsensusVote(item.id, 'APPROVE')}
+                            >
+                              Vote Approve
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="xs"
+                              className="text-rose-600 border-rose-300 hover:bg-rose-50 text-[11px]"
+                              onClick={() => void handleConsensusVote(item.id, 'REJECT')}
+                            >
+                              Vote Reject
+                            </Button>
+                          </div>
+                        )}
                         {isPending && (
                           <Button
                             variant="secondary"
@@ -1099,6 +1151,25 @@ export function ChroPerformancePage() {
               onChangeDigits={(val) => setActionBonusPenaltyInput(val)}
               hint="Leave as 0 for non-monetary citation. Non-zero amounts adjust the employee wallet."
             />
+
+            {actionCategory === 'disciplinary' && (
+              <div>
+                <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
+                  KPI Percentage Deduction (Pointfex HR Policy: 1–100 Pts)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={actionKpiDeductionInput}
+                  onChange={(e) => setActionKpiDeductionInput(Number(e.target.value))}
+                  className="w-full px-3 py-2 rounded-xl border border-rose-200 dark:border-rose-900/40 bg-rose-50/50 dark:bg-rose-950/20 text-sm font-bold text-rose-700 dark:text-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Directly reduces active weekly KPI score with an immutable, cryptographic audit log.
+                </p>
+              </div>
+            )}
 
             <div className="flex items-center justify-end gap-3 pt-3">
               <Button variant="secondary" onClick={() => setSelectedStaffAction(null)}>

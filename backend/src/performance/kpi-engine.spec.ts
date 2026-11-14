@@ -165,13 +165,13 @@ describe('KpiEngineService - Dual-Metric Governance & Mathematical Formulas', ()
   })
 
   describe('4. Massive XP Consensus Gate', () => {
-    it('should freeze payout for weight >= 50 and unfreeze upon 2 C-Level votes', async () => {
+    it('should freeze payout for weight >= 50 and unfreeze upon 2 C-Level votes for completed task', async () => {
       prisma.taskWeightVerification.findUnique.mockResolvedValue({
         id: 'verif_massive',
         proposedWeight: new Prisma.Decimal(60), // 60 weight = 600 XP (Massive)
         approvedWeight: new Prisma.Decimal(60),
         massiveXpFrozen: true,
-        task: { id: 't_massive', assigneeId: 'emp_dev_01', title: 'Core Migration' },
+        task: { id: 't_massive', assigneeId: 'emp_dev_01', title: 'Core Migration', status: 'completed' },
         proposerId: 'emp_pm_01',
       })
 
@@ -192,6 +192,29 @@ describe('KpiEngineService - Dual-Metric Governance & Mathematical Formulas', ()
       expect(result.xpYield).toBe(600)
     })
 
+    it('should unfreeze without prematurely disbursing XP if task is still in_progress', async () => {
+      prisma.taskWeightVerification.findUnique.mockResolvedValue({
+        id: 'verif_massive',
+        proposedWeight: new Prisma.Decimal(60),
+        approvedWeight: new Prisma.Decimal(60),
+        massiveXpFrozen: true,
+        task: { id: 't_massive', assigneeId: 'emp_dev_01', title: 'Core Migration', status: 'in_progress' },
+        proposerId: 'emp_pm_01',
+      })
+
+      prisma.taskWeightConsensusVote.upsert.mockResolvedValue({})
+      prisma.taskWeightConsensusVote.findMany.mockResolvedValue([
+        { id: 'v1', executiveId: 'emp_cto_01', decision: 'APPROVE' },
+        { id: 'v2', executiveId: 'emp_cpo_01', decision: 'APPROVE' },
+      ])
+
+      const ctoActor: any = { id: 'emp_cto_01', role: 'cto' }
+      const result = await service.castConsensusVote('verif_massive', ctoActor, 'APPROVE')
+
+      expect(result.status).toBe('UNFROZEN')
+      expect(prisma.employee.update).not.toHaveBeenCalled()
+    })
+
     it('should prevent the task assignee from voting on their own payout', async () => {
       prisma.taskWeightVerification.findUnique.mockResolvedValue({
         id: 'verif_massive',
@@ -203,6 +226,87 @@ describe('KpiEngineService - Dual-Metric Governance & Mathematical Formulas', ()
       await expect(
         service.castConsensusVote('verif_massive', devActor, 'APPROVE'),
       ).rejects.toThrow('Task assignee cannot vote on their own massive XP payout')
+    })
+  })
+
+  describe('5. Return-to-Work Inactivity Penalty', () => {
+    it('should deduct 10 points when returning from an inactive week', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp_dev_01',
+        assignedTasks: [
+          {
+            id: 't1',
+            title: 'Welcome Back Task',
+            weightVerification: { approvedWeight: new Prisma.Decimal(5), context: 'MAIN_SQUAD' },
+          },
+        ],
+      })
+
+      // Mock pending penalty record from previous week
+      prisma.weeklyKpiRecord.findFirst.mockResolvedValue({
+        id: 'prev_inactive_kpi',
+        employeeId: 'emp_dev_01',
+        inactivityPenaltyPending: true,
+      })
+      prisma.weeklyKpiRecord.upsert.mockImplementation(({ create, update }) => create || update)
+      prisma.kpiXpAuditLog.findFirst.mockResolvedValue(null)
+      prisma.kpiXpAuditLog.create.mockResolvedValue({ id: 'audit_penalty' })
+
+      const result = await service.calculateDeveloperWeeklyKpi('emp_dev_01', 47, 2026)
+
+      expect(prisma.weeklyKpiRecord.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'prev_inactive_kpi' },
+          data: expect.objectContaining({
+            inactivityPenaltyPending: false,
+            inactivityPenaltyApplied: true,
+          }),
+        }),
+      )
+      // Base score is 90, minus 10 penalty = 80
+      expect(Number(result.score)).toBe(80)
+    })
+  })
+
+  describe('6. Executive Read-Receipt Review Gate', () => {
+    it('should allow C-Suite executive to confirm weekly evaluation and log audit', async () => {
+      prisma.weeklyKpiRecord.findUnique.mockResolvedValue({
+        id: 'rec_provisional',
+        employeeId: 'emp_dev_01',
+        weekNumber: 45,
+        year: 2026,
+        score: new Prisma.Decimal(90),
+        evaluationBreakdown: {},
+      })
+      prisma.weeklyKpiRecord.update.mockResolvedValue({
+        id: 'rec_provisional',
+        evaluationStatus: 'CONFIRMED',
+      })
+      prisma.kpiXpAuditLog.findFirst.mockResolvedValue(null)
+      prisma.kpiXpAuditLog.create.mockResolvedValue({ id: 'audit_exec' })
+
+      const ctoActor: any = { id: 'emp_cto_01', role: 'cto' }
+      const res = await service.confirmExecutiveReview('rec_provisional', ctoActor, {
+        overrideScore: 92,
+        notes: 'Exceptional architectural delivery verified',
+      })
+
+      expect(res.evaluationStatus).toBe('CONFIRMED')
+      expect(prisma.kpiXpAuditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            actionType: 'WEEKLY_KPI_FINAL',
+            authorizedRole: 'CTO',
+          }),
+        }),
+      )
+    })
+
+    it('should throw ForbiddenException if a non-executive tries to confirm review', async () => {
+      const devActor: any = { id: 'emp_dev_01', role: 'developer' }
+      await expect(
+        service.confirmExecutiveReview('rec_provisional', devActor),
+      ).rejects.toThrow('Only C-Suite executives can confirm weekly evaluations')
     })
   })
 })

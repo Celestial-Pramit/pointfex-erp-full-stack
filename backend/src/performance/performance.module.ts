@@ -7,7 +7,7 @@ import { FinanceModule } from '../finance/finance.module'
 
 @Module({
   imports: [FinanceModule],
-  controllers: [PerformanceController, ChroGovernanceController],
+  controllers: [ChroGovernanceController, PerformanceController],
   providers: [PerformanceService, KpiEngineService],
   exports: [PerformanceService, KpiEngineService],
 })

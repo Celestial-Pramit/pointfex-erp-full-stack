@@ -109,12 +109,35 @@ export class ChroGovernanceController {
     @Body() body: { decision: 'APPROVE' | 'REJECT'; notes?: string },
     @CurrentUser() actor: AuthenticatedUser,
   ) {
+    const isExecutive = ['ceo', 'chro', 'cto', 'cfo', 'cpo'].includes(actor.role?.toLowerCase())
+    if (!isExecutive) {
+      throw new ForbiddenException('Only C-Suite executives can cast consensus votes on massive XP items')
+    }
     return this.kpiEngine.castConsensusVote(
       verificationId,
       actor,
       body.decision,
       body.notes,
     )
+  }
+
+  // --------------------------------------------------------------------------
+  // 3B. C-LEVEL EXECUTIVE READ-RECEIPT REVIEW QUEUE
+  // --------------------------------------------------------------------------
+  @Get('executive/pending-reviews')
+  @RequireAnyPermission('performance:read_all', 'reports:read_standard', 'governance:vote')
+  async getExecutivePendingReviews(@CurrentUser() actor: AuthenticatedUser) {
+    return this.kpiEngine.getExecutivePendingReviews(actor)
+  }
+
+  @Post('executive/reviews/:id/confirm')
+  @RequireAnyPermission('performance:evaluate', 'governance:vote')
+  async confirmExecutiveReview(
+    @Param('id') recordId: string,
+    @Body() body: { overrideScore?: number; notes?: string },
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.kpiEngine.confirmExecutiveReview(recordId, actor, body)
   }
 
   // --------------------------------------------------------------------------
@@ -222,6 +245,50 @@ export class ChroGovernanceController {
       body.year,
       body,
       actor,
+    )
+  }
+
+  @Post('calculate/c-level/:employeeId')
+  @RequireAnyPermission('performance:read_all', 'governance:vote')
+  async calculateCLevelWeeklyKpi(
+    @Param('employeeId') employeeId: string,
+    @Body()
+    body: {
+      roleTitle: 'CTO' | 'CPO' | 'CFO' | 'CHRO'
+      weekNumber: number
+      year: number
+      macroGoals?: number
+      ceoDirectReview?: number
+      peerSynergy?: number
+    },
+  ) {
+    return this.kpiEngine.calculateCLevelWeeklyKpi(
+      employeeId,
+      body.roleTitle,
+      body.weekNumber,
+      body.year,
+      body.macroGoals,
+      body.ceoDirectReview,
+      body.peerSynergy,
+    )
+  }
+
+  @Post('calculate/ceo/:employeeId')
+  @RequireAnyPermission('performance:read_all', 'governance:vote')
+  async calculateCeoWeeklyKpi(
+    @Param('employeeId') employeeId: string,
+    @Body()
+    body: {
+      weekNumber: number
+      year: number
+      companyPerformanceScore?: number
+    },
+  ) {
+    return this.kpiEngine.calculateCeoWeeklyKpi(
+      employeeId,
+      body.weekNumber,
+      body.year,
+      body.companyPerformanceScore,
     )
   }
 }
