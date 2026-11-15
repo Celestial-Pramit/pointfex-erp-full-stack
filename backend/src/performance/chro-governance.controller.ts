@@ -66,8 +66,7 @@ export class ChroGovernanceController {
   }
 
   @Patch('chro/verify-weight/:id')
-  @RequireAnyPermission('performance:discipline', 'kpi:verify_weight')
-  @RequiresFreshMfa('kpi:weight_override')
+  @RequireAnyPermission('performance:discipline', 'performance:evaluate', 'kpi:verify_weight')
   async verifyTaskWeight(
     @Param('id') verificationId: string,
     @Body() body: { approvedWeight: number; notes?: string },
@@ -86,7 +85,6 @@ export class ChroGovernanceController {
   // --------------------------------------------------------------------------
   @Post('chro/disciplinary-deduction')
   @RequireAnyPermission('performance:discipline', 'kpi:disciplinary_deduction')
-  @RequiresFreshMfa('kpi:disciplinary_deduction')
   async applyDisciplinaryDeduction(
     @Body() body: { employeeId: string; deductionPoints: number; reason: string },
     @CurrentUser() actor: AuthenticatedUser,
@@ -103,7 +101,7 @@ export class ChroGovernanceController {
   // 3. C-LEVEL MASSIVE XP CONSENSUS VOTING
   // --------------------------------------------------------------------------
   @Post('tasks/weight-verification/:id/vote')
-  @RequireAnyPermission('votes:cast', 'governance:vote')
+  @RequireAnyPermission('votes:cast', 'governance:vote', 'performance:evaluate', 'performance:read_all')
   async castConsensusVote(
     @Param('id') verificationId: string,
     @Body() body: { decision: 'APPROVE' | 'REJECT'; notes?: string },
