@@ -144,3 +144,4 @@ The backend delivers extensive Phase 1–4 capabilities with zero frontend repre
 └── Account (All Roles)
     └── Profile & Credentials [Security, MFA Enrollment, Password Reset]
 ```
+

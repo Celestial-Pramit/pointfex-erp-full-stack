@@ -203,6 +203,13 @@ export class PerformanceReadService {
         score: w.score ? Number(w.score) : null,
         isInactive: w.isInactive,
         isProvisional: w.evaluationStatus === 'PROVISIONAL',
+        pmScore: w.pmScore ? Number(w.pmScore) : null,
+        ctoScore: w.ctoScore ? Number(w.ctoScore) : null,
+        cpoScore: w.cpoScore ? Number(w.cpoScore) : null,
+        cfoScore: w.cfoScore ? Number(w.cfoScore) : null,
+        chroScore: w.chroScore ? Number(w.chroScore) : null,
+        inactivityPenaltyApplied: w.inactivityPenaltyApplied,
+        breakdown: (w.evaluationBreakdown as any) || undefined,
       })),
     )
   }

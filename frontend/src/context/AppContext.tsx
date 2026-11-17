@@ -942,6 +942,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       estimatedHours?: number | string
       tags?: string[]
       checklist?: TaskChecklistItem[]
+      weightCategory?: string
+      proposedWeight?: number
+      effectiveAt?: string
     }): Task => {
       const creatorId = currentUser?.id || currentPmId
       const newTask: Task = {
@@ -979,6 +982,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
             estimatedHours: Number(taskData.estimatedHours) || 8,
             tags: taskData.tags || [],
             checklist: taskData.checklist?.map((c) => ({ text: c.text, completed: c.completed })),
+            weightCategory: taskData.weightCategory,
+            proposedWeight: taskData.proposedWeight,
+            effectiveAt: taskData.effectiveAt,
           }),
         `Task "${newTask.title}" created successfully`,
       )

@@ -728,6 +728,9 @@ export interface AppContextType {
     estimatedHours?: number | string
     tags?: string[]
     checklist?: TaskChecklistItem[]
+    weightCategory?: string
+    proposedWeight?: number
+    effectiveAt?: string
   }) => Task
   approveTask: (taskId: string, feedback?: string) => void
   rejectTask: (taskId: string, feedback: string) => void

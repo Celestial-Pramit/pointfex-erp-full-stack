@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Put,
   Param,
   Body,
   Query,
@@ -626,5 +627,127 @@ export class ChroGovernanceController {
     @Query('squad') squad?: string,
   ) {
     return this.performanceRead.getLeaderboard(period, role, squad)
+  }
+
+  // --------------------------------------------------------------------------
+  // 15. CONFIG & BACKFILL WINDOWS GOVERNANCE
+  // --------------------------------------------------------------------------
+  @Get('config')
+  @RequireAnyPermission('performance:read_all', 'kpi:verify_weight', 'performance:discipline')
+  async getPerformanceConfig() {
+    const [kpiConfig, weightConfigs] = await Promise.all([
+      this.prisma.kpiConfig.findFirst(),
+      this.prisma.taskWeightConfig.findMany({ orderBy: { points: 'asc' } }),
+    ])
+    return {
+      kpiConfig: kpiConfig || {
+        massiveXpThreshold: 200,
+        inactivityPenalty: 0.10,
+        mainSquadMultiplier: 1.00,
+        outsideSquadMultiplier: 0.70,
+        isolatedExecMultiplier: 0.50,
+      },
+      weightConfigs,
+    }
+  }
+
+  @Put('config')
+  @RequireAnyPermission('performance:discipline', 'kpis:discipline_deduct')
+  @RequiresFreshMfa('performance:discipline')
+  async updatePerformanceConfig(
+    @Body() body: { kpiConfig?: any; weightConfigs?: any[] },
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    if (body.kpiConfig) {
+      await this.prisma.kpiConfig.upsert({
+        where: { id: 'singleton' },
+        create: {
+          id: 'singleton',
+          massiveXpThreshold: body.kpiConfig.massiveXpThreshold ?? 200,
+          inactivityPenalty: body.kpiConfig.inactivityPenalty ?? 0.10,
+          mainSquadMultiplier: body.kpiConfig.mainSquadMultiplier ?? 1.00,
+          outsideSquadMultiplier: body.kpiConfig.outsideSquadMultiplier ?? 0.70,
+          isolatedExecMultiplier: body.kpiConfig.isolatedExecMultiplier ?? 0.50,
+          updatedById: actor.id,
+        },
+        update: {
+          massiveXpThreshold: body.kpiConfig.massiveXpThreshold,
+          inactivityPenalty: body.kpiConfig.inactivityPenalty,
+          mainSquadMultiplier: body.kpiConfig.mainSquadMultiplier,
+          outsideSquadMultiplier: body.kpiConfig.outsideSquadMultiplier,
+          isolatedExecMultiplier: body.kpiConfig.isolatedExecMultiplier,
+          updatedById: actor.id,
+        },
+      })
+    }
+
+    if (Array.isArray(body.weightConfigs)) {
+      for (const wc of body.weightConfigs) {
+        if (wc.category && wc.points !== undefined) {
+          await this.prisma.taskWeightConfig.upsert({
+            where: { category: wc.category },
+            create: {
+              category: wc.category,
+              points: wc.points,
+              description: wc.description,
+              updatedById: actor.id,
+            },
+            update: {
+              points: wc.points,
+              description: wc.description,
+              updatedById: actor.id,
+            },
+          })
+        }
+      }
+    }
+
+    return this.getPerformanceConfig()
+  }
+
+  @Get('backfill-windows')
+  @RequireAnyPermission('performance:read_all', 'tasks:approve', 'performance:discipline')
+  async getBackfillWindows() {
+    return this.prisma.backfillWindow.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        createdBy: { select: { id: true, name: true, title: true } },
+      },
+    })
+  }
+
+  @Post('backfill-windows')
+  @RequireAnyPermission('performance:discipline', 'kpis:discipline_deduct')
+  @RequiresFreshMfa('performance:discipline')
+  async createBackfillWindow(
+    @Body() body: { startsAt: string; endsAt: string; grantedRole?: string; reason?: string },
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.prisma.backfillWindow.create({
+      data: {
+        startsAt: new Date(body.startsAt),
+        endsAt: new Date(body.endsAt),
+        grantedRole: body.grantedRole || 'pm',
+        createdById: actor.id,
+        isActive: true,
+      },
+    })
+  }
+
+  @Patch('backfill-windows/:id')
+  @RequireAnyPermission('performance:discipline', 'kpis:discipline_deduct')
+  @RequiresFreshMfa('performance:discipline')
+  async updateBackfillWindow(
+    @Param('id') id: string,
+    @Body() body: { isActive?: boolean; endsAt?: string; reason?: string },
+  ) {
+    const data: any = {}
+    if (body.isActive !== undefined) data.isActive = body.isActive
+    if (body.endsAt) data.endsAt = new Date(body.endsAt)
+
+    return this.prisma.backfillWindow.update({
+      where: { id },
+      data,
+    })
   }
 }

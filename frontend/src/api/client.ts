@@ -368,10 +368,12 @@ export const erpApi = {
   castConsensusVote: (
     verificationId: string,
     body: { decision: 'APPROVE' | 'REJECT'; notes?: string },
+    headers?: Record<string, string>,
   ) =>
     apiRequest<any>(`/performance/tasks/weight-verification/${verificationId}/vote`, {
       method: 'POST',
       body: JSON.stringify(body),
+      headers,
     }),
   getEmployeeKpiHistory: (employeeId: string) =>
     apiRequest<any[]>(`/performance/kpi-history/${employeeId}`),
@@ -426,6 +428,105 @@ export const erpApi = {
   ) =>
     apiRequest<any>(`/performance/audit-log/${id}`, {
       method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+
+  // Phase 1-4 Performance, Ledger & Consensus APIs
+  getMyKpiSeries: () => apiRequest<any>('/performance/kpi/me'),
+  getUserKpiSeries: (userId: string) => apiRequest<any>(`/performance/kpi/${userId}`),
+  getMyXpSummary: () => apiRequest<any>('/performance/xp/me'),
+  getUserXpSummary: (userId: string) => apiRequest<any>(`/performance/xp/${userId}`),
+  getMyLedger: (query?: { cursor?: string; limit?: number; eventType?: string; taskId?: string }) => {
+    const params = new URLSearchParams()
+    if (query?.cursor) params.append('cursor', query.cursor)
+    if (query?.limit) params.append('limit', String(query.limit))
+    if (query?.eventType) params.append('eventType', query.eventType)
+    if (query?.taskId) params.append('taskId', query.taskId)
+    const qs = params.toString()
+    return apiRequest<any>(`/performance/ledger/me${qs ? `?${qs}` : ''}`)
+  },
+  getUserLedger: (userId: string, query?: { cursor?: string; limit?: number; eventType?: string; taskId?: string }) => {
+    const params = new URLSearchParams()
+    if (query?.cursor) params.append('cursor', query.cursor)
+    if (query?.limit) params.append('limit', String(query.limit))
+    if (query?.eventType) params.append('eventType', query.eventType)
+    if (query?.taskId) params.append('taskId', query.taskId)
+    const qs = params.toString()
+    return apiRequest<any>(`/performance/ledger/${userId}${qs ? `?${qs}` : ''}`)
+  },
+  exportLedger: (userId?: string, query?: { format?: 'json' | 'csv' }) => {
+    const params = new URLSearchParams()
+    if (userId) params.append('userId', userId)
+    if (query?.format) params.append('format', query.format)
+    const qs = params.toString()
+    return apiRequest<any>(`/performance/ledger/export${qs ? `?${qs}` : ''}`)
+  },
+  getLeaderboard: (params?: { period?: 'latest_week' | 'four_week_avg' | 'lifetime_xp'; role?: string; squad?: string }) => {
+    const qs = new URLSearchParams()
+    if (params?.period) qs.append('period', params.period)
+    if (params?.role) qs.append('role', params.role)
+    if (params?.squad) qs.append('squad', params.squad)
+    const qStr = qs.toString()
+    return apiRequest<any[]>(`/performance/leaderboard${qStr ? `?${qStr}` : ''}`)
+  },
+  getExecScoresInbox: () => apiRequest<any[]>('/performance/exec-scores/inbox'),
+  confirmExecScore: (id: string) =>
+    apiRequest<any>(`/performance/exec-scores/${id}/confirm`, { method: 'POST' }),
+  adjustExecScore: (id: string, body: { score: number; reason: string }) =>
+    apiRequest<any>(`/performance/exec-scores/${id}/adjust`, { method: 'POST', body: JSON.stringify(body) }),
+  getPmEvaluationsInbox: () => apiRequest<any[]>('/performance/pm-evaluations/inbox'),
+  confirmPmEvaluation: (id: string) =>
+    apiRequest<any>(`/performance/pm-evaluations/${id}/confirm`, { method: 'POST' }),
+  adjustPmEvaluation: (id: string, body: { score: number; reason: string }) =>
+    apiRequest<any>(`/performance/pm-evaluations/${id}/adjust`, { method: 'POST', body: JSON.stringify(body) }),
+  recordCLevelPeerEval: (body: { targetExecutiveId: string; score: number; notes: string }) =>
+    apiRequest<any>('/performance/c-level/peer-eval', { method: 'POST', body: JSON.stringify(body) }),
+  createDisciplinaryDeduction: (
+    body: { userId: string; points: number; reason: string; referenceDocId: string; targetWeekStart: string },
+    mfaCode?: string,
+  ) =>
+    apiRequest<any>('/performance/disciplinary', {
+      method: 'POST',
+      headers: mfaCode ? { 'X-MFA-Code': mfaCode } : undefined,
+      body: JSON.stringify(body),
+    }),
+  reverseDisciplinaryDeduction: (id: string, body: { reason: string }, mfaCode?: string) =>
+    apiRequest<any>(`/performance/disciplinary/${id}/reverse`, {
+      method: 'POST',
+      headers: mfaCode ? { 'X-MFA-Code': mfaCode } : undefined,
+      body: JSON.stringify(body),
+    }),
+  getConsensusTally: (id: string) =>
+    apiRequest<any>(`/performance/tasks/weight-verification/${id}/tally`),
+  ceoConsensusOverride: (id: string, body: { decision: 'APPROVE' | 'REJECT'; reason: string }, mfaCode?: string) =>
+    apiRequest<any>(`/performance/tasks/weight-verification/${id}/ceo-override`, {
+      method: 'POST',
+      headers: mfaCode ? { 'X-MFA-Code': mfaCode } : undefined,
+      body: JSON.stringify(body),
+    }),
+  completeMilestoneWithXp: (id: string, body: { pmId: string; weightPoints: number }) =>
+    apiRequest<any>(`/performance/milestones/${id}/complete-with-xp`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  getPerformanceConfig: () => apiRequest<any>('/performance/config'),
+  updatePerformanceConfig: (body: { kpiConfig?: any; weightConfigs?: any[] }, mfaCode?: string) =>
+    apiRequest<any>('/performance/config', {
+      method: 'PUT',
+      headers: mfaCode ? { 'X-MFA-Code': mfaCode } : undefined,
+      body: JSON.stringify(body),
+    }),
+  getBackfillWindows: () => apiRequest<any[]>('/performance/backfill-windows'),
+  createBackfillWindow: (body: { startsAt: string; endsAt: string; grantedRole?: string; reason?: string }, mfaCode?: string) =>
+    apiRequest<any>('/performance/backfill-windows', {
+      method: 'POST',
+      headers: mfaCode ? { 'X-MFA-Code': mfaCode } : undefined,
+      body: JSON.stringify(body),
+    }),
+  updateBackfillWindow: (id: string, body: { isActive?: boolean; endsAt?: string; reason?: string }, mfaCode?: string) =>
+    apiRequest<any>(`/performance/backfill-windows/${id}`, {
+      method: 'PATCH',
+      headers: mfaCode ? { 'X-MFA-Code': mfaCode } : undefined,
       body: JSON.stringify(body),
     }),
 

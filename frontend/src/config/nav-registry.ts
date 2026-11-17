@@ -25,6 +25,7 @@ import {
   Vote,
   Lightbulb,
   ListFilter,
+  Award,
 } from 'lucide-react'
 import type { NavItem } from '../types'
 import { WORKSPACES, type WorkspaceId, type WorkspaceMeta } from './workspaces'
@@ -89,6 +90,20 @@ export const NAV_REGISTRY: readonly NavRegistryItem[] = [
     mobilePriority: 1,
     description: 'Daily focus, attendance, priorities, and role-aware widgets',
   },
+  {
+    id: 'leaderboard',
+    route: 'leaderboard',
+    label: 'Leaderboard',
+    group: 'home',
+    workspace: 'home',
+    sectionHeading: 'Overview',
+    built: true,
+    icon: Award,
+    isImplemented: true,
+    alwaysVisible: true,
+    mobilePriority: 2,
+    description: 'Company-wide XP and KPI rankings with squad filters and 4-week trends',
+  },
   // My Work — visible to every employee regardless of role
   {
     id: 'inbox',
@@ -132,6 +147,33 @@ export const NAV_REGISTRY: readonly NavRegistryItem[] = [
     alwaysVisible: true,
     mobilePriority: 4,
     description: 'BDT wallet balance, transactions, and XP/KPI standing',
+  },
+  {
+    id: 'my-performance',
+    route: 'my-performance',
+    label: 'My Performance',
+    group: 'my_work',
+    workspace: 'my_work',
+    sectionHeading: 'Growth & Standing',
+    built: true,
+    icon: BarChart3,
+    isImplemented: true,
+    alwaysVisible: true,
+    mobilePriority: 5,
+    description: 'Weekly KPI formula breakdown, provisional status, and XP standing',
+  },
+  {
+    id: 'performance-ledger',
+    route: 'performance-ledger',
+    label: 'XP Ledger',
+    group: 'my_work',
+    workspace: 'my_work',
+    sectionHeading: 'Growth & Standing',
+    built: true,
+    icon: History,
+    isImplemented: true,
+    alwaysVisible: true,
+    description: 'Append-only audit trail of XP awards, freezes, releases, and reversals',
   },
   {
     id: 'report',

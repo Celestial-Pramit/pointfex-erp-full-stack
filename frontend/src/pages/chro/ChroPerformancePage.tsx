@@ -11,6 +11,9 @@ import {
   ChevronRight,
   Scale,
   AlertCircle,
+  Settings,
+  Calendar,
+  Sliders,
 } from 'lucide-react'
 import { erpApi } from '../../api/client'
 import { useExecutiveData } from '../../hooks/useExecutiveData'
@@ -19,6 +22,7 @@ import { Modal } from '../../components/common/Modal'
 import { Button } from '../../components/common/Button'
 import { Avatar } from '../../components/common/Avatar'
 import { MoneyInput } from '../../components/common/MoneyInput'
+import { MfaConfirmModal } from '../../components/common/MfaConfirmModal'
 
 export function ChroPerformancePage() {
   const {
@@ -39,12 +43,50 @@ export function ChroPerformancePage() {
   } = useApp()
 
   // Tab State
-  const [activeTab, setActiveTab] = useState<'roster' | 'squads' | 'grievances' | 'weight_queue'>('roster')
+  const [activeTab, setActiveTab] = useState<
+    'roster' | 'squads' | 'grievances' | 'weight_queue' | 'disciplinary' | 'config' | 'backfill_windows'
+  >('roster')
 
   // Search and Filters
   const [searchQuery, setSearchQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState<'all' | 'developer' | 'pm'>('all')
   const [tierFilter, setTierFilter] = useState<string>('all')
+
+  // Disciplinary Deductions & Reversals State
+  const [isDeductionModalOpen, setIsDeductionModalOpen] = useState(false)
+  const [deductionUserId, setDeductionUserId] = useState('')
+  const [deductionPoints, setDeductionPoints] = useState(10)
+  const [deductionReason, setDeductionReason] = useState('')
+  const [deductionRefDoc, setDeductionRefDoc] = useState('')
+  const [deductionWeekStart, setDeductionWeekStart] = useState(
+    new Date().toISOString().split('T')[0],
+  )
+  const [reversingDeduction, setReversingDeduction] = useState<any>(null)
+  const [reversalReason, setReversalReason] = useState('')
+
+  // Config State
+  const [kpiConfig, setKpiConfig] = useState<any>(null)
+  const [weightConfigs, setWeightConfigs] = useState<any[]>([])
+  const [_loadingConfig, setLoadingConfig] = useState(false)
+  const [isConfigMfaOpen, setIsConfigMfaOpen] = useState(false)
+
+  // Backfill Windows State
+  const [backfillWindows, setBackfillWindows] = useState<any[]>([])
+  const [_loadingWindows, setLoadingWindows] = useState(false)
+  const [isCreateWindowModalOpen, setIsCreateWindowModalOpen] = useState(false)
+  const [newWindowStartsAt, setNewWindowStartsAt] = useState(new Date().toISOString().split('T')[0])
+  const [newWindowEndsAt, setNewWindowEndsAt] = useState('2026-11-19T23:59:59')
+  const [newWindowRole, setNewWindowRole] = useState('pm')
+  const [newWindowReason, setNewWindowReason] = useState('')
+  const [windowToClose, setWindowToClose] = useState<any>(null)
+
+  // Disciplinary & Backfill MFA Type
+  const [mfaActionType, setMfaActionType] = useState<'APPLY_DEDUCTION' | 'CREATE_WINDOW' | null>(null)
+
+  // Batch Weight Verification MFA
+  const [isBatchApproveMfaOpen, setIsBatchApproveMfaOpen] = useState(false)
+  const [rejectingWeightItem, setRejectingWeightItem] = useState<any>(null)
+  const [rejectWeightReason, setRejectWeightReason] = useState('')
 
   // Modals
   const [selectedStaffEval, setSelectedStaffEval] = useState<any>(null)
@@ -89,9 +131,179 @@ export function ChroPerformancePage() {
     }
   }, [])
 
+  const fetchConfig = useCallback(async () => {
+    setLoadingConfig(true)
+    try {
+      const cfg = await erpApi.getPerformanceConfig()
+      if (cfg) {
+        setKpiConfig(cfg.kpiConfig)
+        setWeightConfigs(cfg.weightConfigs || [])
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoadingConfig(false)
+    }
+  }, [])
+
+  const fetchBackfillWindows = useCallback(async () => {
+    setLoadingWindows(true)
+    try {
+      const wins = await erpApi.getBackfillWindows()
+      if (Array.isArray(wins)) setBackfillWindows(wins)
+    } catch {
+      // ignore
+    } finally {
+      setLoadingWindows(false)
+    }
+  }, [])
+
   useEffect(() => {
     void fetchWeightQueue()
-  }, [fetchWeightQueue])
+    void fetchConfig()
+    void fetchBackfillWindows()
+  }, [fetchWeightQueue, fetchConfig, fetchBackfillWindows])
+
+  const handleApplyDisciplinary = async (mfaCode: string) => {
+    if (!deductionUserId || !deductionReason.trim() || !deductionRefDoc.trim()) {
+      showToast('All fields including legal document reference are mandatory.', 'error')
+      return
+    }
+
+    try {
+      await erpApi.createDisciplinaryDeduction(
+        {
+          userId: deductionUserId,
+          points: Number(deductionPoints),
+          reason: deductionReason.trim(),
+          referenceDocId: deductionRefDoc.trim(),
+          targetWeekStart: deductionWeekStart,
+        },
+        mfaCode,
+      )
+      showToast('Disciplinary deduction applied successfully with legal reference.', 'success')
+      setIsDeductionModalOpen(false)
+      setDeductionReason('')
+      setDeductionRefDoc('')
+    } catch (err: any) {
+      showToast(err.message || 'Failed to apply disciplinary deduction', 'error')
+    }
+  }
+
+  const handleReverseDisciplinary = async (mfaCode: string) => {
+    if (!reversingDeduction || !reversalReason.trim()) {
+      showToast('Reversal justification is required.', 'error')
+      return
+    }
+
+    try {
+      await erpApi.reverseDisciplinaryDeduction(
+        reversingDeduction.id,
+        { reason: reversalReason.trim() },
+        mfaCode,
+      )
+      showToast('Disciplinary action reversed and compensating ledger entry posted.', 'success')
+      setReversingDeduction(null)
+      setReversalReason('')
+    } catch (err: any) {
+      showToast(err.message || 'Failed to reverse disciplinary deduction', 'error')
+    }
+  }
+
+  const handleSaveConfig = async (mfaCode: string) => {
+    try {
+      await erpApi.updatePerformanceConfig(
+        {
+          kpiConfig,
+          weightConfigs,
+        },
+        mfaCode,
+      )
+      showToast('Updated KPI & Task Weight configuration successfully.', 'success')
+      setIsConfigMfaOpen(false)
+      void fetchConfig()
+    } catch (err: any) {
+      showToast(err.message || 'Failed to update configuration', 'error')
+    }
+  }
+
+  const handleCreateBackfillWindow = async (mfaCode: string) => {
+    if (!newWindowStartsAt || !newWindowEndsAt || !newWindowReason.trim()) {
+      showToast('Window schedule dates and reason are mandatory.', 'error')
+      return
+    }
+
+    try {
+      await erpApi.createBackfillWindow(
+        {
+          startsAt: newWindowStartsAt,
+          endsAt: newWindowEndsAt,
+          grantedRole: newWindowRole,
+          reason: newWindowReason.trim(),
+        },
+        mfaCode,
+      )
+      showToast('Backfill window opened successfully.', 'success')
+      setIsCreateWindowModalOpen(false)
+      setNewWindowReason('')
+      void fetchBackfillWindows()
+    } catch (err: any) {
+      showToast(err.message || 'Failed to create backfill window', 'error')
+    }
+  }
+
+  const handleCloseBackfillWindow = async (mfaCode: string) => {
+    if (!windowToClose) return
+    try {
+      await erpApi.updateBackfillWindow(
+        windowToClose.id,
+        { isActive: false, reason: 'CHRO closed backfill window' },
+        mfaCode,
+      )
+      showToast('Backfill window closed and locked.', 'success')
+      setWindowToClose(null)
+      void fetchBackfillWindows()
+    } catch (err: any) {
+      showToast(err.message || 'Failed to close window', 'error')
+    }
+  }
+
+  const handleBatchApproveWeights = async (_mfaCode: string) => {
+    const pending = weightQueue.filter((w) => w.status === 'PENDING_CHRO')
+    let approvedCount = 0
+    for (const item of pending) {
+      try {
+        await erpApi.verifyTaskWeight(item.id, {
+          approvedWeight: Number(item.proposedWeight),
+          notes: 'Batch approved by CHRO with MFA verification',
+        })
+        approvedCount++
+      } catch {
+        // ignore partial failure
+      }
+    }
+    showToast(`Batch approved ${approvedCount} deliverables.`, 'success')
+    setIsBatchApproveMfaOpen(false)
+    void fetchWeightQueue()
+  }
+
+  const handleRejectWeight = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!rejectingWeightItem || !rejectWeightReason.trim()) return
+
+    try {
+      await erpApi.verifyTaskWeight(rejectingWeightItem.id, {
+        approvedWeight: 0,
+        notes: `REJECTED by CHRO: ${rejectWeightReason.trim()}`,
+      })
+      showToast('Task weight rejected and returned to PM.', 'success')
+      setRejectingWeightItem(null)
+      setRejectWeightReason('')
+      void fetchWeightQueue()
+    } catch (err: any) {
+      showToast(err.message || 'Failed to reject weight', 'error')
+    }
+  }
 
   const handleVerifyWeight = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -426,12 +638,45 @@ export function ChroPerformancePage() {
               }`}
             >
               <Scale className="w-4 h-4 text-amber-500" />
-              Weight Verification Gate
+              Weight Queue
               {weightQueue.length > 0 && (
                 <span className="w-5 h-5 rounded-full bg-amber-500 text-white text-[11px] font-bold flex items-center justify-center">
                   {weightQueue.length}
                 </span>
               )}
+            </button>
+            <button
+              onClick={() => setActiveTab('disciplinary')}
+              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                activeTab === 'disciplinary'
+                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+              }`}
+            >
+              <ShieldAlert className="w-4 h-4 text-rose-500" />
+              Disciplinary &amp; Reversals
+            </button>
+            <button
+              onClick={() => setActiveTab('config')}
+              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                activeTab === 'config'
+                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+              }`}
+            >
+              <Settings className="w-4 h-4 text-indigo-500" />
+              KPI &amp; Weight Config
+            </button>
+            <button
+              onClick={() => setActiveTab('backfill_windows')}
+              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                activeTab === 'backfill_windows'
+                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+              }`}
+            >
+              <Calendar className="w-4 h-4 text-emerald-500" />
+              Backfill Windows
             </button>
           </div>
         </div>
@@ -826,14 +1071,25 @@ export function ChroPerformancePage() {
                   </p>
                 </div>
               </div>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => void fetchWeightQueue()}
-                disabled={loadingWeightQueue}
-              >
-                {loadingWeightQueue ? 'Refreshing...' : 'Refresh Queue'}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                  disabled={weightQueue.filter((w) => w.status === 'PENDING_CHRO').length === 0}
+                  onClick={() => setIsBatchApproveMfaOpen(true)}
+                >
+                  Batch Approve Pending (MFA)
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => void fetchWeightQueue()}
+                  disabled={loadingWeightQueue}
+                >
+                  {loadingWeightQueue ? 'Refreshing...' : 'Refresh Queue'}
+                </Button>
+              </div>
             </div>
 
             {weightQueue.length === 0 ? (
@@ -941,13 +1197,25 @@ export function ChroPerformancePage() {
                           </div>
                         )}
                         {isPending && (
-                          <Button
-                            variant="secondary"
-                            size="xs"
-                            onClick={() => void handleQuickApproveWeight(item)}
-                          >
-                            Quick Approve
-                          </Button>
+                          <>
+                            <Button
+                              variant="secondary"
+                              size="xs"
+                              onClick={() => void handleQuickApproveWeight(item)}
+                            >
+                              Quick Approve
+                            </Button>
+                            <Button
+                              variant="danger"
+                              size="xs"
+                              onClick={() => {
+                                setRejectingWeightItem(item)
+                                setRejectWeightReason('')
+                              }}
+                            >
+                              Reject
+                            </Button>
+                          </>
                         )}
                         <Button
                           variant="primary"
@@ -966,6 +1234,351 @@ export function ChroPerformancePage() {
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {/* TAB 5: DISCIPLINARY ACTIONS & REVERSALS */}
+        {activeTab === 'disciplinary' && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-rose-600 text-white shadow-xs">
+                  <ShieldAlert className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                    Disciplinary Deductions &amp; Reversals
+                  </h3>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                    Mandatory legal document reference. Executed via append-only ledger with fresh MFA.
+                  </p>
+                </div>
+              </div>
+
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={() => {
+                  setDeductionUserId(developers[0]?.id || '')
+                  setIsDeductionModalOpen(true)
+                }}
+              >
+                Apply Disciplinary Deduction
+              </Button>
+            </div>
+
+            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-3">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                Staff Governance Roster
+              </h4>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 dark:bg-slate-800/40 text-[11px] font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
+                    <tr>
+                      <th className="py-2.5 px-3">Employee</th>
+                      <th className="py-2.5 px-3">Role</th>
+                      <th className="py-2.5 px-3">Standing</th>
+                      <th className="py-2.5 px-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {staffRoster.map(({ user }) => (
+                      <tr key={user.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                        <td className="py-2.5 px-3 font-medium text-slate-900 dark:text-white">
+                          {user.name} ({user.email})
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-500 uppercase text-[10px]">
+                          {user.role}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold text-[11px]">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Normal
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <Button
+                            variant="secondary"
+                            size="xs"
+                            className="text-rose-600 border-rose-200 hover:bg-rose-50"
+                            onClick={() => {
+                              setDeductionUserId(user.id)
+                              setIsDeductionModalOpen(true)
+                            }}
+                          >
+                            Apply Deduction
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 6: KPI & WEIGHT CONFIGURATION EDITOR */}
+        {activeTab === 'config' && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-900/40">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-indigo-600 text-white shadow-xs">
+                  <Settings className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                    System KPI &amp; Task Weight Configuration
+                  </h3>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                    CHRO-level configuration. Modifying multipliers and thresholds requires CHRO MFA confirmation.
+                  </p>
+                </div>
+              </div>
+
+              <Button
+                variant="primary"
+                size="sm"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                onClick={() => setIsConfigMfaOpen(true)}
+              >
+                Save Config (MFA)
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* KPI Config Card */}
+              <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-4">
+                <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Sliders className="w-4 h-4 text-indigo-500" />
+                  KPI Multipliers &amp; Governance Bounds
+                </h4>
+
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="block text-slate-600 dark:text-slate-400 mb-1 font-medium">
+                      Massive XP Freeze Threshold (Points)
+                    </label>
+                    <input
+                      type="number"
+                      value={kpiConfig?.massiveXpThreshold ?? 200}
+                      onChange={(e) =>
+                        setKpiConfig({
+                          ...kpiConfig,
+                          massiveXpThreshold: Number(e.target.value),
+                        })
+                      }
+                      className="w-full p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-sm"
+                    />
+                    <span className="text-[10px] text-slate-400">
+                      Standard: 200 XP. Deliverables at or above this trigger massive-XP consensus hold.
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-600 dark:text-slate-400 mb-1 font-medium">
+                      Inactivity Deduction Rate (Percentage)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={kpiConfig?.inactivityPenalty ?? 0.1}
+                      onChange={(e) =>
+                        setKpiConfig({
+                          ...kpiConfig,
+                          inactivityPenalty: Number(e.target.value),
+                        })
+                      }
+                      className="w-full p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-sm"
+                    />
+                    <span className="text-[10px] text-slate-400">
+                      Standard: 0.10 (10% deduction on next deliverable after zero-output week).
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">
+                        Main Squad
+                      </label>
+                      <input
+                        type="number"
+                        step="0.05"
+                        value={kpiConfig?.mainSquadMultiplier ?? 1.0}
+                        onChange={(e) =>
+                          setKpiConfig({
+                            ...kpiConfig,
+                            mainSquadMultiplier: Number(e.target.value),
+                          })
+                        }
+                        className="w-full p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">
+                        Outside Squad
+                      </label>
+                      <input
+                        type="number"
+                        step="0.05"
+                        value={kpiConfig?.outsideSquadMultiplier ?? 0.7}
+                        onChange={(e) =>
+                          setKpiConfig({
+                            ...kpiConfig,
+                            outsideSquadMultiplier: Number(e.target.value),
+                          })
+                        }
+                        className="w-full p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-slate-600 dark:text-slate-400 mb-1">
+                        Isolated Exec
+                      </label>
+                      <input
+                        type="number"
+                        step="0.05"
+                        value={kpiConfig?.isolatedExecMultiplier ?? 0.5}
+                        onChange={(e) =>
+                          setKpiConfig({
+                            ...kpiConfig,
+                            isolatedExecMultiplier: Number(e.target.value),
+                          })
+                        }
+                        className="w-full p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Task Weight Defaults Card */}
+              <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-4">
+                <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Scale className="w-4 h-4 text-amber-500" />
+                  Task Weight Category Points
+                </h4>
+
+                <div className="space-y-3 text-xs">
+                  {['SMALL', 'MEDIUM', 'LARGE', 'CRITICAL'].map((cat) => {
+                    const found = weightConfigs.find((wc) => wc.category === cat)
+                    const points =
+                      found?.points ??
+                      (cat === 'SMALL' ? 1 : cat === 'MEDIUM' ? 2 : cat === 'LARGE' ? 3 : 5)
+
+                    return (
+                      <div
+                        key={cat}
+                        className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
+                      >
+                        <div>
+                          <div className="font-bold text-slate-900 dark:text-white">{cat}</div>
+                          <div className="text-[10px] text-slate-400">
+                            Yields {Number(points) * 10} XP upon completion
+                          </div>
+                        </div>
+                        <input
+                          type="number"
+                          min="1"
+                          max="20"
+                          value={points}
+                          onChange={(e) => {
+                            const newPoints = Number(e.target.value)
+                            setWeightConfigs((prev) => {
+                              const filtered = prev.filter((wc) => wc.category !== cat)
+                              return [...filtered, { category: cat, points: newPoints }]
+                            })
+                          }}
+                          className="w-20 p-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-right font-mono font-bold"
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 7: BACKFILL WINDOWS GOVERNANCE */}
+        {activeTab === 'backfill_windows' && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-emerald-600 text-white shadow-xs">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                    Backfill Windows Governance
+                  </h3>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                    Configure time-bound retroactive backfill periods for PMs. Requires CHRO MFA confirmation.
+                  </p>
+                </div>
+              </div>
+
+              <Button
+                variant="primary"
+                size="sm"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                onClick={() => setIsCreateWindowModalOpen(true)}
+              >
+                Open New Window
+              </Button>
+            </div>
+
+            <div className="divide-y divide-slate-100 dark:divide-slate-800 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-white dark:bg-slate-900">
+              {backfillWindows.length === 0 ? (
+                <div className="p-8 text-center text-xs text-slate-400">
+                  No active or historical backfill windows recorded.
+                </div>
+              ) : (
+                backfillWindows.map((win) => {
+                  const isExpired = new Date(win.endsAt).getTime() < Date.now()
+                  const isLive = win.isActive && !isExpired
+
+                  return (
+                    <div
+                      key={win.id}
+                      className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 hover:bg-slate-50/50 dark:hover:bg-slate-800/40"
+                    >
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              isLive
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                            }`}
+                          >
+                            {isLive ? 'ACTIVE' : 'CLOSED'}
+                          </span>
+                          <span className="font-mono text-xs font-bold text-slate-900 dark:text-white">
+                            Role: {win.grantedRole.toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          {new Date(win.startsAt).toLocaleString()} to{' '}
+                          <strong className="text-slate-700 dark:text-slate-300">
+                            {new Date(win.endsAt).toLocaleString()}
+                          </strong>
+                        </div>
+                      </div>
+
+                      {isLive && (
+                        <Button
+                          variant="danger"
+                          size="xs"
+                          onClick={() => setWindowToClose(win)}
+                        >
+                          Close Window (MFA)
+                        </Button>
+                      )}
+                    </div>
+                  )
+                })
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -1325,6 +1938,313 @@ export function ChroPerformancePage() {
             </div>
           </form>
         </Modal>
+      )}
+
+      {/* MODAL 5: Reject Task Weight */}
+      {rejectingWeightItem && (
+        <Modal
+          isOpen={true}
+          onClose={() => setRejectingWeightItem(null)}
+          title={`Reject Weight Proposal: ${rejectingWeightItem.task?.title || rejectingWeightItem.milestone?.title || 'Deliverable'}`}
+        >
+          <form onSubmit={handleRejectWeight} className="space-y-4 text-xs">
+            <p className="text-slate-600 dark:text-slate-400">
+              Rejecting this weight proposal will notify the PM and request scope or point revisions.
+            </p>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
+                Rejection Reason <span className="text-rose-500">*</span>
+              </label>
+              <textarea
+                rows={3}
+                required
+                placeholder="Explain why the proposed weight is excessive or miscategorized..."
+                value={rejectWeightReason}
+                onChange={(e) => setRejectWeightReason(e.target.value)}
+                className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white focus:outline-none"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Button variant="secondary" size="sm" onClick={() => setRejectingWeightItem(null)}>
+                Cancel
+              </Button>
+              <Button variant="danger" size="sm" type="submit">
+                Reject Weight Proposal
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* MODAL 6: Apply Disciplinary Deduction */}
+      {isDeductionModalOpen && (
+        <Modal
+          isOpen={true}
+          onClose={() => setIsDeductionModalOpen(false)}
+          title="Issue Formal Disciplinary Deduction"
+        >
+          <div className="space-y-4 text-xs">
+            <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
+              Disciplinary deductions directly reduce KPI percentage standing on the immutable ledger.
+              Mandatory legal citation or formal document reference required.
+            </p>
+
+            <div>
+              <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Target Staff Member <span className="text-rose-500">*</span>
+              </label>
+              <select
+                value={deductionUserId}
+                onChange={(e) => setDeductionUserId(e.target.value)}
+                className="w-full p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs cursor-pointer"
+              >
+                {staffRoster.map(({ user }) => (
+                  <option key={user.id} value={user.id}>
+                    {user.name} ({user.title})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Deduction Points (1–100) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  value={deductionPoints}
+                  onChange={(e) => setDeductionPoints(Number(e.target.value))}
+                  className="w-full p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Target Week Effective
+                </label>
+                <input
+                  type="date"
+                  value={deductionWeekStart}
+                  onChange={(e) => setDeductionWeekStart(e.target.value)}
+                  className="w-full p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Legal Document Reference / URL <span className="text-rose-500">*</span>
+              </label>
+              <input
+                type="text"
+                placeholder="e.g., HR-LEGAL-2026-DOC-088 or https://drive.pointfex.com/hr/case-088"
+                value={deductionRefDoc}
+                onChange={(e) => setDeductionRefDoc(e.target.value)}
+                className="w-full p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
+              />
+            </div>
+
+            <div>
+              <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Factual Justification &amp; Policy Violation <span className="text-rose-500">*</span>
+              </label>
+              <textarea
+                rows={3}
+                placeholder="Describe deliberate security violation, contractual non-performance, or gross negligence..."
+                value={deductionReason}
+                onChange={(e) => setDeductionReason(e.target.value)}
+                className="w-full p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs resize-none"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Button variant="secondary" size="sm" onClick={() => setIsDeductionModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                disabled={!deductionReason.trim() || !deductionRefDoc.trim()}
+                onClick={() => {
+                  setMfaActionType('APPLY_DEDUCTION')
+                }}
+              >
+                Proceed to MFA Verification
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* MODAL 7: Open Backfill Window */}
+      {isCreateWindowModalOpen && (
+        <Modal
+          isOpen={true}
+          onClose={() => setIsCreateWindowModalOpen(false)}
+          title="Open New Backfill Window"
+        >
+          <div className="space-y-4 text-xs">
+            <p className="text-slate-600 dark:text-slate-400">
+              Opening a backfill window allows PMs to submit retroactive historical tasks completed
+              within the defined window.
+            </p>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Start Date
+                </label>
+                <input
+                  type="date"
+                  value={newWindowStartsAt}
+                  onChange={(e) => setNewWindowStartsAt(e.target.value)}
+                  className="w-full p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  End Date / Deadline
+                </label>
+                <input
+                  type="date"
+                  value={newWindowEndsAt}
+                  onChange={(e) => setNewWindowEndsAt(e.target.value)}
+                  className="w-full p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Authorized Role
+              </label>
+              <select
+                value={newWindowRole}
+                onChange={(e) => setNewWindowRole(e.target.value)}
+                className="w-full p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs cursor-pointer"
+              >
+                <option value="pm">Project Managers (PM)</option>
+                <option value="cto">CTO Only</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Executive Justification <span className="text-rose-500">*</span>
+              </label>
+              <textarea
+                rows={2}
+                placeholder="Reason for opening historical grace window..."
+                value={newWindowReason}
+                onChange={(e) => setNewWindowReason(e.target.value)}
+                className="w-full p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setIsCreateWindowModalOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={!newWindowReason.trim()}
+                onClick={() => {
+                  setMfaActionType('CREATE_WINDOW')
+                }}
+              >
+                Verify &amp; Open Window (MFA)
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* MFA Modals */}
+      {mfaActionType === 'APPLY_DEDUCTION' && (
+        <MfaConfirmModal
+          isOpen={true}
+          onClose={() => setMfaActionType(null)}
+          title="MFA: Authorize Disciplinary Deduction"
+          actionSummary={`Deduct ${deductionPoints} KPI points from employee ${deductionUserId}`}
+          isCritical={true}
+          onConfirm={async (payload) => {
+            await handleApplyDisciplinary(payload.mfaCode)
+            setMfaActionType(null)
+          }}
+        />
+      )}
+
+      {mfaActionType === 'CREATE_WINDOW' && (
+        <MfaConfirmModal
+          isOpen={true}
+          onClose={() => setMfaActionType(null)}
+          title="MFA: Authorize Backfill Grace Window"
+          actionSummary={`Open backfill window until ${newWindowEndsAt}`}
+          onConfirm={async (payload) => {
+            await handleCreateBackfillWindow(payload.mfaCode)
+            setMfaActionType(null)
+          }}
+        />
+      )}
+
+      {isConfigMfaOpen && (
+        <MfaConfirmModal
+          isOpen={true}
+          onClose={() => setIsConfigMfaOpen(false)}
+          title="MFA: Update System KPI & Weight Config"
+          actionSummary="Update system-wide multiplier bounds and massive-XP threshold"
+          onConfirm={async (payload) => {
+            await handleSaveConfig(payload.mfaCode)
+          }}
+        />
+      )}
+
+      {isBatchApproveMfaOpen && (
+        <MfaConfirmModal
+          isOpen={true}
+          onClose={() => setIsBatchApproveMfaOpen(false)}
+          title="MFA: Batch Approve Deliverable Weights"
+          actionSummary={`Batch verify and lock ${weightQueue.filter((w) => w.status === 'PENDING_CHRO').length} pending deliverable weights`}
+          onConfirm={async (payload) => {
+            await handleBatchApproveWeights(payload.mfaCode)
+          }}
+        />
+      )}
+
+      {reversingDeduction && (
+        <MfaConfirmModal
+          isOpen={true}
+          onClose={() => setReversingDeduction(null)}
+          title="MFA: Authorize Disciplinary Reversal"
+          actionSummary={`Reverse disciplinary action ${reversingDeduction.id} with compensating credit`}
+          isCritical={true}
+          onConfirm={async (payload) => {
+            await handleReverseDisciplinary(payload.mfaCode)
+          }}
+        />
+      )}
+
+      {windowToClose && (
+        <MfaConfirmModal
+          isOpen={true}
+          onClose={() => setWindowToClose(null)}
+          title="MFA: Close Backfill Window"
+          actionSummary="Immediately deactivate backfill window and lock retroactive submissions"
+          onConfirm={async (payload) => {
+            await handleCloseBackfillWindow(payload.mfaCode)
+          }}
+        />
       )}
     </div>
   )

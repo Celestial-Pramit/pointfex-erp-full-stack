@@ -9,6 +9,13 @@ export interface TrendPoint {
   isInactive: boolean
   isProvisional: boolean
   statusDisplay: string // e.g. "85.50", "N/A", "Provisional (85.50)"
+  pmScore?: number | null
+  ctoScore?: number | null
+  cpoScore?: number | null
+  cfoScore?: number | null
+  chroScore?: number | null
+  inactivityPenaltyApplied?: boolean
+  breakdown?: Record<string, any>
 }
 
 /**
@@ -21,6 +28,13 @@ export function kpiTrendSeries(
     score: number | null
     isInactive: boolean
     isProvisional?: boolean
+    pmScore?: number | null
+    ctoScore?: number | null
+    cpoScore?: number | null
+    cfoScore?: number | null
+    chroScore?: number | null
+    inactivityPenaltyApplied?: boolean
+    breakdown?: Record<string, any>
   }>,
 ): TrendPoint[] {
   const sorted = [...weeks].sort((a, b) => {
@@ -44,6 +58,13 @@ export function kpiTrendSeries(
       isInactive: w.isInactive || w.score === null,
       isProvisional: Boolean(w.isProvisional),
       statusDisplay,
+      pmScore: w.pmScore ?? null,
+      ctoScore: w.ctoScore ?? null,
+      cpoScore: w.cpoScore ?? null,
+      cfoScore: w.cfoScore ?? null,
+      chroScore: w.chroScore ?? null,
+      inactivityPenaltyApplied: Boolean(w.inactivityPenaltyApplied),
+      breakdown: w.breakdown,
     }
   })
 }
