@@ -13,6 +13,7 @@ import { DelegationService } from './delegation.service'
 import { RbacService } from './rbac.service'
 import { AuthenticatedUser } from '../common/auth-user.interface'
 import {
+  CEO_CANONICAL_EMAIL,
   assertHorizontalCLevelGuard,
   assertNotSelfTarget,
   assertTargetNotSupremeCeo,
@@ -206,6 +207,16 @@ export class EmployeeAccessService {
     assertNotSelfTarget(actor.id, employeeId, 'revoke roles')
 
     const targetEmployee = await loadEmployeeWithSecurityContext(this.prisma, employeeId)
+    if (
+      isEmployeeCeo(targetEmployee) ||
+      targetEmployee.email?.toLowerCase() === CEO_CANONICAL_EMAIL ||
+      employeeId === 'emp_ceo_01'
+    ) {
+      throw new ForbiddenException(
+        'Security law: The Chief Executive Officer account (noor@seu.edu.bd) cannot be stripped of roles.',
+      )
+    }
+
     const actorEmployee = await assertHorizontalCLevelGuard(
       this.prisma,
       actor.id,

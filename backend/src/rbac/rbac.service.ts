@@ -620,19 +620,9 @@ export class RbacService {
     }
 
     if (role.isRootRole || role.slug === 'ceo') {
-      const targetPerms = await this.prisma.permission.findMany({
-        where: { id: { in: targetIds } },
-        select: { code: true },
-      })
-      const targetCodeSet = new Set(targetPerms.map((p) => p.code))
-      const missingCore = [...CEO_LOCKED_PERMISSIONS, 'system:root'].filter(
-        (c) => !targetCodeSet.has(c),
+      throw new ForbiddenException(
+        'The core Chief Executive Officer role has immutable capabilities (all 606 system permissions) and cannot be modified.',
       )
-      if (missingCore.length > 0) {
-        throw new BadRequestException(
-          `Cannot strip core/root administration permissions from CEO role: [${missingCore.join(', ')}]`,
-        )
-      }
     }
 
     const nextVersion = role.version + 1
@@ -729,6 +719,12 @@ export class RbacService {
     })
     if (!perm) throw new NotFoundException('Target permission not found')
 
+    if (role.isRootRole || role.slug === 'ceo') {
+      throw new ForbiddenException(
+        'The core Chief Executive Officer role already possesses all system permissions.',
+      )
+    }
+
     if ((perm.isSystemRoot || perm.code === 'system:root') && !role.isRootRole && role.slug !== 'ceo') {
       throw new ForbiddenException(
         'Security law: system:root cannot be granted via role editing; changes only via governance:transfer_ceo.',
@@ -784,6 +780,12 @@ export class RbacService {
 
     const perm = await this.prisma.permission.findUnique({ where: { id: permissionId } })
     if (!perm) throw new NotFoundException(`Permission "${permissionId}" not found`)
+
+    if (role.isRootRole || role.slug === 'ceo') {
+      throw new ForbiddenException(
+        'The core Chief Executive Officer role has immutable capabilities and permissions cannot be removed.',
+      )
+    }
 
     if (perm.isSystemRoot || perm.code === 'system:root') {
       throw new ForbiddenException(

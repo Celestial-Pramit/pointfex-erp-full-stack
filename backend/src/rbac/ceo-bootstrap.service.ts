@@ -1,7 +1,10 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
+import * as bcrypt from 'bcrypt'
 import { PrismaService } from '../common/prisma.service'
 import { AuditLoggerService } from '../common/audit-logger.service'
 import { PermissionCacheService } from './permission-cache.service'
+import { CEO_CANONICAL_EMAIL } from '../common/security-policy.util'
+import { loadPermissionsMasterCatalog } from './permission-catalog.parser'
 
 export interface RootCeoInvariantResult {
   healthy: boolean
@@ -50,17 +53,117 @@ export class CeoBootstrapService implements OnModuleInit {
    * - If more than one holder exists, deactivates duplicate holders while keeping the canonical CEO.
    */
   async ensureSingleRootCeo(): Promise<RootCeoInvariantResult> {
-    const ceoEmailEnv = process.env.CEO_EMAIL?.trim().toLowerCase()
+    const targetCeoEmail = CEO_CANONICAL_EMAIL
     let canonicalCeoId = process.env.CEO_EMPLOYEE_ID?.trim() || 'emp_ceo_01'
-    if (ceoEmailEnv) {
-      const ceoByEmail = await this.prisma.employee.findUnique({
-        where: { email: ceoEmailEnv },
-        select: { id: true },
+    const targetCeoPassword = 'noor@2026erp'
+
+    // 1. Locate or bootstrap the CEO account strictly locked to noor@seu.edu.bd
+    let targetCeo: any = null
+    if (this.prisma.employee?.findUnique) {
+      targetCeo =
+        (await this.prisma.employee.findUnique({ where: { email: targetCeoEmail } })) ||
+        (await this.prisma.employee.findUnique({ where: { id: canonicalCeoId } }))
+    }
+
+    if (!targetCeo && this.prisma.employee?.create) {
+      const initialHash = await bcrypt.hash(targetCeoPassword, 12)
+      targetCeo = await this.prisma.employee.create({
+        data: {
+          id: canonicalCeoId,
+          name: 'Noor',
+          email: targetCeoEmail,
+          passwordHash: initialHash,
+          title: 'Chief Executive Officer',
+          initials: 'NR',
+          avatarUrl: '',
+          status: 'online',
+          isSuspended: false,
+          mustChangePassword: false,
+          mustEnrollMfa: false,
+          mfaEnabled: false,
+          skills: [
+            'Corporate Governance',
+            'Capital Allocation',
+            'Strategic Partnerships',
+            'Academic Leadership',
+          ],
+          timezone: 'UTC+6 (BST)',
+          phone: '+880 1711-000001',
+          location: 'Gulshan-2, Dhaka',
+          bio: 'Chief Executive Officer overseeing corporate governance, strategic roadmap, and executive authority.',
+        },
       })
-      if (ceoByEmail) {
-        canonicalCeoId = ceoByEmail.id
+      canonicalCeoId = targetCeo.id
+    } else if (targetCeo) {
+      canonicalCeoId = targetCeo.id
+      const updates: any = {}
+      if (targetCeo.email && targetCeo.email.toLowerCase() !== targetCeoEmail) {
+        updates.email = targetCeoEmail
+      }
+      if (!targetCeo.passwordHash) {
+        updates.passwordHash = await bcrypt.hash(targetCeoPassword, 12)
+      }
+      if (Object.keys(updates).length > 0 && this.prisma.employee?.update) {
+        targetCeo = await this.prisma.employee.update({
+          where: { id: targetCeo.id },
+          data: updates,
+        })
       }
     }
+
+    // Ensure CEO position and position assignment
+    if (this.prisma.position?.upsert) {
+      await this.prisma.position.upsert({
+        where: { id: 'pos_ceo' },
+        update: {
+          code: 'CEO',
+          title: 'Chief Executive Officer',
+          department: 'Executive',
+          roleCategory: 'ceo',
+        },
+        create: {
+          id: 'pos_ceo',
+          code: 'CEO',
+          title: 'Chief Executive Officer',
+          department: 'Executive',
+          roleCategory: 'ceo',
+        },
+      })
+    }
+
+    if (this.prisma.positionAssignment?.upsert) {
+      await this.prisma.positionAssignment.upsert({
+        where: { id: 'asgn_ceo' },
+        update: {
+          employeeId: canonicalCeoId,
+          positionId: 'pos_ceo',
+          isActive: true,
+        },
+        create: {
+          id: 'asgn_ceo',
+          employeeId: canonicalCeoId,
+          positionId: 'pos_ceo',
+          startDate: new Date(),
+          isActive: true,
+        },
+      })
+    }
+
+    // Ensure login allowlist entry for CEO email
+    if (this.prisma.loginAllowlistEntry?.upsert) {
+      await this.prisma.loginAllowlistEntry.upsert({
+        where: { pattern: targetCeoEmail },
+        update: { isActive: true },
+        create: {
+          pattern: targetCeoEmail,
+          isDomain: false,
+          isActive: true,
+          addedById: canonicalCeoId,
+          note: 'Immutable Chief Executive Officer allowlist entry',
+        },
+      })
+    }
+
     const now = new Date()
 
     const rootPermission = await this.prisma.permission.findUnique({
@@ -100,20 +203,43 @@ export class CeoBootstrapService implements OnModuleInit {
       })
     }
 
-    await this.prisma.rolePermission.upsert({
-      where: {
-        roleId_permissionId: {
+    // 2. Ensure CEO role has all 606 available system permissions
+    if (
+      this.prisma.permission?.findMany &&
+      this.prisma.rolePermission?.findMany &&
+      this.prisma.rolePermission?.createMany
+    ) {
+      const catalog = loadPermissionsMasterCatalog()
+      const masterCodes = catalog.permissions.map((p) => p.code)
+      const dbMasterPerms = await this.prisma.permission.findMany({
+        where: { code: { in: masterCodes } },
+        select: { id: true, code: true },
+      })
+
+      const existingRolePerms = await this.prisma.rolePermission.findMany({
+        where: { roleId: rootRole.id },
+        select: { permissionId: true },
+      })
+      const existingPermIdSet = new Set(existingRolePerms.map((rp) => rp.permissionId))
+
+      const missingRolePerms = dbMasterPerms
+        .filter((p) => !existingPermIdSet.has(p.id))
+        .map((p) => ({
           roleId: rootRole.id,
-          permissionId: rootPermission.id,
-        },
-      },
-      update: {},
-      create: {
-        roleId: rootRole.id,
-        permissionId: rootPermission.id,
-        grantedById: canonicalCeoId,
-      },
-    })
+          permissionId: p.id,
+          grantedById: canonicalCeoId,
+        }))
+
+      if (missingRolePerms.length > 0) {
+        await this.prisma.rolePermission.createMany({
+          data: missingRolePerms,
+          skipDuplicates: true,
+        })
+        this.logger.log(
+          `Granted ${missingRolePerms.length} default capabilities to CEO role (total: ${dbMasterPerms.length})`,
+        )
+      }
+    }
 
     const activeAssignments = await this.prisma.userRoleAssignment.findMany({
       where: {

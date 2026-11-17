@@ -104,13 +104,14 @@ export function LoginAccessPage() {
   const handleConfirm = async ({ mfaCode, reason }: MfaConfirmPayload) => {
     if (!pendingAction) return
     setIsSubmitting(true)
+    const effectiveReason = reason?.trim() || 'MFA-verified authorization'
     try {
       if (pendingAction.kind === 'import') {
         const res = await erpApi.importLoginAllowlist(
           pendingAction.emails,
           pendingAction.note,
           mfaCode,
-          reason,
+          effectiveReason,
         )
         showToast(`Added ${res.imported} email(s) to the login allowlist.`, 'success')
         setRawEmails('')
@@ -120,20 +121,20 @@ export function LoginAccessPage() {
           pendingAction.id,
           pendingAction.nextActive,
           mfaCode,
-          reason,
+          effectiveReason,
         )
         showToast(
           `${pendingAction.nextActive ? 'Enabled' : 'Disabled'} ${pendingAction.pattern}.`,
           'info',
         )
       } else if (pendingAction.kind === 'remove') {
-        await erpApi.removeLoginAllowlistEntry(pendingAction.id, mfaCode, reason)
+        await erpApi.removeLoginAllowlistEntry(pendingAction.id, mfaCode, effectiveReason)
         showToast(`Removed ${pendingAction.pattern} and revoked active sessions.`, 'warning')
       } else if (pendingAction.kind === 'approve_request') {
-        await erpApi.approveAllowlistEmailRequest(pendingAction.id, mfaCode, reason)
+        await erpApi.approveAllowlistEmailRequest(pendingAction.id, mfaCode, effectiveReason)
         showToast(`Approved ${pendingAction.email} and added to allowlist.`, 'success')
       } else if (pendingAction.kind === 'reject_request') {
-        await erpApi.rejectAllowlistEmailRequest(pendingAction.id, mfaCode, reason || 'Declined')
+        await erpApi.rejectAllowlistEmailRequest(pendingAction.id, mfaCode, effectiveReason)
         showToast(`Declined request for ${pendingAction.email}.`, 'info')
       }
       setPendingAction(null)
@@ -464,7 +465,7 @@ export function LoginAccessPage() {
                     : `Decline email allowlist request for "${pendingAction.email}".`
           }
           whoAffected="Organization login allowlist (CEO-only)"
-          requiresReason
+          requiresReason={false}
           isCritical
           confirmLabel="Verify & Apply"
           isSubmitting={isSubmitting}

@@ -6,6 +6,7 @@ import {
   Param,
   Body,
   Query,
+  Headers,
   UseGuards,
   ForbiddenException,
 } from '@nestjs/common'
@@ -288,5 +289,97 @@ export class ChroGovernanceController {
       body.year,
       body.companyPerformanceScore,
     )
+  }
+
+  // --------------------------------------------------------------------------
+  // 7. PM WEIGHT PROPOSAL GATE
+  // --------------------------------------------------------------------------
+  @Post('propose-weight')
+  @RequireAnyPermission(
+    'tasks:create_personal',
+    'tasks:create_assign',
+    'tasks:approve',
+    'performance:evaluate',
+    'performance:read_all',
+  )
+  async proposeTaskWeight(
+    @Body()
+    body: {
+      taskId?: string
+      milestoneId?: string
+      proposedWeight: number
+      category?: 'SMALL' | 'MEDIUM' | 'LARGE' | 'CRITICAL' | 'CUSTOM'
+      context?: 'MAIN_SQUAD' | 'OUTSIDE_SQUAD' | 'DIRECT_EXECUTIVE'
+    },
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.kpiEngine.proposeTaskWeight({
+      ...body,
+      actor,
+    })
+  }
+
+  // --------------------------------------------------------------------------
+  // 8. MACRO MILESTONE PM XP AWARD GATE
+  // --------------------------------------------------------------------------
+  @Post('milestones/:id/approve-xp')
+  @RequireAnyPermission('governance:vote', 'performance:evaluate', 'milestones:update')
+  async awardMilestoneXpToPm(
+    @Param('id') milestoneId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.kpiEngine.awardMilestoneXpToPm(milestoneId, actor)
+  }
+
+  // --------------------------------------------------------------------------
+  // 9. GOVERNANCE OVERRIDE & MODIFICATION GATE (CEO MFA, CHRO FULL, C-LEVEL, PM)
+  // --------------------------------------------------------------------------
+  @Post('override')
+  @RequireAnyPermission(
+    'performance:evaluate',
+    'performance:discipline',
+    'performance:read_all',
+    'governance:vote',
+  )
+  async overrideRecord(
+    @Body()
+    body: {
+      targetEmployeeId: string
+      metricType: 'KPI' | 'XP'
+      weekNumber?: number
+      year?: number
+      score?: number | null
+      deltaXp?: number
+      newLifetimeXp?: number
+      reason?: string
+      mfaCode?: string
+    },
+    @Headers('x-mfa-code') mfaHeader: string | undefined,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    const mfaCode = (body.mfaCode || mfaHeader || '').trim()
+    return this.kpiEngine.overrideRecord({
+      ...body,
+      mfaCode: mfaCode || undefined,
+      actor,
+    })
+  }
+
+  // --------------------------------------------------------------------------
+  // 10. AUDIT LOG MODIFICATION (CHRO FULL ACCESS & CEO)
+  // --------------------------------------------------------------------------
+  @Patch('audit-log/:id')
+  @RequireAnyPermission(
+    'performance:discipline',
+    'performance:evaluate',
+    'performance:read_all',
+    'governance:vote',
+  )
+  async updateAuditLog(
+    @Param('id') id: string,
+    @Body() body: { reason?: string; notes?: string; actionType?: string },
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.kpiEngine.updateAuditLogEntry(id, body, actor)
   }
 }

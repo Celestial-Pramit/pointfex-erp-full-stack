@@ -5,6 +5,7 @@ import type { Request } from 'express'
 import { ExtractJwt, Strategy } from 'passport-jwt'
 import { PrismaService } from '../common/prisma.service'
 import { AuthenticatedUser } from '../common/auth-user.interface'
+import { CEO_CANONICAL_EMAIL } from '../common/security-policy.util'
 
 export const ACCESS_TOKEN_COOKIE = 'pointfex_access_token'
 export const REFRESH_TOKEN_COOKIE = 'pointfex_refresh_token'
@@ -105,7 +106,16 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
 
     const activeSlugs = employee.employeeRoles.map((er) => er.role.slug)
     const fallbackCategory = employee.positionAssignments[0]?.position.roleCategory
-    const resolvedRole = resolveCanonicalRoleSlug(activeSlugs, fallbackCategory)
+    let resolvedRole = resolveCanonicalRoleSlug(activeSlugs, fallbackCategory)
+
+    if (employee.email.trim().toLowerCase() === CEO_CANONICAL_EMAIL) {
+      resolvedRole = 'ceo'
+    } else if (resolvedRole === 'ceo' && employee.id !== 'emp_ceo') {
+      throw new ForbiddenException(
+        'CEO authentication lock: Only noor@seu.edu.bd is authorized as Chief Executive Officer.',
+      )
+    }
+
     const isSystemRoot = employee.employeeRoles.some((er) => er.role.isSystemDefault) || resolvedRole === 'ceo'
 
     if (

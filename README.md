@@ -1,8 +1,8 @@
-# Pointfex ERP (`v3.13.0`)
+# Pointfex ERP (`v3.14.0`)
 
 Production-grade, Zero-Trust Enterprise Resource Planning (ERP) platform built with **NestJS + TypeScript + Prisma + PostgreSQL (Neon)** and **React 19 + TypeScript + Vite + Tailwind CSS**.
 
-Engineered for strict organizational governance, server-enforced role tiers, executive voting, maker-checker segregation of duties (SoD), time-boxed authority delegations, tamper-evident audit logging, and resilient serverless deployment on Vercel.
+Engineered for strict organizational governance, server-enforced role tiers, executive voting, maker-checker segregation of duties (SoD), time-boxed authority delegations, tamper-evident audit logging, hierarchical KPI & XP gamification suite, and resilient serverless deployment on Vercel.
 
 ---
 
@@ -54,9 +54,24 @@ Engineered for strict organizational governance, server-enforced role tiers, exe
 
 ---
 
-## 2. Key Capabilities (`v3.13.0`)
+## 2. Key Capabilities (`v3.14.0`)
 
-### A. Role Authority Tiers & Server-Enforced Ceiling
+### A. Pointfex KPI & XP Governance Suite
+- **Top Priority Hero Placement:** Injected dynamic KPI Trend Line Graph and Career XP Stacked Bar Chart into the absolute top priority hero segment of the main dashboard for all roles (Developer, PM, C-Level, CEO).
+- **Hierarchical Evaluations & Mathematical Formulas:**
+  - **Level 1 (Developers):** 50% PM Score, 15% CTO, 15% CPO, 10% CFO, 10% CHRO with auto-drafted C-Level score requiring read-receipt confirmation. Context multipliers: Main Squad (100%), Outside Squad (70%), Isolated Executive Task (50%).
+  - **Level 2 (Project Managers):** 30% CTO, 30% CPO, 20% CFO, 20% CHRO based on squad outcomes. PMs receive XP strictly from macro project milestones upon C-Level sign-off, bypassing self-assigned micro-tasks.
+  - **Level 3 (C-Level):** 40% Macro Goals, 30% Domain Execution (squad average), 20% CEO Review, 10% Peer Synergy.
+  - **Level 4 (CEO):** 60% Company Performance, 40% C-Level Aggregate.
+- **Inactivity Detection & Return Penalties:** Zero tasks completed in a week flags the KPI as "N/A" with a prominent visual red marker on the trend line, automatically triggering a 10% deduction on the score of the next evaluated task upon return.
+- **Executive Governance & MFA Override Gate:**
+  - **CEO Supreme Authority (Strictly MFA-Only):** Bypasses all written justifications and secondary approvals; strictly and only requires 6-digit MFA verification code.
+  - **CHRO Full Governance:** Universal authority for CHRO (`2023200000066@seu.edu.bd`) across all employees' KPI/XP, final weight verifications, and audit log editing/annotation (`PATCH /api/performance/audit-log/:id`).
+  - **C-Level & PM Authority:** C-Level and PMs can adjust records according to authorized squad and executive powers with MFA verification.
+- **Cryptographic Audit Ledger:** Immutable ledger chained with SHA-256 hashes recording delta, authorized executive, trigger event, and sequence.
+- **Clean Profile Separation:** Removed KPI/XP elements from profile settings (`MyAccountPage`) to maintain strict separation between personal security credentials and operational gamification standing.
+
+### B. Role Authority Tiers & Server-Enforced Ceiling
 - **Four Standard Tiers:** `CEO` (implicit for `system:root`), `EXECUTIVE` (C-level: CTO, CFO, CHRO, COO, CPO, CRO), `MANAGER` (PM, Squad Lead), and `STAFF` (Developers, Designers, Operations).
 - **Strict Tier Ceiling Law:** Implemented server-side in guards and domain services. An actor may only inspect access details or modify personnel in a **strictly lower tier** (`isStrictlyLowerTier`).
 - **Executive Restrictions:**

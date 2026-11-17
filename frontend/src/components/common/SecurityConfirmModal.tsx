@@ -41,7 +41,7 @@ export function SecurityConfirmModal({
     <MfaConfirmModal
       isOpen={isOpen}
       onClose={onClose}
-      onConfirm={({ mfaCode, reason }) => onConfirm(reason, undefined, mfaCode)}
+      onConfirm={({ mfaCode }) => onConfirm(mfaCode, undefined, mfaCode)}
       title={title}
       actionSummary={details}
       whoAffected={whatWillHappen}

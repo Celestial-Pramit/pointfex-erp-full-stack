@@ -255,7 +255,7 @@ export class ProjectRequestsService {
   async ceoOverride(
     requestId: string,
     decision: 'APPROVE' | 'REJECT',
-    reason: string,
+    reason: string | undefined,
     actor: AuthenticatedUser,
   ) {
     const request = await this.prisma.projectCreationRequest.findUnique({
@@ -270,9 +270,7 @@ export class ProjectRequestsService {
       throw new BadRequestException(`Request cannot be decided (current status: ${request.status}).`)
     }
 
-    if (!reason || reason.trim().length < 10) {
-      throw new BadRequestException('CEO decision reason must be at least 10 characters.')
-    }
+    const effectiveReason = reason?.trim() || 'Executive CEO decision override'
 
     const now = new Date()
     let approvedProjectId: string | undefined
@@ -302,7 +300,7 @@ export class ProjectRequestsService {
         approvedProjectId,
         decidedById: actor.id,
         decidedAt: now,
-        decisionReason: reason.trim(),
+        decisionReason: effectiveReason,
       },
     })
 

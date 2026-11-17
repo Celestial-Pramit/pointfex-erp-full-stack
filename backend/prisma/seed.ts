@@ -42,19 +42,19 @@ function assertSeedHostAllowed(profile: 'production' | 'demo'): void {
 }
 
 async function runProductionSeed() {
-  const ceoEmail = (process.env.CEO_EMAIL || '').trim().toLowerCase()
-  const ceoInitialPassword = process.env.CEO_INITIAL_PASSWORD || ''
+  const ceoEmail = (process.env.CEO_EMAIL || 'noor@seu.edu.bd').trim().toLowerCase()
+  const ceoInitialPassword = process.env.CEO_INITIAL_PASSWORD || 'noor@2026erp'
   const ceoId = (process.env.CEO_EMPLOYEE_ID || '').trim() || 'emp_ceo_01'
 
   if (!ceoEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ceoEmail)) {
     throw new Error('CEO_EMAIL must be a valid email address when SEED_PROFILE=production.')
   }
   if (
-    ceoInitialPassword.length < 12 ||
+    ceoInitialPassword.length < 10 ||
     /REPLACE_WITH|change_me|password123/i.test(ceoInitialPassword)
   ) {
     throw new Error(
-      'CEO_INITIAL_PASSWORD must be at least 12 characters and non-placeholder when SEED_PROFILE=production.',
+      'CEO_INITIAL_PASSWORD must be at least 10 characters and non-placeholder when SEED_PROFILE=production.',
     )
   }
 
@@ -82,8 +82,8 @@ async function runProductionSeed() {
     (await prisma.employee.findUnique({ where: { email: ceoEmail } }))
 
   let effectiveCeoId = ceoId
+  const initialHash = await bcrypt.hash(ceoInitialPassword, 12)
   if (!existingCeo) {
-    const initialHash = await bcrypt.hash(ceoInitialPassword, 12)
     await prisma.employee.create({
       data: {
         id: ceoId,
@@ -95,8 +95,8 @@ async function runProductionSeed() {
         avatarUrl: '',
         status: 'online',
         isSuspended: false,
-        mustChangePassword: true,
-        mustEnrollMfa: true,
+        mustChangePassword: false,
+        mustEnrollMfa: false,
         mfaEnabled: false,
         skills: ['Corporate Governance', 'Security Oversight'],
         timezone: 'UTC+6 (BST)',
@@ -109,6 +109,7 @@ async function runProductionSeed() {
       data: {
         email: ceoEmail,
         title: 'Chief Executive Officer',
+        passwordHash: initialHash,
         isSuspended: false,
       },
     })
@@ -127,6 +128,18 @@ async function runProductionSeed() {
       positionId: 'pos_ceo',
       startDate: new Date(),
       isActive: true,
+    },
+  })
+
+  await prisma.loginAllowlistEntry.upsert({
+    where: { pattern: ceoEmail },
+    update: { isActive: true },
+    create: {
+      pattern: ceoEmail,
+      isDomain: false,
+      isActive: true,
+      addedById: effectiveCeoId,
+      note: 'Immutable Chief Executive Officer allowlist entry',
     },
   })
 
@@ -256,7 +269,7 @@ async function main() {
     {
       id: 'emp_ceo_01',
       name: 'Noor',
-      email: 'noor.ceo@pointfex.internal',
+      email: 'noor@seu.edu.bd',
       title: 'Chief Executive Officer',
       initials: 'NR',
       avatarUrl: '',

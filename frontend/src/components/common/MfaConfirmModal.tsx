@@ -37,13 +37,24 @@ function MfaConfirmModalBody({
   onConfirm,
   actionSummary,
   whoAffected,
-  requiresReason = false,
+  requiresReason: _requiresReason = false,
   initialReason = '',
   isCritical = false,
   confirmLabel = 'Verify & Continue',
   isSubmitting = false,
 }: MfaConfirmModalProps) {
-  const { showToast, refreshPermissions } = useApp()
+  const { showToast, refreshPermissions, currentUser } = useApp()
+
+  const isCeo =
+    currentUser?.email === 'noor@seu.edu.bd' ||
+    currentUser?.role === 'ceo' ||
+    currentUser?.role === 'system:root' ||
+    (currentUser as any)?.roles?.some(
+      (r: any) => r?.slug === 'ceo' || r === 'ceo' || r === 'system:root',
+    )
+
+  // Strictly MFA-only across the system: zero written reason prompts required
+  const effectiveRequiresReason = false
 
   const [mfaEnabled, setMfaEnabled] = useState<boolean | null>(null)
   const [enrollData, setEnrollData] = useState<{
@@ -80,20 +91,16 @@ function MfaConfirmModalBody({
     }
   }, [mfaEnabled])
 
-  const reasonValid = !requiresReason || reason.trim().length >= 10
+  const reasonValid = true
   const cleanedCode = code.replace(/\D/g, '').slice(0, 6)
 
   const submitWithCode = async (sixDigits: string) => {
-    if (!reasonValid) {
-      setErrorText('Please enter a written reason (minimum 10 characters).')
-      return
-    }
     if (sixDigits.length !== 6 || isSubmitting) return
     setErrorText(null)
     try {
       await onConfirm({
         mfaCode: sixDigits,
-        reason: requiresReason ? reason.trim() : reason.trim() || undefined,
+        reason: (reason && reason.trim()) || 'MFA-verified authorization',
       })
     } catch (err: any) {
       const msg = err?.message || 'Verification failed. Check your 6-digit authenticator code.'
@@ -245,7 +252,7 @@ function MfaConfirmModalBody({
             </div>
           </div>
 
-          {requiresReason && (
+          {effectiveRequiresReason && (
             <div className="space-y-1.5">
               <label className="block text-[12px] font-semibold text-[var(--text)]">
                 Written Reason * (minimum 10 characters)
@@ -269,10 +276,17 @@ function MfaConfirmModalBody({
           <div className="p-3.5 rounded-[10px] bg-[var(--bg)] border border-[var(--border)] space-y-2">
             <label
               htmlFor="fresh-mfa-code-input"
-              className="flex items-center gap-1.5 text-[12px] font-semibold text-[var(--text)]"
+              className="flex items-center justify-between text-[12px] font-semibold text-[var(--text)]"
             >
-              <KeyRound className="w-3.5 h-3.5 text-[var(--primary)]" />
-              <span>Fresh 6-digit Authenticator Code (single-use)</span>
+              <div className="flex items-center gap-1.5">
+                <KeyRound className="w-3.5 h-3.5 text-[var(--primary)]" />
+                <span>Fresh 6-digit Authenticator Code (MFA)</span>
+              </div>
+              {isCeo && (
+                <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800">
+                  CEO Direct MFA
+                </span>
+              )}
             </label>
             <input
               id="fresh-mfa-code-input"

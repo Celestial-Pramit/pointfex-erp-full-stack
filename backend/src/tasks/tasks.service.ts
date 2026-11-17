@@ -430,7 +430,12 @@ export class TasksService {
       const isFrozen = weightRecord?.massiveXpFrozen ?? false
       const isWeightApproved = !weightRecord || weightRecord.status === 'APPROVED' || weightRecord.status === 'MODIFIED'
 
-      if (isWeightApproved && !isFrozen) {
+      // Level 2 (Project Managers): PMs receive XP strictly from macro project milestones (routed to C-Level for approval), bypassing self-assigned micro-tasks
+      const isAssigneePm =
+        task.assignee?.title?.toLowerCase().includes('pm') ||
+        task.assignee?.title?.toLowerCase().includes('project manager')
+
+      if (!isAssigneePm && isWeightApproved && !isFrozen) {
         if (typeof tx.employee?.update === 'function') {
           await tx.employee.update({
             where: { id: task.assigneeId },

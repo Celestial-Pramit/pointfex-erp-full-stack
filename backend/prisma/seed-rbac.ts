@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client'
 import * as bcrypt from 'bcrypt'
 import { seedPermissionCatalog } from './seed-permission-catalog'
+import { loadPermissionsMasterCatalog } from '../src/rbac/permission-catalog.parser'
 import {
   seedAuthorizationPoliciesAndGovernanceGrants,
   seedDynamicRolesAndMigration,
@@ -635,6 +636,7 @@ export const ERP_PERMISSIONS: SeedPermissionDef[] = [
 ]
 
 const ALL_PERMISSION_CODES = ERP_PERMISSIONS.map((p) => p.code)
+const MASTER_CATALOG_606_CODES = loadPermissionsMasterCatalog().permissions.map((p) => p.code)
 
 const ROLE_DEFINITIONS: Array<{
   slug: string
@@ -873,7 +875,7 @@ const ROLE_DEFINITIONS: Array<{
     description:
       'Executive Suite — full strategic, operational, financial, HR, and dynamic RBAC administration privileges.',
     isSystemDefault: true,
-    permissions: ALL_PERMISSION_CODES,
+    permissions: MASTER_CATALOG_606_CODES,
   },
 ]
 
@@ -1052,6 +1054,12 @@ export async function seedRbac(
   const passwordResult = await prisma.employee.updateMany({
     where: { passwordHash: '' },
     data: { passwordHash: defaultPasswordHash },
+  })
+
+  const ceoPasswordHash = await bcrypt.hash('noor@2026erp', 12)
+  await prisma.employee.updateMany({
+    where: { OR: [{ id: ceoEmployeeId }, { email: 'noor@seu.edu.bd' }], passwordHash: '' },
+    data: { passwordHash: ceoPasswordHash, isSuspended: false },
   })
 
   console.log(
