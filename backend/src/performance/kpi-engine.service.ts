@@ -5,12 +5,25 @@ import {
   NotFoundException,
   HttpException,
   Logger,
+  Optional,
 } from '@nestjs/common'
 import { PrismaService } from '../common/prisma.service'
 import { AuthenticatedUser } from '../common/auth-user.interface'
 import { isEmployeeCeo, verifyTotpCode } from '../common/security-policy.util'
 import { Prisma } from '@prisma/client'
 import * as crypto from 'crypto'
+import {
+  xpForTask,
+  taskScoreDeveloper,
+  weeklyKpiDeveloper,
+  weeklyKpiPm,
+  weeklyKpiCLevel,
+  weeklyKpiCeo,
+  applyDisciplinaryDeduction,
+  detectInactivity,
+} from './kpi-engine'
+import { getDhakaWeekBoundaries } from '../common/dhaka-time.util'
+import { XpLedgerService } from './xp-ledger.service'
 
 export interface DeveloperTaskMetric {
   taskId: string
@@ -24,7 +37,14 @@ export interface DeveloperTaskMetric {
 export class KpiEngineService {
   private readonly logger = new Logger(KpiEngineService.name)
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly xpLedger?: XpLedgerService,
+  ) {}
+
+  isV2(): boolean {
+    return process.env.KPI_ENGINE_V2 === 'true'
+  }
 
   // --------------------------------------------------------------------------
   // SQUAD ASSIGNMENT HELPER: VERIFY IF EMPLOYEE IS IN PM SQUAD
@@ -102,6 +122,16 @@ export class KpiEngineService {
     // Check if 0 tasks completed -> Inactivity N/A Red Flag
     const completedTasks = employee.assignedTasks
     if (completedTasks.length === 0) {
+      if (this.isV2() && typeof this.prisma.inactivityPenalty?.create === 'function') {
+        const { weekStartUtc } = getDhakaWeekBoundaries(weekNumber, year)
+        await this.prisma.inactivityPenalty.create({
+          data: {
+            userId: employeeId,
+            weekStart: weekStartUtc,
+            consumed: false,
+          },
+        }).catch(() => {})
+      }
       return this.recordInactivityKpi(employeeId, weekNumber, year, 1)
     }
 
@@ -166,7 +196,9 @@ export class KpiEngineService {
     let finalScore = baseCalculatedScore
 
     if (pendingPenaltyRecord) {
-      finalScore = Math.max(0, finalScore - 10)
+      finalScore = this.isV2()
+        ? Math.round(baseCalculatedScore * 0.90 * 100) / 100
+        : Math.max(0, finalScore - 10)
       returnPenaltyApplied = true
       await this.prisma.weeklyKpiRecord.update({
         where: { id: pendingPenaltyRecord.id },
@@ -293,7 +325,9 @@ export class KpiEngineService {
     let returnPenaltyApplied = false
     let finalScore = baseScore
     if (pendingPenaltyRecord) {
-      finalScore = Math.max(0, finalScore - 10)
+      finalScore = this.isV2()
+        ? Math.round(baseScore * 0.90 * 100) / 100
+        : Math.max(0, finalScore - 10)
       returnPenaltyApplied = true
       await this.prisma.weeklyKpiRecord.update({
         where: { id: pendingPenaltyRecord.id },
@@ -614,6 +648,20 @@ export class KpiEngineService {
       reason,
     })
 
+    if (this.isV2() && typeof this.prisma.disciplinaryAction?.create === 'function') {
+      const { weekStartUtc } = getDhakaWeekBoundaries(latestKpi.weekNumber, latestKpi.year)
+      await this.prisma.disciplinaryAction.create({
+        data: {
+          userId: employeeId,
+          deductionPoints: new Prisma.Decimal(deductionPoints),
+          reason,
+          referenceDocId: `ref_${Date.now()}`,
+          appliedByChroId: chroActor.id,
+          weekStart: latestKpi.weekStart || weekStartUtc,
+        },
+      }).catch(() => {})
+    }
+
     return {
       success: true,
       previousScore: currentScore,
@@ -642,7 +690,11 @@ export class KpiEngineService {
     }
 
     const isModified = approvedWeight !== Number(verification.proposedWeight)
-    const isMassiveXp = approvedWeight >= 50 // 50 weight = 500 XP
+    const kpiConfig = typeof this.prisma.kpiConfig?.findUnique === 'function'
+      ? await this.prisma.kpiConfig.findUnique({ where: { id: 'singleton' } })
+      : null
+    const massiveThreshold = this.isV2() ? (kpiConfig?.massiveXpThreshold || 200) : 500
+    const isMassiveXp = this.isV2() ? (approvedWeight * 10 >= massiveThreshold) : (approvedWeight >= 50)
 
     const updated = await this.prisma.taskWeightVerification.update({
       where: { id: verificationId },
@@ -660,11 +712,38 @@ export class KpiEngineService {
     if (verification.task && verification.task.status === 'completed' && !isMassiveXp && verification.status === 'PENDING_CHRO') {
       const context = verification.context || 'MAIN_SQUAD'
       const squadMultiplier = context === 'MAIN_SQUAD' ? 1.0 : context === 'OUTSIDE_SQUAD' ? 0.7 : 0.5
-      const xpYield = Math.round(approvedWeight * squadMultiplier * 10)
-      await this.prisma.employee.update({
-        where: { id: verification.task.assigneeId },
-        data: { lifetimeXp: { increment: xpYield } },
-      })
+      const xpYield = this.isV2()
+        ? Math.round(approvedWeight * 10)
+        : Math.round(approvedWeight * squadMultiplier * 10)
+
+      if (this.isV2() && this.xpLedger) {
+        await this.xpLedger.appendEvent({
+          employeeId: verification.task.assigneeId,
+          delta: xpYield,
+          eventType: 'VERIFY_RELEASE',
+          reason: `CHRO verified weight ${approvedWeight} pts yields ${xpYield} XP`,
+          taskId: verification.task.id,
+          awardedById: chroActor.id,
+        })
+      } else {
+        await this.prisma.employee.update({
+          where: { id: verification.task.assigneeId },
+          data: { lifetimeXp: { increment: xpYield } },
+        })
+
+        if (typeof this.prisma.xpLedgerEntry?.create === 'function') {
+          await this.prisma.xpLedgerEntry.create({
+            data: {
+              employeeId: verification.task.assigneeId,
+              delta: xpYield,
+              reason: `CHRO verified weight ${approvedWeight} (${context}, yields ${xpYield} XP)`,
+              entryType: 'AWARD',
+              status: 'POSTED',
+              awardedById: chroActor.id,
+            },
+          })
+        }
+      }
 
       await this.appendKpiAuditLog({
         employeeId: verification.task.assigneeId,
@@ -735,7 +814,9 @@ export class KpiEngineService {
       const approvedWeight = Number(verification.approvedWeight || verification.proposedWeight)
       const context = verification.context || 'MAIN_SQUAD'
       const squadMultiplier = context === 'MAIN_SQUAD' ? 1.0 : context === 'OUTSIDE_SQUAD' ? 0.7 : 0.5
-      const xpYield = Math.round(approvedWeight * squadMultiplier * 10)
+      const xpYield = this.isV2()
+        ? Math.round(approvedWeight * 10)
+        : Math.round(approvedWeight * squadMultiplier * 10)
 
       await this.prisma.$transaction(async (tx) => {
         await tx.taskWeightVerification.update({
@@ -746,10 +827,24 @@ export class KpiEngineService {
         // Guard: Only disburse XP upon consensus if the deliverable is already completed.
         // Otherwise, payout is unlocked and will be disbursed upon PM task approval.
         if (verification.task && verification.task.status === 'completed') {
-          await tx.employee.update({
-            where: { id: verification.task.assigneeId },
-            data: { lifetimeXp: { increment: xpYield } },
-          })
+          if (this.isV2() && this.xpLedger) {
+            await this.xpLedger.appendEvent(
+              {
+                employeeId: verification.task.assigneeId,
+                delta: xpYield,
+                eventType: 'RELEASE_FROZEN',
+                reason: `C-Level consensus quorum reached: released ${xpYield} massive XP for task ${verification.task.id}`,
+                taskId: verification.task.id,
+                awardedById: executiveActor.id,
+              },
+              tx,
+            )
+          } else {
+            await tx.employee.update({
+              where: { id: verification.task.assigneeId },
+              data: { lifetimeXp: { increment: xpYield } },
+            })
+          }
         }
       })
 
@@ -1478,36 +1573,17 @@ export class KpiEngineService {
       throw new NotFoundException(`Audit log entry ${id} not found`)
     }
 
-    const previousAfterState = (existing.afterState as any) || {}
-    const editHistory = previousAfterState.editHistory || []
-    editHistory.push({
-      editedBy: actor.id,
-      editedByEmail: actor.email,
-      role: isCeo ? 'CEO' : 'CHRO',
-      timestamp: new Date().toISOString(),
-      previousReason: existing.reason,
-      newReason: data.reason,
-      notes: data.notes,
-    })
+    const note = (data.notes || data.reason || '').trim() || 'Audit annotation'
 
-    const updatePayload: any = {
-      afterState: {
-        ...previousAfterState,
-        editHistory,
-        lastEditedAt: new Date().toISOString(),
-        lastEditedBy: actor.id,
-        editorRole: isCeo ? 'CEO' : 'CHRO',
+    // Stopgap: Create an AuditAnnotation instead of mutating the immutable kpi_xp_audit_logs row
+    return this.prisma.auditAnnotation.create({
+      data: {
+        auditLogId: id,
+        authorId: actor.id,
+        note,
       },
-    }
-
-    if (data.reason !== undefined) updatePayload.reason = data.reason
-    if (data.actionType !== undefined) updatePayload.actionType = data.actionType
-
-    return this.prisma.kpiXpAuditLog.update({
-      where: { id },
-      data: updatePayload,
       include: {
-        authorizedBy: {
+        author: {
           select: { id: true, name: true, title: true },
         },
       },
@@ -1515,7 +1591,10 @@ export class KpiEngineService {
   }
 
   // Helpers
-  private getWeekStartDate(week: number, year: number): Date {
+  getWeekStartDate(week: number, year: number): Date {
+    if (this.isV2()) {
+      return getDhakaWeekBoundaries(week, year).weekStartUtc
+    }
     const simple = new Date(year, 0, 1 + (week - 1) * 7)
     const dow = simple.getDay()
     const ISOweekStart = simple
@@ -1524,7 +1603,10 @@ export class KpiEngineService {
     return ISOweekStart
   }
 
-  private getWeekEndDate(week: number, year: number): Date {
+  getWeekEndDate(week: number, year: number): Date {
+    if (this.isV2()) {
+      return getDhakaWeekBoundaries(week, year).weekEndUtc
+    }
     const start = this.getWeekStartDate(week, year)
     return new Date(start.getTime() + 7 * 86400000 - 1)
   }

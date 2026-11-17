@@ -100,6 +100,18 @@ model Employee {
   weeklyKpiRecords       WeeklyKpiRecord[]        @relation("EmployeeWeeklyKpis")
   kpiXpAudits            KpiXpAuditLog[]          @relation("EmployeeKpiXpAudits")
   authorizedKpiAudits    KpiXpAuditLog[]          @relation("ExecutiveKpiXpAuthorizations")
+  proposedTasks          Task[]                   @relation("ProposedTasks")
+  verifiedTasks          Task[]                   @relation("VerifiedTasks")
+  taskExecScores         TaskExecScore[]          @relation("ActedTaskExecScores")
+  kpiExecEvaluations     KpiExecEvaluation[]      @relation("ActedKpiExecEvaluations")
+  inactivityPenalties    InactivityPenalty[]      @relation("EmployeeInactivityPenalties")
+  disciplinaryActions    DisciplinaryAction[]     @relation("EmployeeDisciplinaryActions")
+  appliedDisciplinaryActions DisciplinaryAction[] @relation("ChroDisciplinaryActions")
+  createdBackfillWindows BackfillWindow[]         @relation("CreatedBackfillWindows")
+  auditAnnotations       AuditAnnotation[]        @relation("AuthoredAuditAnnotations")
+  updatedWeightConfigs   TaskWeightConfig[]       @relation("WeightConfigUpdatedBy")
+  updatedKpiConfigs      KpiConfig[]              @relation("KpiConfigUpdatedBy")
+  xpBalance              XpBalance?
 
   @@map("employees")
 }
@@ -255,6 +267,9 @@ model ProjectMilestone {
   sprintWeek        Int?
   payoutAmount      Decimal? @db.Decimal(14, 2)
   deliverablesCount Int      @default(0)
+  weightPoints      Decimal? @db.Decimal(5, 2)
+  completedAt       DateTime?
+  achievedById      String?
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   tasks   Task[]
@@ -282,6 +297,17 @@ model Task {
   estimatedHours Decimal  @default(8) @db.Decimal(6, 2)
   loggedHours    Decimal  @default(0) @db.Decimal(6, 2)
   tags           String[]
+  weightCategory TaskWeightCategory? @default(MEDIUM)
+  weightPoints   Decimal?            @db.Decimal(5, 2)
+  weightStatus   TaskWeightStatus    @default(PENDING_CHRO_VERIFICATION)
+  origin         TaskOrigin          @default(MAIN_SQUAD)
+  proposedById   String?
+  verifiedById   String?
+  pmScore        Decimal?            @db.Decimal(5, 2)
+  completedAt    DateTime?
+  effectiveAt    DateTime?           @default(now())
+  recordedAt     DateTime            @default(now())
+  isBackfilled   Boolean             @default(false)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -289,14 +315,22 @@ model Task {
   milestone   ProjectMilestone?   @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
   creator     Employee            @relation("TaskCreator", fields: [creatorId], references: [id])
   assignee    Employee            @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  proposedBy  Employee?           @relation("ProposedTasks", fields: [proposedById], references: [id])
+  verifiedBy  Employee?           @relation("VerifiedTasks", fields: [verifiedById], references: [id])
   checklist   TaskChecklistItem[]
   submissions TaskSubmission[]
   comments    TaskComment[]
   weightVerification TaskWeightVerification?
+  execScores  TaskExecScore[]
+  inactivityPenalties InactivityPenalty[]
+  xpLedgerEntries     XpLedgerEntry[]
 
   @@index([projectId])
   @@index([assigneeId])
   @@index([creatorId])
+  @@index([weightStatus])
+  @@index([effectiveAt])
+  @@index([recordedAt])
   @@map("tasks")
 }
 
@@ -466,11 +500,45 @@ model PerformanceRecord {
 // 6B. KPI & XP GOVERNANCE ENGINE (Official Pointfex Performance Suite)
 // --------------------------------------------------------------------------
 
+enum XpEventType {
+  AWARD_PENDING
+  VERIFY_RELEASE
+  FREEZE
+  RELEASE_FROZEN
+  REVERSAL
+  ADJUSTMENT
+}
+
+enum TaskWeightStatus {
+  PENDING_CHRO_VERIFICATION
+  VERIFIED
+  REJECTED
+}
+
+enum TaskOrigin {
+  MAIN_SQUAD
+  OUTSIDE_SQUAD
+  ISOLATED_EXECUTIVE
+}
+
+enum ExecRole {
+  CTO
+  CPO
+  CFO
+  CHRO
+}
+
+enum ExecScoreStatus {
+  UNREAD
+  CONFIRMED
+  ADJUSTED
+}
+
 enum TaskWeightCategory {
   SMALL     // 1 pt  -> 10 XP
-  MEDIUM    // 3 pts -> 30 XP
-  LARGE     // 5 pts -> 50 XP
-  CRITICAL  // 10 pts -> 100 XP
+  MEDIUM    // 2 pts -> 20 XP
+  LARGE     // 3 pts -> 30 XP
+  CRITICAL  // 5 pts -> 50 XP
   CUSTOM    // N pts -> N*10 XP
 }
 
@@ -493,6 +561,154 @@ enum SquadAssignmentContext {
   DIRECT_EXECUTIVE  // 50% impact
 }
 
+model TaskWeightConfig {
+  id          String             @id @default(cuid())
+  category    TaskWeightCategory @unique
+  points      Decimal            @db.Decimal(5, 2)
+  description String?
+  isDefault   Boolean            @default(true)
+  updatedById String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  updatedBy Employee? @relation("WeightConfigUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@map("task_weight_configs")
+}
+
+model KpiConfig {
+  id                     String   @id @default("singleton")
+  massiveXpThreshold     Int      @default(200)
+  inactivityPenalty      Decimal  @default(0.10) @db.Decimal(4, 2)
+  mainSquadMultiplier    Decimal  @default(1.00) @db.Decimal(3, 2)
+  outsideSquadMultiplier Decimal  @default(0.70) @db.Decimal(3, 2)
+  isolatedExecMultiplier Decimal  @default(0.50) @db.Decimal(3, 2)
+  devPmWeight            Decimal  @default(0.50) @db.Decimal(3, 2)
+  devCtoWeight           Decimal  @default(0.15) @db.Decimal(3, 2)
+  devCpoWeight           Decimal  @default(0.15) @db.Decimal(3, 2)
+  devCfoWeight           Decimal  @default(0.10) @db.Decimal(3, 2)
+  devChroWeight          Decimal  @default(0.10) @db.Decimal(3, 2)
+  updatedById            String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  updatedBy Employee? @relation("KpiConfigUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@map("kpi_configs")
+}
+
+model TaskExecScore {
+  id        String          @id @default(cuid())
+  taskId    String
+  execRole  ExecRole
+  score     Decimal         @db.Decimal(5, 2)
+  status    ExecScoreStatus @default(UNREAD)
+  actedById String?
+  actedAt   DateTime?
+  reason    String?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  task    Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  actedBy Employee? @relation("ActedTaskExecScores", fields: [actedById], references: [id], onDelete: SetNull)
+
+  @@unique([taskId, execRole])
+  @@index([taskId])
+  @@index([status])
+  @@map("task_exec_scores")
+}
+
+model KpiExecEvaluation {
+  id                String          @id @default(cuid())
+  weeklyKpiRecordId String
+  evaluatorRole     String
+  score             Decimal         @db.Decimal(5, 2)
+  suggestedScore    Decimal?        @db.Decimal(5, 2)
+  status            ExecScoreStatus @default(UNREAD)
+  actedById         String?
+  actedAt           DateTime?
+  reason            String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  weeklyKpiRecord WeeklyKpiRecord @relation(fields: [weeklyKpiRecordId], references: [id], onDelete: Cascade)
+  actedBy         Employee?       @relation("ActedKpiExecEvaluations", fields: [actedById], references: [id], onDelete: SetNull)
+
+  @@unique([weeklyKpiRecordId, evaluatorRole])
+  @@index([weeklyKpiRecordId])
+  @@map("kpi_exec_evaluations")
+}
+
+model InactivityPenalty {
+  id              String    @id @default(cuid())
+  userId          String
+  weekStart       DateTime
+  appliedToTaskId String?
+  consumed        Boolean   @default(false)
+  consumedAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  user          Employee @relation("EmployeeInactivityPenalties", fields: [userId], references: [id], onDelete: Cascade)
+  appliedToTask Task?    @relation(fields: [appliedToTaskId], references: [id], onDelete: SetNull)
+
+  @@index([userId, weekStart])
+  @@index([userId, consumed])
+  @@map("inactivity_penalties")
+}
+
+model DisciplinaryAction {
+  id              String   @id @default(cuid())
+  userId          String
+  deductionPoints Decimal  @db.Decimal(5, 2)
+  reason          String
+  referenceDocId  String
+  appliedByChroId String
+  weekStart       DateTime
+  isReversed      Boolean  @default(false)
+  reversalReason  String?
+  reversedById    String?
+  reversedAt      DateTime?
+  createdAt       DateTime @default(now())
+
+  user          Employee @relation("EmployeeDisciplinaryActions", fields: [userId], references: [id], onDelete: Restrict)
+  appliedByChro Employee @relation("ChroDisciplinaryActions", fields: [appliedByChroId], references: [id], onDelete: Restrict)
+
+  @@index([userId, weekStart])
+  @@index([userId, createdAt])
+  @@map("disciplinary_actions")
+}
+
+model BackfillWindow {
+  id          String   @id @default(cuid())
+  startsAt    DateTime
+  endsAt      DateTime
+  grantedRole String   @default("pm")
+  createdById String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBy Employee? @relation("CreatedBackfillWindows", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([grantedRole, isActive])
+  @@map("backfill_windows")
+}
+
+model AuditAnnotation {
+  id         String   @id @default(cuid())
+  auditLogId String
+  authorId   String
+  note       String
+  createdAt  DateTime @default(now())
+
+  auditLog KpiXpAuditLog @relation(fields: [auditLogId], references: [id], onDelete: Cascade)
+  author   Employee      @relation("AuthoredAuditAnnotations", fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([auditLogId])
+  @@index([authorId])
+  @@map("audit_annotations")
+}
+
 model TaskWeightVerification {
   id              String                 @id @default(cuid())
   taskId          String?                @unique
@@ -508,6 +724,10 @@ model TaskWeightVerification {
   chroNotes       String?
   isMassiveXp     Boolean                @default(false)
   massiveXpFrozen Boolean                @default(false)
+  consensusStatus String?                // 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED'
+  voteDeadline    DateTime?
+  decisionReason  String?
+  decisionAt      DateTime?
   createdAt       DateTime               @default(now())
   updatedAt       DateTime               @updatedAt
 
@@ -519,7 +739,23 @@ model TaskWeightVerification {
 
   @@index([status])
   @@index([proposerId])
+  @@index([consensusStatus])
   @@map("task_weight_verifications")
+}
+
+model SweepRun {
+  id         String    @id @default(cuid())
+  weekNumber Int
+  year       Int
+  startedAt  DateTime  @default(now())
+  endedAt    DateTime?
+  status     String    @default("RUNNING") // 'RUNNING' | 'COMPLETED' | 'FAILED'
+  counts     Json?
+  errors     Json?
+  createdAt  DateTime  @default(now())
+
+  @@index([year, weekNumber])
+  @@map("sweep_runs")
 }
 
 model TaskWeightConsensusVote {
@@ -543,6 +779,7 @@ model WeeklyKpiRecord {
   employeeId               String
   weekNumber               Int
   year                     Int
+  weekStart                DateTime?
   score                    Decimal?         @db.Decimal(5, 2) // Nullable when isInactive = true
   isInactive               Boolean          @default(false)    // N/A Red Flag
   inactivityPenaltyPending Boolean          @default(false)
@@ -560,10 +797,12 @@ model WeeklyKpiRecord {
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
 
-  employee Employee @relation("EmployeeWeeklyKpis", fields: [employeeId], references: [id], onDelete: Cascade)
+  employee        Employee            @relation("EmployeeWeeklyKpis", fields: [employeeId], references: [id], onDelete: Cascade)
+  execEvaluations KpiExecEvaluation[]
 
   @@unique([employeeId, year, weekNumber])
   @@index([employeeId, year])
+  @@index([employeeId, weekStart])
   @@index([evaluationStatus])
   @@map("weekly_kpi_records")
 }
@@ -577,12 +816,17 @@ model KpiXpAuditLog {
   metricType     String    // 'KPI' | 'XP'
   deltaValue     Decimal   @db.Decimal(8, 2)
   resultingTotal Decimal?  @db.Decimal(10, 2)
+  valueBefore    Decimal?  @db.Decimal(10, 2)
+  valueAfter     Decimal?  @db.Decimal(10, 2)
   actionType     String    // 'TASK_XP_YIELD' | 'WEEKLY_KPI_FINAL' | 'CHRO_DISCIPLINARY' | 'INACTIVITY_PENALTY' | 'MASSIVE_XP_RELEASE'
   triggerEvent   String
   taskId         String?
   authorizedById String?   // Nullable for SYSTEM automated actions
   authorizedRole String    // 'CHRO' | 'CTO' | 'CPO' | 'CFO' | 'CEO' | 'SYSTEM'
   reason         String?
+  effectiveAt    DateTime?
+  recordedAt     DateTime  @default(now())
+  isBackfilled   Boolean   @default(false)
   ipAddress      String?
   userAgent      String?
   sessionId      String?
@@ -591,10 +835,12 @@ model KpiXpAuditLog {
   createdAt      DateTime  @default(now())
 
   // Critical: Restrict deletion to preserve immutable audit trail
-  employee     Employee  @relation("EmployeeKpiXpAudits", fields: [employeeId], references: [id], onDelete: Restrict)
-  authorizedBy Employee? @relation("ExecutiveKpiXpAuthorizations", fields: [authorizedById], references: [id], onDelete: SetNull)
+  employee     Employee          @relation("EmployeeKpiXpAudits", fields: [employeeId], references: [id], onDelete: Restrict)
+  authorizedBy Employee?         @relation("ExecutiveKpiXpAuthorizations", fields: [authorizedById], references: [id], onDelete: SetNull)
+  annotations  AuditAnnotation[]
 
   @@index([employeeId, createdAt])
+  @@index([employeeId, recordedAt])
   @@index([metricType, createdAt])
   @@index([sequence])
   @@map("kpi_xp_audit_logs")
@@ -1353,21 +1599,56 @@ model ApprovalStep {
 }
 
 model XpLedgerEntry {
-  id                String   @id @default(cuid())
+  id                String       @id @default(cuid())
   employeeId        String
   delta             Int
   reason            String
-  entryType         String   @default("AWARD") // 'AWARD' | 'ADJUSTMENT' | 'REVERSAL'
+  entryType         String       @default("AWARD") // 'AWARD' | 'ADJUSTMENT' | 'REVERSAL'
+  eventType         XpEventType? @map("event_type")
+  status            String       @default("POSTED") // 'PENDING' | 'FROZEN' | 'POSTED' | 'REVERSED'
+  taskId            String?      @map("task_id")
+  correlationId     String?      @map("correlation_id")
+  reversesEntryId   String?      @map("reverses_entry_id")
   reversalOfId      String?
   awardedById       String?
   approvalRequestId String?
-  createdAt         DateTime @default(now())
+  effectiveAt       DateTime?
+  recordedAt        DateTime     @default(now())
+  isBackfilled      Boolean      @default(false)
+  prevHash          String?
+  entryHash         String?
+  sequence          Int          @default(0)
+  createdAt         DateTime     @default(now())
 
-  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employee          Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  task              Task?           @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  reversesEntry     XpLedgerEntry?  @relation("XpEntryReversals", fields: [reversesEntryId], references: [id])
+  reversedByEntries XpLedgerEntry[] @relation("XpEntryReversals")
 
   @@index([employeeId, createdAt])
+  @@index([employeeId, recordedAt])
+  @@index([employeeId, sequence])
+  @@index([taskId])
+  @@index([correlationId])
+  @@index([eventType])
+  @@index([status])
   @@index([reversalOfId])
+  @@index([reversesEntryId])
   @@map("xp_ledger_entries")
+}
+
+model XpBalance {
+  userId         String   @id @map("user_id")
+  postedXp       Int      @default(0) @map("posted_xp")
+  pendingXp      Int      @default(0) @map("pending_xp")
+  frozenXp       Int      @default(0) @map("frozen_xp")
+  byCategoryJson Json?    @map("by_category_json")
+  lastSequence   Int      @default(0) @map("last_sequence")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  employee       Employee @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("xp_balances")
 }
 
 model SecuritySession {

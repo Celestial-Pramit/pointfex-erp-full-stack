@@ -47,6 +47,55 @@ export class CreateTaskDto {
   @IsOptional()
   @IsNumber()
   proposedWeight?: number
+
+  @IsOptional()
+  @IsDateString()
+  effectiveAt?: string
+
+  @IsOptional()
+  isIsolatedExecutive?: boolean
+}
+
+export class ProposeTaskWeightDto {
+  @IsNotEmpty()
+  @IsString()
+  weightCategory: 'SMALL' | 'MEDIUM' | 'LARGE' | 'CRITICAL' | 'CUSTOM'
+
+  @IsOptional()
+  @IsNumber()
+  points?: number
+
+  @IsOptional()
+  @IsString()
+  reason?: string
+}
+
+export class VerifyTaskWeightDto {
+  @IsNotEmpty()
+  @IsString()
+  action: 'APPROVE' | 'MODIFY' | 'REJECT'
+
+  @IsOptional()
+  @IsString()
+  approvedCategory?: 'SMALL' | 'MEDIUM' | 'LARGE' | 'CRITICAL' | 'CUSTOM'
+
+  @IsOptional()
+  @IsNumber()
+  approvedPoints?: number
+
+  @IsOptional()
+  @IsString()
+  reason?: string
+
+  @IsOptional()
+  @IsString()
+  mfaCode?: string
+}
+
+export class ReturnTaskWorkDto {
+  @IsNotEmpty({ message: 'A comment explaining required revisions is mandatory when returning work' })
+  @IsString()
+  comment: string
 }
 
 export class UpdateTaskStatusDto {
@@ -56,6 +105,10 @@ export class UpdateTaskStatusDto {
 }
 
 export class ApproveTaskDto {
+  @IsOptional()
+  @IsNumber()
+  pmScore?: number
+
   @IsOptional()
   @IsString()
   feedback?: string

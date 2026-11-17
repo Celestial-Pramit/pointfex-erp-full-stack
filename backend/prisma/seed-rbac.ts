@@ -903,6 +903,15 @@ export async function seedRbac(
     { code: 'suggestions:forward', resource: 'suggestions', action: 'forward', module: 'engineering', name: 'PM Review & Forward Proposal to Vote', isCritical: false, isDelegable: true, isSensitive: false },
     { code: 'employees:read_basic', resource: 'employees', action: 'read_basic', module: 'hr', name: 'View Public Minimal Directory Information', isCritical: false, isDelegable: true, isSensitive: false },
     { code: 'access_history:read', resource: 'governance', action: 'read_access_history', module: 'admin', name: 'View Access & Governance Change History', isCritical: false, isDelegable: true, isSensitive: false },
+    { code: 'tasks:propose_weight', resource: 'tasks', action: 'propose_weight', module: 'engineering', name: 'Propose Task Weight', isCritical: false, isDelegable: true, isSensitive: false },
+    { code: 'tasks:verify_weight', resource: 'tasks', action: 'verify_weight', module: 'hr', name: 'Verify Task Weight', isCritical: false, isDelegable: true, isSensitive: false },
+    { code: 'kpis:score_exec', resource: 'kpis', action: 'score_exec', module: 'hr', name: 'C-Level Read-Receipt Scoring', isCritical: false, isDelegable: true, isSensitive: false },
+    { code: 'kpis:discipline_deduct', resource: 'kpis', action: 'discipline_deduct', module: 'hr', name: 'Deduct KPI for Disciplinary Event', isCritical: true, isDelegable: false, isSensitive: true },
+    { code: 'kpis:backfill', resource: 'kpis', action: 'backfill', module: 'hr', name: 'Backfill Past-Dated Task & Review Data', isCritical: false, isDelegable: true, isSensitive: false },
+    { code: 'kpis:backfill_override', resource: 'kpis', action: 'backfill_override', module: 'hr', name: 'Override Backfill Window', isCritical: true, isDelegable: false, isSensitive: true },
+    { code: 'kpis:read_squad_log', resource: 'kpis', action: 'read_squad_log', module: 'hr', name: 'Inspect Squad Members KPI & XP Logs', isCritical: false, isDelegable: true, isSensitive: false },
+    { code: 'kpis:read_any_log', resource: 'kpis', action: 'read_any_log', module: 'hr', name: 'Inspect Any Employee KPI & XP Logs', isCritical: false, isDelegable: true, isSensitive: false },
+    { code: 'xp:release_frozen', resource: 'xp', action: 'release_frozen', module: 'hr', name: 'Vote to Release Frozen Massive XP', isCritical: false, isDelegable: true, isSensitive: false },
   ]
   for (const ext of PHASE3_EXTENSIONS) {
     const record = await prisma.permission.upsert({

@@ -2392,6 +2392,75 @@ async function main() {
 async function seedKpiXpGovernance(prisma: PrismaClient) {
   console.log('  -> Seeding KPI & XP Governance Suite (Pointfex HR Memorandum)...')
 
+  // 0A. Task Weight Config Defaults (Small=1, Medium=2, Large=3, Critical=5)
+  const weightConfigs = [
+    { category: 'SMALL' as const, points: new Prisma.Decimal(1), description: 'Small bug fixes, copy changes, minor config' },
+    { category: 'MEDIUM' as const, points: new Prisma.Decimal(2), description: 'Standard feature implementation, component redesign' },
+    { category: 'LARGE' as const, points: new Prisma.Decimal(3), description: 'Complex modules, major integrations, architectural spikes' },
+    { category: 'CRITICAL' as const, points: new Prisma.Decimal(5), description: 'Critical incident response, platform core refactors' },
+  ]
+  for (const wc of weightConfigs) {
+    await prisma.taskWeightConfig.upsert({
+      where: { category: wc.category },
+      update: { points: wc.points, description: wc.description },
+      create: {
+        category: wc.category,
+        points: wc.points,
+        description: wc.description,
+        isDefault: true,
+      },
+    })
+  }
+
+  // 0B. KPI & Governance System Config
+  await prisma.kpiConfig.upsert({
+    where: { id: 'singleton' },
+    update: {
+      massiveXpThreshold: 200,
+      inactivityPenalty: new Prisma.Decimal(0.10),
+      mainSquadMultiplier: new Prisma.Decimal(1.00),
+      outsideSquadMultiplier: new Prisma.Decimal(0.70),
+      isolatedExecMultiplier: new Prisma.Decimal(0.50),
+      devPmWeight: new Prisma.Decimal(0.50),
+      devCtoWeight: new Prisma.Decimal(0.15),
+      devCpoWeight: new Prisma.Decimal(0.15),
+      devCfoWeight: new Prisma.Decimal(0.10),
+      devChroWeight: new Prisma.Decimal(0.10),
+    },
+    create: {
+      id: 'singleton',
+      massiveXpThreshold: 200,
+      inactivityPenalty: new Prisma.Decimal(0.10),
+      mainSquadMultiplier: new Prisma.Decimal(1.00),
+      outsideSquadMultiplier: new Prisma.Decimal(0.70),
+      isolatedExecMultiplier: new Prisma.Decimal(0.50),
+      devPmWeight: new Prisma.Decimal(0.50),
+      devCtoWeight: new Prisma.Decimal(0.15),
+      devCpoWeight: new Prisma.Decimal(0.15),
+      devCfoWeight: new Prisma.Decimal(0.10),
+      devChroWeight: new Prisma.Decimal(0.10),
+    },
+  })
+
+  // 0C. Backfill Grace Window (ends 2026-11-19 23:59:59 Asia/Dhaka -> 2026-11-19T17:59:59.000Z)
+  await prisma.backfillWindow.upsert({
+    where: { id: 'window_pm_grace_nov2026' },
+    update: {
+      startsAt: new Date('2026-11-12T00:00:00.000Z'),
+      endsAt: new Date('2026-11-19T17:59:59.000Z'),
+      grantedRole: 'pm',
+      isActive: true,
+    },
+    create: {
+      id: 'window_pm_grace_nov2026',
+      startsAt: new Date('2026-11-12T00:00:00.000Z'),
+      endsAt: new Date('2026-11-19T17:59:59.000Z'),
+      grantedRole: 'pm',
+      isActive: true,
+      createdById: 'emp_chro_01',
+    },
+  })
+
   // 1. Initial Lifetime XP on key staff
   const staffXpMap: Record<string, number> = {
     emp_dev_01: 2450,

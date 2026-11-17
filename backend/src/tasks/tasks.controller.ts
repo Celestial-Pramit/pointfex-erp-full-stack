@@ -8,6 +8,9 @@ import {
   ReassignTaskDto,
   SubmitTaskWorkDto,
   AddTaskCommentDto,
+  ProposeTaskWeightDto,
+  VerifyTaskWeightDto,
+  ReturnTaskWorkDto,
 } from './dto/task.dto'
 import { AuthenticatedUser } from '../common/auth-user.interface'
 import { PermissionsGuard } from '../common/permissions.guard'
@@ -81,6 +84,36 @@ export class TasksController {
     @CurrentUser() actor: AuthenticatedUser,
   ) {
     return this.tasksService.reassign(id, dto, actor)
+  }
+
+  @Post(':id/propose-weight')
+  @RequireAnyPermission('tasks:propose_weight', 'tasks:create_assign')
+  proposeWeight(
+    @Param('id') id: string,
+    @Body() dto: ProposeTaskWeightDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.tasksService.proposeWeight(id, dto, actor)
+  }
+
+  @Post(':id/verify-weight')
+  @RequireAnyPermission('tasks:verify_weight', 'governance:vote')
+  verifyWeight(
+    @Param('id') id: string,
+    @Body() dto: VerifyTaskWeightDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.tasksService.verifyWeight(id, dto, actor)
+  }
+
+  @Post(':id/return')
+  @RequirePermissions('tasks:approve')
+  returnWork(
+    @Param('id') id: string,
+    @Body() dto: ReturnTaskWorkDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.tasksService.returnWork(id, dto, actor)
   }
 
   @Patch(':id/checklist/:itemId')

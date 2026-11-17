@@ -13,6 +13,7 @@ import { PrismaService } from '../common/prisma.service'
 import { DelegationService } from '../rbac/delegation.service'
 import { ApprovalEngineService } from '../rbac/approval-engine.service'
 import { ProjectRequestsService } from '../projects/project-requests.service'
+import { WeeklySweepService } from '../performance/weekly-sweep.service'
 
 @Controller()
 export class HealthController {
@@ -21,6 +22,7 @@ export class HealthController {
     @Optional() private readonly delegationService?: DelegationService,
     @Optional() private readonly approvalEngineService?: ApprovalEngineService,
     @Optional() private readonly projectRequestsService?: ProjectRequestsService,
+    @Optional() private readonly weeklySweep?: WeeklySweepService,
   ) {}
 
   @Public()
@@ -58,12 +60,13 @@ export class HealthController {
       throw new UnauthorizedException('Invalid or missing CRON_SECRET')
     }
 
-    const [delRes, appRes, projRes] = await Promise.all([
+    const [delRes, appRes, projRes, sweepRes] = await Promise.all([
       this.delegationService?.expireStaleDelegations().catch(() => ({ expiredCount: 0 })),
       this.approvalEngineService
         ?.processEscalationsAndTimeouts()
         .catch(() => ({ timedOut: 0, escalated: 0 })),
       this.projectRequestsService?.sweepExpiredVotes().catch(() => ({ expiredCount: 0 })),
+      this.weeklySweep?.runWeeklySweep().catch((err) => ({ error: err.message })),
     ])
 
     return {
@@ -72,6 +75,7 @@ export class HealthController {
       delegations: delRes,
       approvals: appRes,
       projects: projRes,
+      weeklySweep: sweepRes,
     }
   }
 }
