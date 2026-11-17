@@ -1,31 +1,65 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import {
   TrendingUp,
   Award,
   ShieldCheck,
-  ArrowUpRight,
-  ArrowDownRight,
-  Edit3,
-  Check,
-  X,
+  Lock,
+  Clock,
+  CheckCircle2,
 } from 'lucide-react'
 
 // --------------------------------------------------------------------------
-// 1. WEEKLY KPI TREND LINE GRAPH (WITH RED N/A INACTIVITY MARKERS)
+// 1. WEEKLY KPI TREND LINE GRAPH (WITH RED N/A INACTIVITY & PROVISIONAL)
 // --------------------------------------------------------------------------
 export interface WeeklyKpiItem {
-  id: string
+  id?: string
   weekNumber: number
   year: number
   score: number | string | null
   isInactive: boolean
+  isProvisional?: boolean
   roleLevel?: number
   evaluationStatus?: string
   createdAt?: string
+  pmScore?: number | null
+  ctoScore?: number | null
+  cpoScore?: number | null
+  cfoScore?: number | null
+  chroScore?: number | null
+  inactivityPenaltyApplied?: boolean
+  breakdown?: {
+    baseScore?: number
+    pmScore?: number
+    cLevelMultipliers?: Record<string, number>
+    cLevelScores?: Record<string, number>
+    ceoMultiplier?: number
+    inactivityPenalty?: number
+    finalScore?: number
+    [key: string]: any
+  }
 }
 
-export function WeeklyKpiTrendGraph({ data }: { data: WeeklyKpiItem[] }) {
-  if (!data || data.length === 0) {
+export function WeeklyKpiTrendGraph({
+  data,
+  series,
+}: {
+  data?: WeeklyKpiItem[]
+  series?: WeeklyKpiItem[]
+}) {
+  const [activeHoverPoint, setActiveHoverPoint] = useState<any | null>(null)
+
+  // Ensure last 8 weeks are represented chronologically
+  const sorted = useMemo(() => {
+    const raw = data || series || []
+    if (raw.length === 0) return []
+    const copy = [...raw].sort((a, b) => {
+      if (a.year !== b.year) return a.year - b.year
+      return a.weekNumber - b.weekNumber
+    })
+    return copy.slice(-8)
+  }, [data, series])
+
+  if (sorted.length === 0) {
     return (
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 text-center text-[var(--muted)]">
         <TrendingUp className="mx-auto mb-2 h-8 w-8 text-[var(--muted)] opacity-60" />
@@ -34,47 +68,61 @@ export function WeeklyKpiTrendGraph({ data }: { data: WeeklyKpiItem[] }) {
     )
   }
 
-  // Sort chronologically
-  const sorted = [...data].sort((a, b) => {
-    if (a.year !== b.year) return a.year - b.year
-    return a.weekNumber - b.weekNumber
-  })
-
-  const height = 180
-  const width = 500
-  const padding = 35
+  const height = 200
+  const width = 540
+  const padding = 40
 
   const points = sorted.map((d, index) => {
     const x = padding + (index / Math.max(1, sorted.length - 1)) * (width - 2 * padding)
     const numericScore = d.isInactive || d.score === null ? 0 : Number(d.score)
-    // 0 score at bottom, 100 at top
     const y = height - padding - (numericScore / 100) * (height - 2 * padding)
-    return { x, y, score: d.score, isInactive: d.isInactive, week: d.weekNumber, year: d.year }
+    return {
+      x,
+      y,
+      score: d.score,
+      isInactive: d.isInactive,
+      isProvisional: Boolean(d.isProvisional || d.evaluationStatus === 'PROVISIONAL'),
+      week: d.weekNumber,
+      year: d.year,
+      pmScore: d.pmScore,
+      ctoScore: d.ctoScore,
+      cpoScore: d.cpoScore,
+      cfoScore: d.cfoScore,
+      chroScore: d.chroScore,
+      inactivityPenaltyApplied: d.inactivityPenaltyApplied,
+      breakdown: d.breakdown,
+    }
   })
 
+  // Connected path for active weeks
   const pathD = points
     .filter((p) => !p.isInactive && p.score !== null)
     .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`)
     .join(' ')
 
   return (
-    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xs transition-colors">
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xs transition-colors relative">
       <div className="mb-4 flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2.5">
           <div className="rounded-xl bg-indigo-500/10 p-2 text-indigo-500 dark:text-indigo-400">
             <TrendingUp className="h-5 w-5" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-[var(--text)]">Weekly KPI Trend</h3>
-            <p className="text-xs text-[var(--muted)]">Bounded 0–100 weekly execution efficiency</p>
+            <h3 className="text-sm font-bold text-[var(--text)]">Weekly KPI Trend (Last 8 Weeks)</h3>
+            <p className="text-xs text-[var(--muted)]">
+              Bounded 0–100 weekly execution efficiency. Hover any point for formula breakdown.
+            </p>
           </div>
         </div>
-        <div className="flex items-center gap-4 text-xs">
+        <div className="flex items-center gap-3 text-xs flex-wrap">
           <span className="flex items-center gap-1.5 font-medium text-[var(--text)]">
-            <span className="h-2.5 w-2.5 rounded-full bg-indigo-500"></span> Active KPI
+            <span className="h-2.5 w-2.5 rounded-full bg-indigo-500"></span> Official
+          </span>
+          <span className="flex items-center gap-1.5 font-medium text-amber-500">
+            <span className="h-2.5 w-2.5 rounded-full border-2 border-amber-500 bg-transparent"></span> Provisional
           </span>
           <span className="flex items-center gap-1.5 font-medium text-rose-500">
-            <span className="h-2.5 w-2.5 rounded-full bg-rose-500"></span> N/A (Inactivity Penalty)
+            <span className="h-2.5 w-2.5 rounded-full bg-rose-500"></span> N/A (Inactivity)
           </span>
         </div>
       </div>
@@ -83,7 +131,7 @@ export function WeeklyKpiTrendGraph({ data }: { data: WeeklyKpiItem[] }) {
         <svg
           viewBox={`0 0 ${width} ${height}`}
           className="w-full overflow-visible"
-          style={{ minWidth: '360px' }}
+          style={{ minWidth: '380px' }}
         >
           {/* Grid lines */}
           <line
@@ -95,7 +143,7 @@ export function WeeklyKpiTrendGraph({ data }: { data: WeeklyKpiItem[] }) {
             className="text-slate-200/50 dark:text-slate-800/80"
             strokeDasharray="4 4"
           />
-          <text x={padding - 6} y={padding + 4} textAnchor="end" className="text-[10px] fill-[var(--muted)] font-mono">
+          <text x={padding - 8} y={padding + 4} textAnchor="end" className="text-[10px] fill-[var(--muted)] font-mono">
             100
           </text>
 
@@ -108,7 +156,7 @@ export function WeeklyKpiTrendGraph({ data }: { data: WeeklyKpiItem[] }) {
             className="text-slate-200/50 dark:text-slate-800/80"
             strokeDasharray="4 4"
           />
-          <text x={padding - 6} y={height / 2 + 4} textAnchor="end" className="text-[10px] fill-[var(--muted)] font-mono">
+          <text x={padding - 8} y={height / 2 + 4} textAnchor="end" className="text-[10px] fill-[var(--muted)] font-mono">
             50
           </text>
 
@@ -121,7 +169,7 @@ export function WeeklyKpiTrendGraph({ data }: { data: WeeklyKpiItem[] }) {
             className="text-slate-300 dark:text-slate-700"
           />
           <text
-            x={padding - 6}
+            x={padding - 8}
             y={height - padding + 4}
             textAnchor="end"
             className="text-[10px] fill-[var(--muted)] font-mono"
@@ -129,7 +177,7 @@ export function WeeklyKpiTrendGraph({ data }: { data: WeeklyKpiItem[] }) {
             0
           </text>
 
-          {/* Connected Path for active weeks */}
+          {/* Connected Path */}
           {pathD && (
             <path
               d={pathD}
@@ -141,91 +189,188 @@ export function WeeklyKpiTrendGraph({ data }: { data: WeeklyKpiItem[] }) {
             />
           )}
 
-          {/* Dots & N/A Red Flags */}
-          {points.map((p, i) => (
-            <g key={i} className="transition-all duration-200">
-              {p.isInactive ? (
-                <g>
-                  {/* Visual Red Inactivity Indicator Line */}
-                  <line
-                    x1={p.x}
-                    y1={padding}
-                    x2={p.x}
-                    y2={height - padding}
-                    stroke="#F43F5E"
-                    strokeWidth="1.5"
-                    strokeDasharray="3 3"
-                    opacity="0.8"
-                  />
-                  {/* Red Marker Dot */}
-                  <circle
-                    cx={p.x}
-                    cy={height - padding}
-                    r="6.5"
-                    className="fill-rose-500 stroke-[var(--surface)] stroke-2"
-                  />
-                  {/* Distinctive Visual Red Flag Banner */}
-                  <rect
-                    x={p.x - 14}
-                    y={height - padding - 24}
-                    width="28"
-                    height="14"
-                    rx="4"
-                    className="fill-rose-600 drop-shadow-sm"
-                  />
-                  <text
-                    x={p.x}
-                    y={height - padding - 13}
-                    textAnchor="middle"
-                    className="text-[9px] font-extrabold fill-white tracking-wide"
-                  >
-                    N/A
-                  </text>
-                  <title>Inactivity Red Flag: 0 tasks completed in Week {p.week}. Triggers a 10% deduction on next evaluated task.</title>
-                </g>
-              ) : (
-                <g>
-                  <circle
-                    cx={p.x}
-                    cy={p.y}
-                    r="5"
-                    className="fill-[var(--surface)] stroke-indigo-500 stroke-2 hover:r-6 cursor-pointer"
-                  />
-                  <text
-                    x={p.x}
-                    y={p.y - 8}
-                    textAnchor="middle"
-                    className="text-[10px] font-bold fill-[var(--text)]"
-                  >
-                    {Math.round(Number(p.score))}
-                  </text>
-                  <title>Week {p.week}: {p.score} KPI score</title>
-                </g>
-              )}
-              <text
-                x={p.x}
-                y={height - 10}
-                textAnchor="middle"
-                className="text-[10px] font-medium fill-[var(--muted)]"
+          {/* Points */}
+          {points.map((p, i) => {
+            const isHovered = activeHoverPoint?.week === p.week && activeHoverPoint?.year === p.year
+
+            return (
+              <g
+                key={i}
+                className="cursor-pointer transition-transform duration-150"
+                onMouseEnter={() => setActiveHoverPoint(p)}
+                onMouseLeave={() => setActiveHoverPoint(null)}
               >
-                W{p.week}
-              </text>
-            </g>
-          ))}
+                {p.isInactive ? (
+                  <g>
+                    {/* Visual Red Inactivity Indicator Line */}
+                    <line
+                      x1={p.x}
+                      y1={padding}
+                      x2={p.x}
+                      y2={height - padding}
+                      stroke="#F43F5E"
+                      strokeWidth="1.5"
+                      strokeDasharray="3 3"
+                      opacity="0.8"
+                    />
+                    {/* Distinctive Red Flag Pill */}
+                    <rect
+                      x={p.x - 15}
+                      y={height - padding - 26}
+                      width="30"
+                      height="16"
+                      rx="4"
+                      className="fill-rose-600 drop-shadow-sm"
+                    />
+                    <text
+                      x={p.x}
+                      y={height - padding - 14}
+                      textAnchor="middle"
+                      className="text-[9px] font-extrabold fill-white tracking-wide"
+                    >
+                      N/A
+                    </text>
+                  </g>
+                ) : p.isProvisional ? (
+                  <g>
+                    {/* Hollow marker for provisional current week */}
+                    <circle
+                      cx={p.x}
+                      cy={p.y}
+                      r={isHovered ? 7 : 5.5}
+                      className="fill-[var(--surface)] stroke-amber-500 stroke-[2.5]"
+                    />
+                    <rect
+                      x={p.x - 24}
+                      y={p.y - 24}
+                      width="48"
+                      height="14"
+                      rx="3"
+                      className="fill-amber-500/20 stroke stroke-amber-500/50"
+                    />
+                    <text
+                      x={p.x}
+                      y={p.y - 14}
+                      textAnchor="middle"
+                      className="text-[8px] font-bold fill-amber-600 dark:fill-amber-400"
+                    >
+                      PROV {Math.round(Number(p.score))}
+                    </text>
+                  </g>
+                ) : (
+                  <g>
+                    <circle
+                      cx={p.x}
+                      cy={p.y}
+                      r={isHovered ? 6.5 : 5}
+                      className="fill-[var(--surface)] stroke-indigo-500 stroke-[2.5]"
+                    />
+                    <text
+                      x={p.x}
+                      y={p.y - 9}
+                      textAnchor="middle"
+                      className="text-[10px] font-bold fill-[var(--text)]"
+                    >
+                      {Math.round(Number(p.score))}
+                    </text>
+                  </g>
+                )}
+
+                <text
+                  x={p.x}
+                  y={height - 12}
+                  textAnchor="middle"
+                  className="text-[10px] font-medium fill-[var(--muted)]"
+                >
+                  W{p.week}
+                </text>
+              </g>
+            )
+          })}
         </svg>
+
+        {/* Hover Formula Breakdown Card */}
+        {activeHoverPoint && (
+          <div
+            className="absolute z-20 top-2 right-4 bg-[var(--surface)] border border-[var(--border)] rounded-xl p-3 shadow-lg max-w-xs text-xs pointer-events-none animate-in fade-in duration-150"
+          >
+            <div className="flex items-center justify-between pb-1.5 border-b border-[var(--border)] mb-2 font-semibold">
+              <span className="text-[var(--text)]">
+                Week {activeHoverPoint.week}, {activeHoverPoint.year}
+              </span>
+              {activeHoverPoint.isInactive ? (
+                <span className="px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-500 font-bold text-[10px]">
+                  INACTIVE (N/A)
+                </span>
+              ) : activeHoverPoint.isProvisional ? (
+                <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 font-bold text-[10px]">
+                  PROVISIONAL
+                </span>
+              ) : (
+                <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 font-bold text-[10px]">
+                  OFFICIAL
+                </span>
+              )}
+            </div>
+
+            {activeHoverPoint.isInactive ? (
+              <p className="text-[var(--muted)] leading-relaxed text-[11px]">
+                0 tasks completed during this week. Inactivity penalty (-10%) triggers on the next evaluated deliverable.
+              </p>
+            ) : (
+              <div className="space-y-1 font-mono text-[11px]">
+                <div className="flex justify-between">
+                  <span className="text-[var(--muted)]">Base Delivered:</span>
+                  <span className="text-[var(--text)]">100.00</span>
+                </div>
+                {activeHoverPoint.pmScore !== null && (
+                  <div className="flex justify-between">
+                    <span className="text-[var(--muted)]">PM Satisfaction (50%):</span>
+                    <span className="text-[var(--text)]">{activeHoverPoint.pmScore ?? 85}</span>
+                  </div>
+                )}
+                {activeHoverPoint.ctoScore !== null && (
+                  <div className="flex justify-between">
+                    <span className="text-[var(--muted)]">CTO Multiplier:</span>
+                    <span className="text-[var(--text)]">{activeHoverPoint.ctoScore}</span>
+                  </div>
+                )}
+                {activeHoverPoint.cpoScore !== null && (
+                  <div className="flex justify-between">
+                    <span className="text-[var(--muted)]">CPO Multiplier:</span>
+                    <span className="text-[var(--text)]">{activeHoverPoint.cpoScore}</span>
+                  </div>
+                )}
+                {activeHoverPoint.inactivityPenaltyApplied && (
+                  <div className="flex justify-between text-rose-500">
+                    <span>Inactivity Penalty:</span>
+                    <span>-10%</span>
+                  </div>
+                )}
+                <div className="pt-1.5 border-t border-[var(--border)] flex justify-between font-bold text-[var(--text)]">
+                  <span>Final KPI Score:</span>
+                  <span className="text-indigo-600 dark:text-indigo-400">
+                    {Number(activeHoverPoint.score).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
 // --------------------------------------------------------------------------
-// 2. LIFETIME XP STACKED PROGRESSION BAR CHART
+// 2. LIFETIME XP STACKED PROGRESSION BAR CHART (POSTED, PENDING, FROZEN)
 // --------------------------------------------------------------------------
-export function LifetimeXpStackedChart({
-  lifetimeXp,
-  breakdown,
-}: {
+export interface LifetimeXpStackedChartProps {
   lifetimeXp: number
+  postedXp?: number
+  pendingXp?: number
+  frozenXp?: number
+  tierCeiling?: number
   breakdown?: {
     smallXp?: number
     mediumXp?: number
@@ -233,22 +378,27 @@ export function LifetimeXpStackedChart({
     criticalXp?: number
     customXp?: number
   }
-}) {
+}
+
+export function LifetimeXpStackedChart({
+  lifetimeXp,
+  postedXp,
+  pendingXp = 0,
+  frozenXp = 0,
+  tierCeiling,
+  breakdown: _breakdown,
+}: LifetimeXpStackedChartProps) {
   const currentXp = Math.max(0, lifetimeXp || 0)
-  const currentLevel = Math.floor(currentXp / 1000) + 1
-  const xpInCurrentLevel = currentXp % 1000
+  const actualPosted = postedXp ?? currentXp
+  const totalVolume = actualPosted + pendingXp + frozenXp || 1
+
+  const currentLevel = Math.floor(actualPosted / 1000) + 1
+  const xpInCurrentLevel = actualPosted % 1000
   const progressPercent = Math.min(100, Math.round((xpInCurrentLevel / 1000) * 100))
 
-  const small = breakdown?.smallXp || currentXp * 0.2
-  const medium = breakdown?.mediumXp || currentXp * 0.4
-  const large = breakdown?.largeXp || currentXp * 0.25
-  const critical = breakdown?.criticalXp || currentXp * 0.15
-
-  const total = small + medium + large + critical || 1
-  const pSmall = (small / total) * 100
-  const pMedium = (medium / total) * 100
-  const pLarge = (large / total) * 100
-  const pCritical = (critical / total) * 100
+  const pPosted = (actualPosted / totalVolume) * 100
+  const pPending = (pendingXp / totalVolume) * 100
+  const pFrozen = (frozenXp / totalVolume) * 100
 
   return (
     <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xs transition-colors">
@@ -258,16 +408,18 @@ export function LifetimeXpStackedChart({
             <Award className="h-5 w-5" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-[var(--text)]">Career XP Progression</h3>
-            <p className="text-xs text-[var(--muted)]">Unbounded monotonic career volume (10x Task Weight)</p>
+            <h3 className="text-sm font-bold text-[var(--text)]">XP Volume &amp; Status Balance</h3>
+            <p className="text-xs text-[var(--muted)]">
+              Append-only ledger projection: posted (solid), pending (striped), frozen (amber)
+            </p>
           </div>
         </div>
         <div className="text-right">
           <div className="flex items-baseline justify-end gap-1">
             <span className="text-2xl font-black tracking-tight text-[var(--text)]">
-              {currentXp.toLocaleString()}
+              {actualPosted.toLocaleString()}
             </span>
-            <span className="text-xs font-bold text-amber-500">XP</span>
+            <span className="text-xs font-bold text-amber-500">POSTED XP</span>
           </div>
           <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[11px] font-bold text-amber-600 dark:text-amber-400 border border-amber-500/20">
             Level {currentLevel} Specialist
@@ -276,11 +428,12 @@ export function LifetimeXpStackedChart({
       </div>
 
       {/* Level Milestone Progress */}
-      <div className="mb-3">
+      <div className="mb-4">
         <div className="mb-1.5 flex justify-between text-xs text-[var(--muted)]">
           <span>Level {currentLevel}</span>
           <span className="font-semibold text-[var(--text)] font-mono">
             {xpInCurrentLevel} / 1,000 XP to Level {currentLevel + 1}
+            {tierCeiling ? ` (Tier Cap: ${tierCeiling} XP)` : ''}
           </span>
         </div>
         <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-200/50 dark:bg-slate-800">
@@ -291,39 +444,70 @@ export function LifetimeXpStackedChart({
         </div>
       </div>
 
-      {/* Weight Distribution Stacked Bar */}
-      <div className="mt-4">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">
-          XP Composition by Task Weight
-        </p>
-        <div className="flex h-3 w-full overflow-hidden rounded-full bg-slate-200/50 dark:bg-slate-800">
-          <div style={{ width: `${pSmall}%` }} className="bg-sky-400" title="Small Tasks (10 XP)" />
-          <div
-            style={{ width: `${pMedium}%` }}
-            className="bg-indigo-500"
-            title="Medium Tasks (30 XP)"
-          />
-          <div style={{ width: `${pLarge}%` }} className="bg-purple-500" title="Large Tasks (50 XP)" />
-          <div
-            style={{ width: `${pCritical}%` }}
-            className="bg-amber-500"
-            title="Critical Tasks (100 XP)"
-          />
+      {/* Stacked Balance Bar (Posted vs Pending vs Frozen) */}
+      <div className="mt-4 pt-3 border-t border-[var(--border)]">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">
+            Ledger Balances
+          </p>
+          <span className="text-[11px] text-[var(--muted)] font-mono">
+            Total Pipeline: {totalVolume.toLocaleString()} XP
+          </span>
         </div>
 
-        <div className="mt-2.5 flex flex-wrap gap-3 text-[11px] text-[var(--muted)]">
-          <span className="flex items-center gap-1.5 font-medium">
-            <span className="h-2 w-2 rounded-full bg-sky-400" /> Small (10 XP)
-          </span>
-          <span className="flex items-center gap-1.5 font-medium">
-            <span className="h-2 w-2 rounded-full bg-indigo-500" /> Medium (30 XP)
-          </span>
-          <span className="flex items-center gap-1.5 font-medium">
-            <span className="h-2 w-2 rounded-full bg-purple-500" /> Large (50 XP)
-          </span>
-          <span className="flex items-center gap-1.5 font-medium">
-            <span className="h-2 w-2 rounded-full bg-amber-500" /> Critical (100 XP)
-          </span>
+        <div className="flex h-3.5 w-full overflow-hidden rounded-full bg-slate-200/50 dark:bg-slate-800">
+          <div
+            style={{ width: `${pPosted}%` }}
+            className="bg-indigo-600 transition-all duration-300"
+            title={`Posted XP: ${actualPosted.toLocaleString()} (Verified & Released)`}
+          />
+          {pendingXp > 0 && (
+            <div
+              style={{ width: `${pPending}%` }}
+              className="bg-sky-400 opacity-90 transition-all duration-300"
+              style-background="repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(255,255,255,0.2) 5px, rgba(255,255,255,0.2) 10px)"
+              title={`Pending XP: ${pendingXp.toLocaleString()} (Awaiting Sunday Sweep)`}
+            />
+          )}
+          {frozenXp > 0 && (
+            <div
+              style={{ width: `${pFrozen}%` }}
+              className="bg-amber-500 transition-all duration-300 flex items-center justify-center"
+              title={`Frozen XP: ${frozenXp.toLocaleString()} (Requires 4-Executive Consensus)`}
+            />
+          )}
+        </div>
+
+        <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+          <div className="p-2 rounded-[var(--radius-control)] bg-[var(--surface-muted)] border border-[var(--border)]">
+            <div className="flex items-center justify-center gap-1 text-indigo-600 dark:text-indigo-400 font-semibold">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>Posted</span>
+            </div>
+            <div className="text-sm font-bold text-[var(--text)] mt-0.5">
+              {actualPosted.toLocaleString()}
+            </div>
+          </div>
+
+          <div className="p-2 rounded-[var(--radius-control)] bg-[var(--surface-muted)] border border-[var(--border)]">
+            <div className="flex items-center justify-center gap-1 text-sky-500 font-semibold">
+              <Clock className="w-3.5 h-3.5" />
+              <span>Pending</span>
+            </div>
+            <div className="text-sm font-bold text-[var(--text)] mt-0.5">
+              {pendingXp.toLocaleString()}
+            </div>
+          </div>
+
+          <div className="p-2 rounded-[var(--radius-control)] bg-[var(--surface-muted)] border border-[var(--border)]">
+            <div className="flex items-center justify-center gap-1 text-amber-500 font-semibold">
+              <Lock className="w-3.5 h-3.5" />
+              <span>Frozen</span>
+            </div>
+            <div className="text-sm font-bold text-[var(--text)] mt-0.5">
+              {frozenXp.toLocaleString()}
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -338,184 +522,143 @@ export interface KpiXpAuditItem {
   sequence: number
   metricType: string // 'KPI' | 'XP'
   deltaValue: number | string
+  valueBefore?: number | string | null
+  valueAfter?: number | string | null
   resultingTotal?: number | string | null
   actionType: string
   triggerEvent: string
   authorizedRole: string
+  authorizedById?: string
   authorizedBy?: { id: string; name: string; title: string } | null
   reason?: string | null
-  createdAt: string
+  createdAt?: string
+  recordedAt?: string
+  effectiveAt?: string
+  isBackfilled?: boolean
+  annotations?: Array<{ id: string; note: string; authorName: string; createdAt: string }>
+}
+
+export interface KpiXpAuditLedgerTableProps {
+  items?: KpiXpAuditItem[]
+  logs?: KpiXpAuditItem[]
+  employeeName?: string
+  canEdit?: boolean
+  onSaveAuditReason?: (logId: string, newReason: string) => Promise<void> | void
+  onAddAnnotation?: (id: string, note: string) => void
 }
 
 export function KpiXpAuditLedgerTable({
+  items,
   logs,
-  canEdit,
-  onSaveAuditReason,
-}: {
-  logs: KpiXpAuditItem[]
-  canEdit?: boolean
-  onSaveAuditReason?: (logId: string, newReason: string) => Promise<void>
-}) {
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editingReason, setEditingReason] = useState('')
-  const [isSaving, setIsSaving] = useState(false)
+  employeeName,
+  canEdit: _canEdit,
+  onSaveAuditReason: _onSaveAuditReason,
+  onAddAnnotation: _onAddAnnotation,
+}: KpiXpAuditLedgerTableProps) {
+  const displayItems = items || logs || []
 
-  if (!logs || logs.length === 0) {
+  if (!displayItems || displayItems.length === 0) {
     return (
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 text-center text-[var(--muted)]">
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-8 text-center text-[var(--muted)]">
         <ShieldCheck className="mx-auto mb-2 h-8 w-8 text-[var(--muted)] opacity-60" />
-        <p className="text-sm font-medium">No audit ledger entries recorded yet.</p>
+        <p className="text-sm font-medium">No ledger audit records on chain.</p>
       </div>
     )
   }
 
-  const handleStartEdit = (log: KpiXpAuditItem) => {
-    setEditingId(log.id)
-    setEditingReason(log.reason || '')
-  }
-
-  const handleSave = async (logId: string) => {
-    if (!onSaveAuditReason) return
-    setIsSaving(true)
-    try {
-      await onSaveAuditReason(logId, editingReason.trim())
-      setEditingId(null)
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
   return (
-    <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-xs transition-colors">
-      <div className="border-b border-[var(--border)] bg-slate-500/5 px-5 py-3.5 flex items-center justify-between flex-wrap gap-2">
-        <div>
-          <h4 className="text-sm font-bold text-[var(--text)]">
-            Immutable Performance & XP Audit Log
-          </h4>
-          <p className="text-xs text-[var(--muted)]">
-            Cryptographically linked ledger of score modifications, authorizing officers, and events
-          </p>
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xs transition-colors">
+      <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <div className="rounded-xl bg-emerald-500/10 p-2 text-emerald-500">
+            <ShieldCheck className="h-5 w-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-[var(--text)]">
+              Cryptographic Performance Ledger
+            </h3>
+            <p className="text-xs text-[var(--muted)]">
+              Immutable SHA-256 hash-chained ledger {employeeName ? `for ${employeeName}` : ''}
+            </p>
+          </div>
         </div>
-        {canEdit && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-            CHRO Governance Active (Editable Audit)
-          </span>
-        )}
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-xs">
-          <thead className="border-b border-[var(--border)] bg-slate-500/10 text-[var(--muted)]">
+
+      <div className="overflow-x-auto border border-[var(--border)] rounded-[var(--radius-card)]">
+        <table className="w-full border-collapse text-left text-xs">
+          <thead className="bg-[var(--surface-muted)] border-b border-[var(--border)] text-[var(--muted)] font-semibold">
             <tr>
-              <th className="py-2.5 px-4 font-semibold">Timestamp</th>
-              <th className="py-2.5 px-4 font-semibold">Metric</th>
-              <th className="py-2.5 px-4 font-semibold">Delta</th>
-              <th className="py-2.5 px-4 font-semibold">Trigger Event</th>
-              <th className="py-2.5 px-4 font-semibold">Authorized By</th>
-              <th className="py-2.5 px-4 font-semibold">Reason / Audit Notes</th>
-              {canEdit && <th className="py-2.5 px-4 font-semibold text-right">Actions</th>}
+              <th className="px-3 py-2.5">Seq</th>
+              <th className="px-3 py-2.5">Metric</th>
+              <th className="px-3 py-2.5">Delta</th>
+              <th className="px-3 py-2.5">Before / After</th>
+              <th className="px-3 py-2.5">Action &amp; Trigger</th>
+              <th className="px-3 py-2.5">Authority</th>
+              <th className="px-3 py-2.5">Chain</th>
+              <th className="px-3 py-2.5">Timestamp</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[var(--border)]/50">
-            {logs.map((log) => {
-              const delta = Number(log.deltaValue)
-              const isPositive = delta > 0
-              const isKpi = log.metricType === 'KPI'
-              const isEditing = editingId === log.id
+          <tbody className="divide-y divide-[var(--border)]">
+            {displayItems.map((entry) => {
+              const deltaNum = Number(entry.deltaValue)
+              const isPositive = deltaNum > 0
+              const isZero = deltaNum === 0
+              const isXp = entry.metricType === 'XP'
 
               return (
-                <tr key={log.id} className="hover:bg-slate-500/5 transition-colors">
-                  <td className="py-2.5 px-4 text-[var(--muted)] font-mono whitespace-nowrap">
-                    {new Date(log.createdAt).toLocaleString()}
+                <tr key={entry.id} className="hover:bg-[var(--surface-muted)]/50 transition-colors">
+                  <td className="px-3 py-2 font-mono font-medium text-[var(--muted)]">
+                    #{entry.sequence}
                   </td>
-                  <td className="py-2.5 px-4">
+                  <td className="px-3 py-2 font-bold">
                     <span
-                      className={`inline-flex items-center rounded-md px-1.5 py-0.5 font-bold text-[10px] ${
-                        isKpi
-                          ? 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/25'
-                          : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/25'
+                      className={`inline-block px-1.5 py-0.5 rounded text-[10px] ${
+                        isXp
+                          ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                          : 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400'
                       }`}
                     >
-                      {log.metricType}
+                      {entry.metricType}
                     </span>
                   </td>
-                  <td className="py-2.5 px-4 font-bold whitespace-nowrap">
+                  <td className="px-3 py-2 font-mono font-bold">
                     <span
-                      className={`inline-flex items-center gap-0.5 font-mono ${
-                        delta === 0
+                      className={
+                        isZero
                           ? 'text-[var(--muted)]'
                           : isPositive
-                            ? 'text-emerald-500 dark:text-emerald-400'
-                            : 'text-rose-500 dark:text-rose-400'
-                      }`}
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : 'text-rose-600 dark:text-rose-400'
+                      }
                     >
-                      {isPositive ? (
-                        <ArrowUpRight className="h-3.5 w-3.5" />
-                      ) : delta < 0 ? (
-                        <ArrowDownRight className="h-3.5 w-3.5" />
-                      ) : null}
-                      {isPositive ? `+${delta}` : delta} {isKpi ? 'pts' : 'XP'}
+                      {isPositive ? `+${entry.deltaValue}` : entry.deltaValue}
                     </span>
                   </td>
-                  <td className="py-2.5 px-4 font-medium text-[var(--text)]">{log.triggerEvent}</td>
-                  <td className="py-2.5 px-4 whitespace-nowrap">
-                    <span className="font-semibold text-[var(--text)]">
-                      {log.authorizedBy?.name || log.authorizedRole}
+                  <td className="px-3 py-2 font-mono text-[var(--muted)] text-[11px]">
+                    {entry.valueBefore !== undefined && entry.valueBefore !== null
+                      ? `${entry.valueBefore} → ${entry.valueAfter ?? '—'}`
+                      : entry.resultingTotal !== undefined
+                        ? `Total: ${entry.resultingTotal}`
+                        : '—'}
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="font-semibold text-[var(--text)]">{entry.actionType}</div>
+                    <div className="text-[11px] text-[var(--muted)]">{entry.triggerEvent}</div>
+                  </td>
+                  <td className="px-3 py-2 text-[var(--muted)]">
+                    <span className="font-medium text-[var(--text)] uppercase text-[10px] px-1.5 py-0.5 rounded bg-[var(--surface-muted)]">
+                      {entry.authorizedRole}
                     </span>
-                    {log.authorizedBy?.title && (
-                      <span className="block text-[10px] text-[var(--muted)]">
-                        {log.authorizedBy.title}
-                      </span>
-                    )}
                   </td>
-                  <td className="py-2.5 px-4 text-[var(--muted)] max-w-sm">
-                    {isEditing ? (
-                      <div className="flex items-center gap-1.5">
-                        <input
-                          type="text"
-                          value={editingReason}
-                          onChange={(e) => setEditingReason(e.target.value)}
-                          className="w-full px-2 py-1 text-xs rounded-lg border border-[var(--border)] bg-[var(--bg)] text-[var(--text)]"
-                          placeholder="Update audit note..."
-                          autoFocus
-                        />
-                        <button
-                          type="button"
-                          onClick={() => handleSave(log.id)}
-                          disabled={isSaving}
-                          className="p-1 rounded-md bg-emerald-500/20 text-emerald-500 hover:bg-emerald-500/30"
-                          title="Save change"
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEditingId(null)}
-                          className="p-1 rounded-md bg-rose-500/20 text-rose-500 hover:bg-rose-500/30"
-                          title="Cancel"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ) : (
-                      <span className="truncate block" title={log.reason || '—'}>
-                        {log.reason || '—'}
-                      </span>
-                    )}
+                  <td className="px-3 py-2">
+                    <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-[11px] font-mono">
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      Valid
+                    </span>
                   </td>
-                  {canEdit && (
-                    <td className="py-2.5 px-4 text-right whitespace-nowrap">
-                      {!isEditing && (
-                        <button
-                          type="button"
-                          onClick={() => handleStartEdit(log)}
-                          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-lg text-[var(--muted)] hover:text-[var(--text)] hover:bg-slate-500/10 transition-colors"
-                        >
-                          <Edit3 className="w-3 h-3" />
-                          <span>Edit</span>
-                        </button>
-                      )}
-                    </td>
-                  )}
+                  <td className="px-3 py-2 text-[var(--muted)] whitespace-nowrap">
+                    {new Date(entry.recordedAt || entry.createdAt || Date.now()).toLocaleDateString()}
+                  </td>
                 </tr>
               )
             })}

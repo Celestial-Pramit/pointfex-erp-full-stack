@@ -461,7 +461,10 @@ describe('Verification Suite: Dynamic "Chief AI Officer" Role, Effective Profile
       status: 'ACTIVE',
       startsAt: new Date(Date.now() - 60_000),
       expiresAt: new Date(Date.now() + 3600_000),
-      permissions: [{ permission: { code: 'governance:read' } }],
+      permissions: [
+        { permission: { code: 'governance:read' } },
+        { permission: { code: 'roles:read' } },
+      ],
       scopes: [{ scope: 'ORG', scopeIds: [] }],
     })
     denials.push({

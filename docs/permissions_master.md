@@ -917,3 +917,12 @@ The following permissions are registered for tier-based access, executive voting
 | `suggestions:forward` | PM Review & Forward Proposal to Vote | | Forward developer proposals to executive vote |
 | `employees:read_basic` | View Public Minimal Directory Information | | Non-admin minimal public directory view |
 | `access_history:read` | View Access & Governance Change History | | Immutable timeline view of access changes |
+| `tasks:propose_weight` | Propose Task Weight (PM) | | PM propose category or custom points subject to CHRO verification |
+| `tasks:verify_weight` | Verify Task Weight (CHRO) | | CHRO approve, modify, or reject proposed task weights |
+| `kpis:score_exec` | C-Level Read-Receipt Scoring | | CTO, CPO, CFO, CHRO read-receipt confirmation and adjustment |
+| `kpis:discipline_deduct` | Deduct KPI for Disciplinary Event | ⚠ | CHRO/CEO percentage deduction with fresh MFA and audit reference |
+| `kpis:backfill` | Backfill Past-Dated Task & Review Data | | PM backfill within active grace window |
+| `kpis:backfill_override` | Override Backfill Window | ⚠ | CHRO/CEO post-window backfill authority with fresh MFA |
+| `kpis:read_squad_log` | Inspect Squad Members KPI & XP Logs | | PM inspection of squad developers' ledgers |
+| `kpis:read_any_log` | Inspect Any Employee KPI & XP Logs | | C-Level universal inspection of performance ledgers |
+| `xp:release_frozen` | Vote to Release Frozen Massive XP | | C-Level consensus vote on >= 200 XP threshold |

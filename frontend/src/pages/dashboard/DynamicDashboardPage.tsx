@@ -135,6 +135,7 @@ export function DynamicDashboardPage() {
   const [kpiHistory, setKpiHistory] = useState<WeeklyKpiItem[]>([])
   const [kpiAuditLogs, setKpiAuditLogs] = useState<KpiXpAuditItem[]>([])
   const [perfSummary, setPerfSummary] = useState<any>(null)
+  const [xpSummary, setXpSummary] = useState<{ postedXp?: number; pendingXp?: number; frozenXp?: number } | null>(null)
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false)
   const [isOverrideModalOpen, setIsOverrideModalOpen] = useState(false)
 
@@ -164,11 +165,26 @@ export function DynamicDashboardPage() {
   const fetchPerformanceData = useCallback(() => {
     if (!currentUser?.id) return
     erpApi
-      .getEmployeeKpiHistory(currentUser.id)
+      .getMyKpiSeries()
       .then((rows) => {
         if (Array.isArray(rows) && rows.length > 0) {
           setKpiHistory(rows)
         }
+      })
+      .catch(() => {
+        // Fallback to legacy endpoint if available
+        erpApi
+          .getEmployeeKpiHistory(currentUser.id)
+          .then((rows) => {
+            if (Array.isArray(rows) && rows.length > 0) setKpiHistory(rows)
+          })
+          .catch(() => {})
+      })
+
+    erpApi
+      .getMyXpSummary()
+      .then((summary) => {
+        if (summary) setXpSummary(summary)
       })
       .catch(() => {})
 
@@ -563,7 +579,12 @@ export function DynamicDashboardPage() {
         {/* Dynamic Dual-Metric Charts Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
           <WeeklyKpiTrendGraph data={displayKpiHistory} />
-          <LifetimeXpStackedChart lifetimeXp={effectiveLifetimeXp} />
+          <LifetimeXpStackedChart
+            lifetimeXp={effectiveLifetimeXp}
+            postedXp={xpSummary?.postedXp}
+            pendingXp={xpSummary?.pendingXp}
+            frozenXp={xpSummary?.frozenXp}
+          />
         </div>
       </div>
 

@@ -174,3 +174,32 @@ Generated from backend controllers (170 routes).
 | `PATCH` | `/api/teams/:id` | 'teams:update' | — |
 | `POST` | `/api/teams/:id/members` | 'teams:manage_members' | — |
 | `DELETE` | `/api/teams/:id/members/:employeeId` | 'teams:manage_members' | — |
+| `POST` | `/api/tasks/:id/propose-weight` | 'tasks:propose_weight' | — |
+| `POST` | `/api/tasks/:id/verify-weight` | 'tasks:verify_weight' | tasks:verify_weight |
+| `POST` | `/api/tasks/:id/return` | 'tasks:approve' | — |
+| `GET` | `/api/performance/exec-scores/inbox` | 'kpis:score_exec' | — |
+| `POST` | `/api/performance/exec-scores/:id/confirm` | 'kpis:score_exec' | — |
+| `POST` | `/api/performance/exec-scores/:id/adjust` | 'kpis:score_exec' | — |
+| `GET` | `/api/performance/legacy-xp-corrections/preview` | 'tasks:verify_weight' | — |
+| `POST` | `/api/performance/legacy-xp-corrections/apply` | 'tasks:verify_weight' | tasks:verify_weight |
+| `POST` | `/api/performance/tasks/weight-verification/:id/vote` | 'xp:release_frozen' | xp:release_frozen |
+| `GET` | `/api/performance/tasks/weight-verification/:id/tally` | 'xp:release_frozen' | — |
+| `POST` | `/api/performance/tasks/weight-verification/:id/ceo-override` | 'system:root' | xp:release_frozen |
+| `POST` | `/api/performance/milestones/:id/complete-with-xp` | 'tasks:approve' | — |
+| `POST` | `/api/performance/milestones/verification/:id/approve` | 'xp:release_frozen' | — |
+| `GET` | `/api/performance/pm-evaluations/inbox` | 'kpis:score_exec' | — |
+| `POST` | `/api/performance/pm-evaluations/:id/confirm` | 'kpis:score_exec' | — |
+| `POST` | `/api/performance/pm-evaluations/:id/adjust` | 'kpis:score_exec' | — |
+| `POST` | `/api/performance/c-level/peer-eval` | 'kpis:score_exec' | — |
+| `POST` | `/api/performance/disciplinary` | 'kpis:discipline_deduct' | kpis:discipline_deduct |
+| `POST` | `/api/performance/disciplinary/:id/reverse` | 'kpis:discipline_deduct' | kpis:discipline_deduct |
+| `GET` | `/api/performance/ledger/me` | Authenticated | — |
+| `GET` | `/api/performance/ledger/:userId` | 'kpis:read_squad_log', 'kpis:read_any_log' | — |
+| `GET` | `/api/performance/ledger/export` | 'kpis:export', 'xp:export' | — |
+| `GET` | `/api/performance/kpi/me` | Authenticated | — |
+| `GET` | `/api/performance/kpi/:userId` | 'kpis:read_squad_log', 'kpis:read_any_log' | — |
+| `GET` | `/api/performance/xp/me` | Authenticated | — |
+| `GET` | `/api/performance/xp/:userId` | 'kpis:read_squad_log', 'kpis:read_any_log' | — |
+| `GET` | `/api/performance/leaderboard` | 'leaderboards:read' | — |
+| `GET` | `/api/cron/sweep` | Public (Header `x-cron-secret`) | — |
+| `POST` | `/api/cron/sweep` | Public (Header `x-cron-secret`) | — |

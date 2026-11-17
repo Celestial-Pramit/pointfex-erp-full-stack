@@ -1,6 +1,6 @@
 {
   "name": "pointfex-erp-backend",
-  "version": "3.14.0",
+  "version": "4.0.0",
   "description": "Pointfex ERP Backend - NestJS + TypeScript + Prisma + PostgreSQL",
   "author": "Pointfex Engineering",
   "private": true,
@@ -87,6 +87,14 @@
     "collectCoverageFrom": [
       "**/*.(t|j)s"
     ],
+    "coverageThreshold": {
+      "./src/performance/kpi-engine/": {
+        "statements": 100,
+        "branches": 100,
+        "functions": 100,
+        "lines": 100
+      }
+    },
     "coverageDirectory": "../coverage",
     "testEnvironment": "node",
     "testTimeout": 30000

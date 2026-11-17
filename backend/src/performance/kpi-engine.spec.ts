@@ -55,9 +55,14 @@ describe('KpiEngineService - Dual-Metric Governance & Mathematical Formulas', ()
         findMany: jest.fn(),
       },
       kpiXpAuditLog: {
+        findUnique: jest.fn(),
         findFirst: jest.fn(),
         create: jest.fn(),
         findMany: jest.fn(),
+        update: jest.fn(),
+      },
+      auditAnnotation: {
+        create: jest.fn(),
       },
       $transaction: jest.fn((callback) => callback(prisma)),
     }
@@ -577,6 +582,52 @@ describe('KpiEngineService - Dual-Metric Governance & Mathematical Formulas', ()
 
       expect(Number(res.score)).toBe(93.8)
       expect(res.roleLevel).toBe(4)
+    })
+  })
+
+  describe('13. Stopgap: Audit Log Annotation (Append-Only Non-Mutating)', () => {
+    it('should create an AuditAnnotation row instead of mutating kpi_xp_audit_logs when CHRO annotates', async () => {
+      prisma.kpiXpAuditLog.findUnique.mockResolvedValue({
+        id: 'log_01',
+        employeeId: 'emp_dev_01',
+        metricType: 'XP',
+        reason: 'Original reason',
+      })
+
+      prisma.auditAnnotation.create.mockResolvedValue({
+        id: 'annot_01',
+        auditLogId: 'log_01',
+        authorId: 'emp_chro_01',
+        note: 'CHRO annotation explaining verification audit',
+      })
+
+      const chroActor: any = { id: 'emp_chro_01', role: 'chro', email: 'chro@pointfex.com' }
+      const res = await service.updateAuditLogEntry(
+        'log_01',
+        { notes: 'CHRO annotation explaining verification audit' },
+        chroActor,
+      )
+
+      expect(res).toBeDefined()
+      expect(res.id).toBe('annot_01')
+      expect(prisma.kpiXpAuditLog.update).not.toHaveBeenCalled()
+      expect(prisma.auditAnnotation.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            auditLogId: 'log_01',
+            authorId: 'emp_chro_01',
+            note: 'CHRO annotation explaining verification audit',
+          }),
+        }),
+      )
+    })
+
+    it('should reject non-executive non-CHRO actors attempting to annotate audit logs', async () => {
+      const devActor: any = { id: 'emp_dev_01', role: 'developer', email: 'dev@pointfex.com' }
+
+      await expect(
+        service.updateAuditLogEntry('log_01', { notes: 'Dev attempt' }, devActor),
+      ).rejects.toThrow('Unauthorized: Only CHRO')
     })
   })
 })

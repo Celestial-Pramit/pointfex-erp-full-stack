@@ -130,6 +130,17 @@ const DelegationCenterPage = lazy(() =>
 const UnifiedInboxPage = lazy(() =>
   import('./pages/security/UnifiedInboxPage').then((m) => ({ default: m.UnifiedInboxPage })),
 )
+const MyPerformancePage = lazy(() =>
+  import('./pages/performance/MyPerformancePage').then((m) => ({ default: m.MyPerformancePage })),
+)
+const PerformanceLedgerPage = lazy(() =>
+  import('./pages/performance/PerformanceLedgerPage').then((m) => ({
+    default: m.PerformanceLedgerPage,
+  })),
+)
+const LeaderboardPage = lazy(() =>
+  import('./pages/performance/LeaderboardPage').then((m) => ({ default: m.LeaderboardPage })),
+)
 const AccessDeniedPage = lazy(() =>
   import('./pages/security/AccessDeniedPage').then((m) => ({ default: m.AccessDeniedPage })),
 )
@@ -220,19 +231,15 @@ function MainContentRouter() {
   }
   if (
     currentRoute === 'access-control' &&
-    canAny([
+    (canAny([
       'roles:read',
       'roles:create',
       'roles:update',
       'roles:delete',
       'users:assign_role',
       'permissions:read',
-      'permissions:delegate',
-      'delegations:create',
-      'governance:read',
-      'decisions:read',
-      'decisions:ratify',
-    ])
+    ]) ||
+      can('system:root'))
   ) {
     return <CeoRoleMatrixPage />
   }
@@ -349,6 +356,15 @@ function MainContentRouter() {
   }
   if (currentRoute === 'settings' || currentRoute === 'my-account') {
     return <MyAccountPage />
+  }
+  if (currentRoute === 'my-performance') {
+    return <MyPerformancePage />
+  }
+  if (currentRoute === 'performance-ledger') {
+    return <PerformanceLedgerPage />
+  }
+  if (currentRoute === 'leaderboard') {
+    return <LeaderboardPage />
   }
   if (currentRoute === 'login-access') {
     return <LoginAccessPage />

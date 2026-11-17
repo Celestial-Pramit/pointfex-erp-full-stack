@@ -4,6 +4,7 @@ import { Badge } from '../../components/common/Badge'
 import { StatusPill } from '../../components/common/StatusPill'
 import { Button } from '../../components/common/Button'
 import { Modal } from '../../components/common/Modal'
+import { EmptyState } from '../../components/common/EmptyState'
 import { usePmData } from '../../hooks/usePmData'
 import { useApp } from '../../context/AppContext'
 import { formatCurrency, formatDate } from '../../utils/formatters'
@@ -94,8 +95,17 @@ export function PmProjectsPage() {
       </div>
 
       {/* Projects Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-        {teamProjects.map((project) => {
+      {teamProjects.length === 0 ? (
+        <Card>
+          <EmptyState
+            icon={FolderGit2}
+            title="No managed projects assigned"
+            description="Projects assigned to your squad will appear here."
+          />
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+          {teamProjects.map((project) => {
           const srs = project.srs
           const milestones: ProjectMilestone[] = project.milestones || []
 
@@ -326,6 +336,7 @@ export function PmProjectsPage() {
           )
         })}
       </div>
+      )}
 
       {/* Modal: Add Milestone */}
       <Modal

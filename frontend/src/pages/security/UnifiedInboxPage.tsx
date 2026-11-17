@@ -8,6 +8,12 @@ import {
   Search,
   ShieldAlert,
   XCircle,
+  Lock,
+  Users,
+  ThumbsUp,
+  ThumbsDown,
+  Award,
+  Sparkles,
 } from 'lucide-react'
 import { erpApi } from '../../api/client'
 import { useApp } from '../../context/AppContext'
@@ -29,6 +35,7 @@ import { Button } from '../../components/common/Button'
 import { EmptyState } from '../../components/common/EmptyState'
 import { SkeletonCard } from '../../components/common/Skeleton'
 import { Tabs } from '../../components/common/Tabs'
+import { Modal } from '../../components/common/Modal'
 import { MfaConfirmModal } from '../../components/common/MfaConfirmModal'
 import { ApprovalInboxPage } from './ApprovalInboxPage'
 
@@ -42,7 +49,10 @@ export function UnifiedInboxPage() {
     currentUser?.role === 'system:root' ||
     Boolean((currentUser as any)?.roles?.includes?.('system:root'))
 
-  const [tab, setTab] = useState<'queue' | 'workflows'>('queue')
+  const userRole = (currentUser?.role || '').toLowerCase()
+  const isExecutive = ['ceo', 'cto', 'cpo', 'cfo', 'chro', 'system:root'].includes(userRole)
+
+  const [tab, setTab] = useState<'queue' | 'executive' | 'workflows'>('queue')
   const [typeFilter, setTypeFilter] = useState<UnifiedInboxItemType | 'all'>('all')
   const [search, setSearch] = useState('')
   const [reasonDrafts, setReasonDrafts] = useState<Record<string, string>>({})
@@ -52,6 +62,28 @@ export function UnifiedInboxPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isMutating, setIsMutating] = useState(false)
+
+  // Executive KPI/XP Review State
+  const [execScores, setExecScores] = useState<any[]>([])
+  const [pmEvals, setPmEvals] = useState<any[]>([])
+  const [consensusRequests, setConsensusRequests] = useState<any[]>([])
+  const [adjustingItem, setAdjustingItem] = useState<{
+    id: string
+    type: 'score' | 'pm_eval'
+    title: string
+    currentScore: number
+  } | null>(null)
+  const [adjustmentScore, setAdjustmentScore] = useState<number>(85)
+  const [adjustmentReason, setAdjustmentReason] = useState<string>('')
+  const [votingConsensusItem, setVotingConsensusItem] = useState<{
+    id: string
+    title: string
+    decision: 'APPROVE' | 'REJECT'
+  } | null>(null)
+  const [consensusVoteNotes, setConsensusVoteNotes] = useState<string>('')
+  const [peerSynergyTarget, setPeerSynergyTarget] = useState<string>('')
+  const [peerSynergyScore, setPeerSynergyScore] = useState<number>(4)
+  const [peerSynergyNotes, setPeerSynergyNotes] = useState<string>('')
 
   const [approvals, setApprovals] = useState<any[]>([])
   const [accessRequests, setAccessRequests] = useState<any[]>([])
@@ -93,6 +125,33 @@ export function UnifiedInboxPage() {
     }
   }, [canApproveAccess, canApproveEmailRequests, canApproveDelegations, canApproveBudgets])
 
+  const fetchExecutiveSources = useCallback(async () => {
+    if (!isExecutive) return
+    try {
+      const [scores, evals, queue] = await Promise.all([
+        erpApi.getExecScoresInbox().catch(() => []),
+        erpApi.getPmEvaluationsInbox().catch(() => []),
+        erpApi.getChroWeightQueue().catch(() => []),
+      ])
+
+      setExecScores(Array.isArray(scores) ? scores : [])
+      setPmEvals(Array.isArray(evals) ? evals : [])
+      setConsensusRequests(
+        Array.isArray(queue)
+          ? queue.filter(
+              (q: any) =>
+                q.isMassiveXp ||
+                q.massiveXpFrozen ||
+                q.status === 'PENDING_CONSENSUS' ||
+                (q.consensusVotes && q.consensusVotes.length > 0),
+            )
+          : [],
+      )
+    } catch {
+      // ignore
+    }
+  }, [isExecutive])
+
   const reloadInbox = useCallback(async () => {
     setIsLoading(true)
     try {
@@ -103,10 +162,11 @@ export function UnifiedInboxPage() {
       setMyReceivedDelegations(res.receivedDelegations)
       setPendingDelegations(res.allDelegations)
       setBudgetRequests(res.budgets)
+      await fetchExecutiveSources()
     } finally {
       setIsLoading(false)
     }
-  }, [fetchSources])
+  }, [fetchSources, fetchExecutiveSources])
 
   useEffect(() => {
     let cancelled = false
@@ -119,6 +179,7 @@ export function UnifiedInboxPage() {
         setMyReceivedDelegations(res.receivedDelegations)
         setPendingDelegations(res.allDelegations)
         setBudgetRequests(res.budgets)
+        void fetchExecutiveSources()
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false)
@@ -126,7 +187,97 @@ export function UnifiedInboxPage() {
     return () => {
       cancelled = true
     }
-  }, [fetchSources])
+  }, [fetchSources, fetchExecutiveSources])
+
+  const handleConfirmExecScore = async (id: string) => {
+    try {
+      await erpApi.confirmExecScore(id)
+      showToast('Executive score confirmed and recorded.', 'success')
+      void fetchExecutiveSources()
+    } catch (err: any) {
+      showToast(err.message || 'Failed to confirm score', 'error')
+    }
+  }
+
+  const handleConfirmPmEval = async (id: string) => {
+    try {
+      await erpApi.confirmPmEvaluation(id)
+      showToast('PM weekly evaluation confirmed.', 'success')
+      void fetchExecutiveSources()
+    } catch (err: any) {
+      showToast(err.message || 'Failed to confirm evaluation', 'error')
+    }
+  }
+
+  const handleAdjustScore = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    if (!adjustingItem || !adjustmentReason.trim()) {
+      showToast('Adjustment justification is required.', 'error')
+      return
+    }
+
+    try {
+      if (adjustingItem.type === 'score') {
+        await erpApi.adjustExecScore(adjustingItem.id, {
+          score: Number(adjustmentScore),
+          reason: adjustmentReason.trim(),
+        })
+        showToast('Executive score adjusted with reason.', 'success')
+      } else {
+        await erpApi.adjustPmEvaluation(adjustingItem.id, {
+          score: Number(adjustmentScore),
+          reason: adjustmentReason.trim(),
+        })
+        showToast('PM evaluation adjusted with reason.', 'success')
+      }
+      setAdjustingItem(null)
+      setAdjustmentReason('')
+      void fetchExecutiveSources()
+    } catch (err: any) {
+      showToast(err.message || 'Failed to adjust score', 'error')
+    }
+  }
+
+  const handleConsensusVote = async (mfaCode: string) => {
+    if (!votingConsensusItem) return
+    try {
+      await erpApi.castConsensusVote(
+        votingConsensusItem.id,
+        {
+          decision: votingConsensusItem.decision,
+          notes: consensusVoteNotes.trim() || undefined,
+        },
+        mfaCode ? { 'x-mfa-code': mfaCode } : undefined,
+      )
+      showToast(`Consensus vote (${votingConsensusItem.decision}) recorded with MFA.`, 'success')
+      setVotingConsensusItem(null)
+      setConsensusVoteNotes('')
+      void fetchExecutiveSources()
+    } catch (err: any) {
+      showToast(err.message || 'Failed to cast consensus vote', 'error')
+    }
+  }
+
+  const handleRecordPeerSynergy = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!peerSynergyTarget || !peerSynergyNotes.trim()) {
+      showToast('Select peer executive and provide collaboration notes.', 'error')
+      return
+    }
+
+    try {
+      await erpApi.recordCLevelPeerEval({
+        targetExecutiveId: peerSynergyTarget,
+        score: Number(peerSynergyScore),
+        notes: peerSynergyNotes.trim(),
+      })
+      showToast('Peer synergy evaluation recorded for weekly roll-up.', 'success')
+      setPeerSynergyTarget('')
+      setPeerSynergyNotes('')
+    } catch (err: any) {
+      showToast(err.message || 'Failed to record peer synergy', 'error')
+    }
+  }
 
   const allItems = useMemo(
     () =>
@@ -408,19 +559,347 @@ export function UnifiedInboxPage() {
         }
       />
 
-      {canAdminEngine && (
+      {(canAdminEngine || isExecutive) && (
         <Tabs
           tabs={[
             { id: 'queue', label: 'Action Queue', count: allItems.length },
-            { id: 'workflows', label: 'Approval Engine Admin' },
+            ...(isExecutive
+              ? [
+                  {
+                    id: 'executive',
+                    label: 'Executive Reviews & Consensus',
+                    count: execScores.length + pmEvals.length + consensusRequests.length,
+                  },
+                ]
+              : []),
+            ...(canAdminEngine ? [{ id: 'workflows', label: 'Approval Engine Admin' }] : []),
           ]}
           activeId={tab}
-          onChange={(id) => setTab(id as 'queue' | 'workflows')}
+          onChange={(id) => setTab(id as any)}
         />
       )}
 
       {tab === 'workflows' && canAdminEngine ? (
         <ApprovalInboxPage />
+      ) : tab === 'executive' && isExecutive ? (
+        <div className="space-y-6">
+          {/* Executive Read-Receipt Review Cards */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-[var(--text)] flex items-center gap-2">
+                  <Award className="w-4 h-4 text-indigo-500" />
+                  Deliverable Read-Receipt Scoring ({execScores.length})
+                </h3>
+                <p className="text-xs text-[var(--muted)]">
+                  C-Suite provisional score confirmation. One-click confirm or adjust with justification.
+                </p>
+              </div>
+            </div>
+
+            {execScores.length === 0 ? (
+              <EmptyState
+                icon={CheckCircle2}
+                title="All Executive Score Reviews Complete"
+                description="No pending deliverable read-receipts awaiting your confirmation."
+              />
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {execScores.map((scoreItem) => (
+                  <Card key={scoreItem.id} className="p-4 space-y-3 border-[var(--border)]">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-600 uppercase font-mono">
+                          {scoreItem.execRole} Score
+                        </span>
+                        <h4 className="text-sm font-bold text-[var(--text)] mt-1 line-clamp-1">
+                          {scoreItem.task?.title || 'Deliverable'}
+                        </h4>
+                        <div className="text-xs text-[var(--muted)] mt-0.5">
+                          Assignee: {scoreItem.task?.assignee?.name || 'Developer'} • Project:{' '}
+                          {scoreItem.task?.project?.name || 'General'}
+                        </div>
+                      </div>
+
+                      <div className="text-right">
+                        <span className="text-[11px] text-[var(--muted)] block">Score</span>
+                        <span className="text-lg font-bold text-[var(--text)] font-mono">
+                          {Number(scoreItem.score)} / 100
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-2 border-t border-[var(--border)]">
+                      <Button
+                        variant="primary"
+                        size="xs"
+                        className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                        onClick={() => void handleConfirmExecScore(scoreItem.id)}
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                        Confirm (a)
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="xs"
+                        onClick={() => {
+                          setAdjustingItem({
+                            id: scoreItem.id,
+                            type: 'score',
+                            title: scoreItem.task?.title || 'Deliverable',
+                            currentScore: Number(scoreItem.score),
+                          })
+                          setAdjustmentScore(Number(scoreItem.score))
+                        }}
+                      >
+                        Adjust Score
+                      </Button>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* PM Weekly Evaluation Reviews */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-bold text-[var(--text)] flex items-center gap-2">
+              <Users className="w-4 h-4 text-sky-500" />
+              PM Weekly Evaluation Reviews ({pmEvals.length})
+            </h3>
+
+            {pmEvals.length === 0 ? (
+              <EmptyState
+                icon={CheckCircle2}
+                title="PM Weekly Evaluations Clear"
+                description="No weekly PM evaluations require executive read-receipt confirmation."
+              />
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {pmEvals.map((evalItem) => (
+                  <Card key={evalItem.id} className="p-4 space-y-3 border-[var(--border)]">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <Badge variant="info">Week {evalItem.weekNumber}</Badge>
+                        <h4 className="text-sm font-bold text-[var(--text)] mt-1">
+                          {evalItem.employee?.name || 'Project Manager'}
+                        </h4>
+                        <div className="text-xs text-[var(--muted)] mt-0.5">
+                          Weekly Roll-Up Evaluation • Score: {Number(evalItem.score)}
+                        </div>
+                      </div>
+
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-600">
+                        {evalItem.status || 'UNREAD'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-2 border-t border-[var(--border)]">
+                      <Button
+                        variant="primary"
+                        size="xs"
+                        className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                        onClick={() => void handleConfirmPmEval(evalItem.id)}
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                        Confirm Review
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="xs"
+                        onClick={() => {
+                          setAdjustingItem({
+                            id: evalItem.id,
+                            type: 'pm_eval',
+                            title: evalItem.employee?.name || 'PM Evaluation',
+                            currentScore: Number(evalItem.score),
+                          })
+                          setAdjustmentScore(Number(evalItem.score))
+                        }}
+                      >
+                        Adjust
+                      </Button>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Frozen-XP Consensus Voting Cards */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-bold text-[var(--text)] flex items-center gap-2">
+              <Lock className="w-4 h-4 text-amber-500" />
+              Massive XP Consensus Voting Queue ({consensusRequests.length})
+            </h3>
+
+            {consensusRequests.length === 0 ? (
+              <EmptyState
+                icon={CheckCircle2}
+                title="Consensus Voting Queue Clear"
+                description="No massive XP deliverables are currently locked awaiting 4-Executive consensus."
+              />
+            ) : (
+              <div className="space-y-3">
+                {consensusRequests.map((item) => {
+                  const weight = Number(item.approvedWeight || item.proposedWeight || 1)
+                  const xpAmount = weight * 10
+                  const approvalsCount =
+                    item.consensusVotes?.filter((v: any) => v.decision === 'APPROVE').length || 0
+
+                  return (
+                    <Card key={item.id} className="p-4 border-amber-500/30 bg-amber-500/5 space-y-3">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-600 dark:text-amber-400">
+                              FROZEN ({xpAmount} XP)
+                            </span>
+                            <span className="text-xs text-[var(--muted)]">
+                              Assignee: {item.task?.assignee?.name || 'Developer'}
+                            </span>
+                          </div>
+                          <h4 className="text-base font-bold text-[var(--text)] mt-1">
+                            {item.task?.title || item.milestone?.title || 'Deliverable'}
+                          </h4>
+                          <p className="text-xs text-[var(--muted)] mt-0.5">
+                            Exceeds massive XP threshold (200 XP). Strictly requires consensus approval from CTO, CPO, CFO, CHRO.
+                          </p>
+                        </div>
+
+                        {/* Live Quorum Tally */}
+                        <div className="p-2.5 rounded-xl bg-[var(--surface)] border border-[var(--border)] text-center min-w-[140px]">
+                          <span className="text-[10px] text-[var(--muted)] block font-semibold uppercase">
+                            Quorum Tally
+                          </span>
+                          <span className="text-base font-bold text-indigo-600 dark:text-indigo-400 font-mono">
+                            {approvalsCount} of 4 Approved
+                          </span>
+                          <span className="text-[10px] text-[var(--muted)] block">
+                            {Math.max(0, 3 - approvalsCount)} more needed
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--border)]">
+                        <Button
+                          variant="secondary"
+                          size="xs"
+                          className="text-rose-600 border-rose-300 hover:bg-rose-50"
+                          onClick={() => {
+                            setVotingConsensusItem({
+                              id: item.id,
+                              title: item.task?.title || 'Deliverable',
+                              decision: 'REJECT',
+                            })
+                          }}
+                        >
+                          <ThumbsDown className="w-3.5 h-3.5 mr-1" />
+                          Reject Release (MFA)
+                        </Button>
+                        <Button
+                          variant="primary"
+                          size="xs"
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                          onClick={() => {
+                            setVotingConsensusItem({
+                              id: item.id,
+                              title: item.task?.title || 'Deliverable',
+                              decision: 'APPROVE',
+                            })
+                          }}
+                        >
+                          <ThumbsUp className="w-3.5 h-3.5 mr-1" />
+                          Approve Release (MFA)
+                        </Button>
+                      </div>
+                    </Card>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Peer Synergy Scoring Form */}
+          <Card className="p-5 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-[var(--border)]">
+              <div>
+                <h3 className="text-sm font-bold text-[var(--text)] flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-purple-500" />
+                  C-Level Peer Synergy Scoring
+                </h3>
+                <p className="text-xs text-[var(--muted)]">
+                  Weekly cross-functional executive collaboration review (1–5 scale). Feeds the 10% peer component.
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleRecordPeerSynergy} className="space-y-3 text-xs max-w-xl">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">
+                    Peer Executive <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={peerSynergyTarget}
+                    onChange={(e) => setPeerSynergyTarget(e.target.value)}
+                    className="w-full p-2 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-xs text-[var(--text)] cursor-pointer"
+                  >
+                    <option value="">Select Peer...</option>
+                    {data.users
+                      .filter(
+                        (u) =>
+                          ['cto', 'cpo', 'cfo', 'chro'].includes((u.role || '').toLowerCase()) &&
+                          u.id !== currentUser?.id,
+                      )
+                      .map((exec) => (
+                        <option key={exec.id} value={exec.id}>
+                          {exec.name} ({exec.title || exec.role.toUpperCase()})
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">
+                    Synergy Rating (1–5)
+                  </label>
+                  <select
+                    value={peerSynergyScore}
+                    onChange={(e) => setPeerSynergyScore(Number(e.target.value))}
+                    className="w-full p-2 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-xs text-[var(--text)] cursor-pointer"
+                  >
+                    <option value="1">1 - Severe Friction</option>
+                    <option value="2">2 - Below Expectation</option>
+                    <option value="3">3 - Standard Alignment</option>
+                    <option value="4">4 - High Synergy</option>
+                    <option value="5">5 - Exceptional Leadership</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">
+                  Collaboration Notes &amp; Constructive Feedback <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  rows={2}
+                  required
+                  placeholder="Notes on strategic alignment, communication speed, or cross-squad block removal..."
+                  value={peerSynergyNotes}
+                  onChange={(e) => setPeerSynergyNotes(e.target.value)}
+                  className="w-full p-2 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-xs text-[var(--text)] resize-none"
+                />
+              </div>
+
+              <div className="pt-1">
+                <Button type="submit" variant="primary" size="sm">
+                  Record Peer Synergy Score
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
       ) : (
         <div className="space-y-4">
           {/* Search + Filter Chips */}
@@ -706,6 +1185,79 @@ export function UnifiedInboxPage() {
           requiresReason={true}
           initialReason={reasonDrafts[activeMfaItem.item.id] || ''}
           confirmLabel={activeMfaItem.decision === 'approve' ? 'Approve & Apply' : 'Confirm Rejection'}
+        />
+      )}
+
+      {/* Adjust Score Modal */}
+      {adjustingItem && (
+        <Modal
+          isOpen={!!adjustingItem}
+          onClose={() => setAdjustingItem(null)}
+          title={`Adjust Score: ${adjustingItem.title}`}
+          subtitle="Modifying the score requires mandatory justification notes which are logged to the immutable audit trail."
+          maxWidth="max-w-md"
+        >
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="block text-xs font-semibold text-[var(--text)] mb-1">
+                New Score (0–100)
+              </label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={adjustmentScore}
+                onChange={(e) => setAdjustmentScore(Math.min(100, Math.max(0, Number(e.target.value))))}
+                className="w-full px-3 py-2 text-sm rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--text)] font-mono font-bold"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-[var(--text)] mb-1">
+                Reason for Adjustment <span className="text-rose-500">*</span>
+              </label>
+              <textarea
+                rows={3}
+                required
+                value={adjustmentReason}
+                onChange={(e) => setAdjustmentReason(e.target.value)}
+                placeholder="Detailed rationale for diverging from the proposed score..."
+                className="w-full px-3 py-2 text-xs rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--text)] resize-none"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-[var(--border)]">
+              <Button variant="secondary" size="sm" onClick={() => setAdjustingItem(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={!adjustmentReason.trim()}
+                onClick={handleAdjustScore}
+              >
+                Save Adjustment
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Consensus Voting MFA Modal */}
+      {votingConsensusItem && (
+        <MfaConfirmModal
+          isOpen={!!votingConsensusItem}
+          onClose={() => setVotingConsensusItem(null)}
+          onConfirm={async ({ mfaCode, reason }) => {
+            if (reason) setConsensusVoteNotes(reason)
+            await handleConsensusVote(mfaCode)
+          }}
+          isSubmitting={isMutating}
+          isCritical={true}
+          title={`Consensus Vote: ${votingConsensusItem.decision} (${votingConsensusItem.title})`}
+          actionSummary={`Casting your 1-of-4 C-Suite executive consensus vote (${votingConsensusItem.decision}) for deliverable "${votingConsensusItem.title}". Requires fresh MFA verification.`}
+          whoAffected="Deliverable Owner & C-Suite Quorum"
+          requiresReason={votingConsensusItem.decision === 'REJECT'}
+          initialReason={consensusVoteNotes}
+          confirmLabel={`Cast ${votingConsensusItem.decision} Vote`}
         />
       )}
     </div>

@@ -22,6 +22,8 @@ import { formatDate } from '../../utils/formatters'
 import { formatBDT } from '../../utils/money'
 import { EmptyState } from '../../components/common/EmptyState'
 import { SkeletonCard } from '../../components/common/Skeleton'
+import { ErrorState } from '../../components/common/ErrorState'
+import { Stepper } from '../../components/common/Stepper'
 
 const STEPS = [
   'Details & Scope',
@@ -73,13 +75,16 @@ export function ProjectRequestsPage() {
     decision: 'APPROVE' | 'REJECT'
   } | null>(null)
   const [isVoting, setIsVoting] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const loadRequests = useCallback(async () => {
     setIsLoading(true)
+    setLoadError(null)
     try {
       const res = await erpApi.listProjectCreationRequests()
       setRequests(Array.isArray(res) ? res : [])
     } catch (err: any) {
+      setLoadError(err?.message || 'Failed to load project creation requests.')
       showToast(err?.message || 'Failed to load project requests.', 'error')
     } finally {
       setIsLoading(false)
@@ -230,6 +235,12 @@ export function ProjectRequestsPage() {
               <SkeletonCard />
               <SkeletonCard />
             </div>
+          ) : loadError ? (
+            <ErrorState
+              title="Failed to load project creation requests"
+              error={loadError}
+              onRetry={loadRequests}
+            />
           ) : requests.length === 0 ? (
             <Card>
               <EmptyState
@@ -392,33 +403,14 @@ export function ProjectRequestsPage() {
         /* Stepper Form */
         <Card className="p-6 space-y-6 max-w-3xl mx-auto">
           {/* Stepper Header */}
-          <div className="flex items-center justify-between pb-4 border-b border-[var(--border)]">
-            {STEPS.map((stepLabel, idx) => {
-              const isActive = idx === currentStep
-              const isPast = idx < currentStep
-              return (
-                <div key={stepLabel} className="flex items-center gap-2">
-                  <div
-                    className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${
-                      isActive
-                        ? 'bg-[var(--primary)] text-white ring-4 ring-[var(--primary)]/20'
-                        : isPast
-                          ? 'bg-emerald-500 text-white'
-                          : 'bg-[var(--surface-muted)] text-[var(--muted)]'
-                    }`}
-                  >
-                    {isPast ? '✓' : idx + 1}
-                  </div>
-                  <span
-                    className={`text-xs font-medium hidden sm:inline ${
-                      isActive ? 'text-[var(--text)] font-bold' : 'text-[var(--muted)]'
-                    }`}
-                  >
-                    {stepLabel}
-                  </span>
-                </div>
-              )
-            })}
+          <div className="pb-4 border-b border-[var(--border)]">
+            <Stepper
+              steps={STEPS.map((label, idx) => ({ id: String(idx), label }))}
+              currentStep={currentStep}
+              onStepClick={(idx) => {
+                if (idx < currentStep) setCurrentStep(idx)
+              }}
+            />
           </div>
 
           {/* Step 1: Details & Scope */}

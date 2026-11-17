@@ -31,6 +31,13 @@ import {
   resolveMissingPermissionsForRoute,
   buildAccessRequestPayload,
 } from '../src/pages/security/access-request-helpers'
+import {
+  WeeklyKpiTrendGraph,
+  LifetimeXpStackedChart,
+} from '../src/components/performance/KpiXpWidgets'
+import { ErrorState } from '../src/components/common/ErrorState'
+import { ConfirmDialog } from '../src/components/common/ConfirmDialog'
+import { Stepper } from '../src/components/common/Stepper'
 
 export function runFrontendSuite(): Array<{ name: string; pass: boolean }> {
   const results: Array<{ name: string; pass: boolean }> = []
@@ -485,6 +492,128 @@ export function runFrontendSuite(): Array<{ name: string; pass: boolean }> {
     const rootRedirect = vercelConfig.redirects?.find((r: any) => r.source === '/')
     assert.ok(rootRedirect, 'vercel.json must have a redirect for /')
     assert.equal(rootRedirect.destination, '/login')
+  })
+
+  // Stage B: Performance, Ledger, and Governance tests
+  test('nav-registry routes: my-performance, performance-ledger, and leaderboard are accessible to users', () => {
+    const devPerms = new Set(['tasks:read_own'])
+    assert.equal(canAccessRoute('my-performance', devPerms), true)
+    assert.equal(canAccessRoute('performance-ledger', devPerms), true)
+    assert.equal(canAccessRoute('leaderboard', devPerms), true)
+
+    const navIds = NAV_REGISTRY.map((i) => i.id)
+    assert.ok(navIds.includes('my-performance'))
+    assert.ok(navIds.includes('performance-ledger'))
+    assert.ok(navIds.includes('leaderboard'))
+  })
+
+  test('KpiXpWidgets: WeeklyKpiTrendGraph renders N/A on inactivity and provisional badges', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(WeeklyKpiTrendGraph, {
+        series: [
+          { weekNumber: 45, year: 2026, score: 82.5, isInactive: false, isProvisional: false },
+          { weekNumber: 46, year: 2026, score: null, isInactive: true, isProvisional: false },
+          { weekNumber: 47, year: 2026, score: 91.0, isInactive: false, isProvisional: true },
+        ],
+      }),
+    )
+
+    assert.ok(html.includes('N/A'), 'Trendline must display N/A marker on inactive weeks')
+    assert.ok(
+      html.includes('PROV') || html.includes('Provisional'),
+      'Trendline must indicate provisional weeks',
+    )
+  })
+
+  test('KpiXpWidgets: LifetimeXpStackedChart renders posted, pending, and frozen XP volume', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(LifetimeXpStackedChart, {
+        lifetimeXp: 2000,
+        postedXp: 1500,
+        pendingXp: 300,
+        frozenXp: 200,
+        tierCeiling: 2500,
+      }),
+    )
+
+    assert.ok(html.includes('Posted') || html.includes('posted'), 'Stacked bar must display posted XP segment')
+    assert.ok(html.includes('Pending') || html.includes('pending'), 'Stacked bar must display pending XP segment')
+    assert.ok(html.includes('Frozen') || html.includes('frozen'), 'Stacked bar must display frozen XP segment')
+  })
+
+  test('sensitive-actions: performance discipline, freeze consensus, and weight verify require fresh MFA', () => {
+    assert.equal(isPermissionMfaRequiredEveryTime('performance:discipline'), true)
+    assert.equal(isPermissionMfaRequiredEveryTime('kpis:discipline_deduct'), true)
+    assert.equal(isPermissionMfaRequiredEveryTime('xp:release_frozen'), true)
+    assert.equal(isPermissionMfaRequiredEveryTime('tasks:verify_weight'), true)
+  })
+
+  test('Security profile audit: MyAccountPage contains 0 KPI or XP references', () => {
+    const myAccountSource = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/pages/account/MyAccountPage.tsx'),
+      'utf8',
+    )
+    assert.ok(
+      !myAccountSource.includes('WeeklyKpiTrendGraph'),
+      'MyAccountPage must NOT embed KPI graphs (profile must remain security-only)',
+    )
+    assert.ok(
+      !myAccountSource.includes('LifetimeXpStackedChart'),
+      'MyAccountPage must NOT embed XP charts',
+    )
+  })
+
+  // Stage C: Shared Design System & UX components
+  test('ErrorState component renders title, error message, and retry button', () => {
+    let retried = false
+    const html = renderToStaticMarkup(
+      React.createElement(ErrorState, {
+        title: 'Connection Lost',
+        error: new Error('Network timeout after 5000ms'),
+        onRetry: () => {
+          retried = true
+        },
+      }),
+    )
+
+    assert.ok(html.includes('Connection Lost'), 'ErrorState must render title')
+    assert.ok(html.includes('Network timeout after 5000ms'), 'ErrorState must render error details')
+    assert.ok(html.includes('Try again'), 'ErrorState must render retry action')
+  })
+
+  test('ConfirmDialog renders title, message, and action buttons', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ConfirmDialog, {
+        isOpen: true,
+        onClose: () => {},
+        onConfirm: () => {},
+        title: 'Revoke Device Session',
+        message: 'This device will be logged out immediately.',
+        severity: 'danger',
+        confirmLabel: 'Revoke Now',
+      }),
+    )
+
+    assert.ok(html.includes('Revoke Device Session'), 'ConfirmDialog must render modal title')
+    assert.ok(html.includes('This device will be logged out immediately.'), 'ConfirmDialog must render message')
+    assert.ok(html.includes('Revoke Now'), 'ConfirmDialog must render confirm button')
+  })
+
+  test('Stepper component renders step labels and indicates active step', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(Stepper, {
+        steps: [
+          { id: '0', label: 'Details' },
+          { id: '1', label: 'Staffing' },
+          { id: '2', label: 'Review' },
+        ],
+        currentStep: 1,
+      }),
+    )
+
+    assert.ok(html.includes('Details'), 'Stepper must render step 1 label')
+    assert.ok(html.includes('Staffing'), 'Stepper must render step 2 label')
+    assert.ok(html.includes('Review'), 'Stepper must render step 3 label')
   })
 
   return results

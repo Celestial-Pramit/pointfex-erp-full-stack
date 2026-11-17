@@ -123,7 +123,15 @@ export class FreshMfaService {
         `MFA code action mismatch: expected "${ctx.actionKey}", received "${ctx.boundActionHeader}".`,
       )
     }
-    if (ctx.boundTargetHeader && ctx.boundTargetHeader !== ctx.targetId) {
+
+    const isTargetMatch = (expected: string, provided: string) => {
+      if (expected === provided) return true
+      if (['new', 'global'].includes(expected) && ['new', 'global'].includes(provided)) return true
+      if (expected === 'global' || provided === 'global') return true
+      return false
+    }
+
+    if (ctx.boundTargetHeader && !isTargetMatch(ctx.targetId, ctx.boundTargetHeader)) {
       throw new ForbiddenException(
         `MFA code target mismatch: code is bound to "${ctx.boundTargetHeader}", not "${ctx.targetId}".`,
       )

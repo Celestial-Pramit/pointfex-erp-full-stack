@@ -19,21 +19,25 @@ import { Badge } from '../../components/common/Badge'
 import { Button } from '../../components/common/Button'
 import { EmptyState } from '../../components/common/EmptyState'
 import { SkeletonCard } from '../../components/common/Skeleton'
+import { ErrorState } from '../../components/common/ErrorState'
 import { formatDate } from '../../utils/formatters'
 
 export function MyRequestsPage() {
   const { showToast } = useApp()
   const [requests, setRequests] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [search, setSearch] = useState('')
 
   const loadMyRequests = useCallback(async () => {
     setIsLoading(true)
+    setLoadError(null)
     try {
       const res = await erpApi.getMyRequestsTimeline()
       setRequests(Array.isArray(res) ? res : [])
     } catch (err: any) {
+      setLoadError(err?.message || 'Failed to load your requests.')
       showToast(err?.message || 'Failed to load your requests.', 'error')
     } finally {
       setIsLoading(false)
@@ -140,6 +144,12 @@ export function MyRequestsPage() {
           <SkeletonCard />
           <SkeletonCard />
         </div>
+      ) : loadError ? (
+        <ErrorState
+          title="Failed to load your requests timeline"
+          error={loadError}
+          onRetry={loadMyRequests}
+        />
       ) : filteredRequests.length === 0 ? (
         <Card>
           <EmptyState

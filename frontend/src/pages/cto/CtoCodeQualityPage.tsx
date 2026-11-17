@@ -3,6 +3,7 @@ import { Card } from '../../components/common/Card'
 import { Badge } from '../../components/common/Badge'
 import { Button } from '../../components/common/Button'
 import { Modal } from '../../components/common/Modal'
+import { EmptyState } from '../../components/common/EmptyState'
 import { useCtoData } from '../../hooks/useCtoData'
 import { useApp } from '../../context/AppContext'
 import type { PullRequest } from '../../types'
@@ -187,7 +188,14 @@ export function CtoCodeQualityPage() {
           </div>
 
           <div className="space-y-3">
-            {filteredPrs.map((pr) => {
+            {filteredPrs.length === 0 ? (
+              <EmptyState
+                icon={GitPullRequest}
+                title="No pull requests match filter"
+                description="Try switching the PR status filter above."
+              />
+            ) : (
+              filteredPrs.map((pr) => {
               const project = projects.find((p) => p.id === pr.projectId)
 
               return (
@@ -231,7 +239,8 @@ export function CtoCodeQualityPage() {
                   </div>
                 </div>
               )
-            })}
+            })
+            )}
           </div>
         </div>
       )}

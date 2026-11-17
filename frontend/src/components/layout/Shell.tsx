@@ -65,6 +65,12 @@ export function Shell({ children }: ShellProps) {
         return
       }
 
+      if (e.key === '/') {
+        e.preventDefault()
+        setIsSearchOpen(true)
+        return
+      }
+
       const key = e.key.toLowerCase()
       if (pendingChordRef.current === 'g') {
         const shortcuts = getPermittedShortcuts(effectivePermissions)

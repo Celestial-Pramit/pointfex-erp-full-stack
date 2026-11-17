@@ -17,6 +17,7 @@ import { PageHeader } from '../../components/common/PageHeader'
 import { Card } from '../../components/common/Card'
 import { Button } from '../../components/common/Button'
 import { Badge } from '../../components/common/Badge'
+import { ConfirmDialog } from '../../components/common/ConfirmDialog'
 import { MfaRecoveryCodesCard } from '../../components/common/MfaRecoveryCodesCard'
 import { AdditionalGrantedAccessCard } from '../../components/common/AdditionalGrantedAccessCard'
 import { validatePasswordStrength } from '../../utils/password-policy'
@@ -41,6 +42,7 @@ export function MyAccountPage() {
   const [newPassword, setNewPassword] = useState('')
   const [passwordMfaCode, setPasswordMfaCode] = useState('')
   const [changingPassword, setChangingPassword] = useState(false)
+  const [sessionToRevoke, setSessionToRevoke] = useState<string | null>(null)
 
   const [sessionsData, setSessionsData] = useState<{
     sessions: Array<{
@@ -484,7 +486,7 @@ export function MyAccountPage() {
                   size="xs"
                   variant="danger"
                   icon={Trash2}
-                  onClick={() => void handleRevokeSession(s.id)}
+                  onClick={() => setSessionToRevoke(s.id)}
                 >
                   Revoke
                 </Button>
@@ -495,6 +497,22 @@ export function MyAccountPage() {
       </Card>
 
       <AdditionalGrantedAccessCard />
+
+      {sessionToRevoke && (
+        <ConfirmDialog
+          isOpen={!!sessionToRevoke}
+          onClose={() => setSessionToRevoke(null)}
+          onConfirm={async () => {
+            const sid = sessionToRevoke
+            setSessionToRevoke(null)
+            await handleRevokeSession(sid)
+          }}
+          title="Revoke Active Session"
+          message="Are you sure you want to terminate this device session? The device will be signed out immediately."
+          confirmLabel="Revoke Session"
+          severity="danger"
+        />
+      )}
     </div>
   )
 }

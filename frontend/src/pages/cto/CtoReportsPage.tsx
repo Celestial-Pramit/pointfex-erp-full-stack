@@ -4,6 +4,7 @@ import { Badge } from '../../components/common/Badge'
 import { Button } from '../../components/common/Button'
 import { Modal } from '../../components/common/Modal'
 import { StatusPill } from '../../components/common/StatusPill'
+import { EmptyState } from '../../components/common/EmptyState'
 import { useCtoData } from '../../hooks/useCtoData'
 import { useApp } from '../../context/AppContext'
 import { usePermissions } from '../../hooks/usePermissions'
@@ -255,9 +256,11 @@ export function CtoReportsPage() {
           <div className="lg:col-span-7">
             <Card title="My Filed C-Level Complaints" icon={Building}>
               {myComplaints.length === 0 ? (
-                <div className="py-12 text-center text-slate-400 text-xs">
-                  No complaints filed yet by the CTO office.
-                </div>
+                <EmptyState
+                  icon={Building}
+                  title="No filed complaints"
+                  description="No grievances or operational blockers filed by the CTO office."
+                />
               ) : (
                 <div className="space-y-3">
                   {myComplaints.map((item) => (
@@ -307,9 +310,11 @@ export function CtoReportsPage() {
       {activeTab === 'review_complaints' && (
         <Card title="Submitted Complaints from PM & Engineering Teams" icon={UserCheck}>
           {teamComplaints.length === 0 ? (
-            <div className="py-12 text-center text-slate-400 text-xs">
-              No pending complaints filed by developers or project managers.
-            </div>
+            <EmptyState
+              icon={UserCheck}
+              title="No pending complaints"
+              description="No grievances filed by engineering squads are awaiting CTO triage."
+            />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
               {teamComplaints.map((item) => (
@@ -381,9 +386,11 @@ export function CtoReportsPage() {
       {activeTab === 'review_project_ideas' && (
         <Card title="Project Proposals & Innovation Submissions" icon={Lightbulb}>
           {projectIdeas.length === 0 ? (
-            <div className="py-12 text-center text-slate-400 text-xs">
-              No project ideas submitted yet.
-            </div>
+            <EmptyState
+              icon={Lightbulb}
+              title="No project ideas submitted"
+              description="Innovation proposals submitted by squads will appear here."
+            />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
               {projectIdeas.map((idea) => (

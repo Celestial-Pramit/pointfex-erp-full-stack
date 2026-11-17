@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Put,
   Param,
   Body,
   Query,
@@ -12,6 +13,14 @@ import {
 } from '@nestjs/common'
 import { KpiEngineService } from './kpi-engine.service'
 import { PrismaService } from '../common/prisma.service'
+import { ExecScoresService } from './exec-scores.service'
+import { XpLedgerService } from './xp-ledger.service'
+import { FrozenXpConsensusService } from './frozen-xp-consensus.service'
+import { PmMilestoneXpService } from './pm-milestone-xp.service'
+import { ExecWeeklyKpiService } from './exec-weekly-kpi.service'
+import { WeeklySweepService } from './weekly-sweep.service'
+import { DisciplinaryService } from './disciplinary.service'
+import { PerformanceReadService, LedgerQueryDto } from './performance-read.service'
 import { AuthenticatedUser } from '../common/auth-user.interface'
 import { CurrentUser } from '../common/current-user.decorator'
 import { PermissionsGuard } from '../common/permissions.guard'
@@ -24,7 +33,64 @@ export class ChroGovernanceController {
   constructor(
     private readonly kpiEngine: KpiEngineService,
     private readonly prisma: PrismaService,
+    private readonly execScores: ExecScoresService,
+    private readonly xpLedger: XpLedgerService,
+    private readonly frozenXp: FrozenXpConsensusService,
+    private readonly pmMilestoneXp: PmMilestoneXpService,
+    private readonly execWeeklyKpi: ExecWeeklyKpiService,
+    private readonly weeklySweep: WeeklySweepService,
+    private readonly disciplinaryService: DisciplinaryService,
+    private readonly performanceRead: PerformanceReadService,
   ) {}
+
+  // --------------------------------------------------------------------------
+  // EXECUTIVE READ-RECEIPTS & SCORE REVIEWS
+  // --------------------------------------------------------------------------
+  @Get('exec-scores/inbox')
+  @RequireAnyPermission('kpis:score_exec', 'performance:read_all', 'performance:evaluate', 'governance:vote')
+  async getExecScoresInbox(@CurrentUser() actor: AuthenticatedUser) {
+    return this.execScores.getInbox(actor)
+  }
+
+  @Post('exec-scores/:id/confirm')
+  @RequireAnyPermission('kpis:score_exec', 'performance:evaluate', 'governance:vote')
+  async confirmExecScore(
+    @Param('id') scoreId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.execScores.confirmScore(scoreId, actor)
+  }
+
+  @Post('exec-scores/:id/adjust')
+  @RequireAnyPermission('kpis:score_exec', 'performance:evaluate', 'governance:vote')
+  async adjustExecScore(
+    @Param('id') scoreId: string,
+    @Body() body: { score: number; reason: string },
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.execScores.adjustScore(scoreId, Number(body.score), body.reason, actor)
+  }
+
+  // --------------------------------------------------------------------------
+  // LEGACY XP CORRECTIONS (DRY RUN & MFA-GATED APPLY)
+  // --------------------------------------------------------------------------
+  @Get('legacy-xp-corrections/preview')
+  @RequireAnyPermission('tasks:verify_weight', 'performance:evaluate', 'governance:vote')
+  async getLegacyXpCorrectionsPreview() {
+    return this.xpLedger.getLegacyCorrectionsPreview()
+  }
+
+  @Post('legacy-xp-corrections/apply')
+  @RequireAnyPermission('tasks:verify_weight', 'performance:evaluate', 'governance:vote')
+  @RequiresFreshMfa('tasks:verify_weight')
+  async applyLegacyXpCorrections(
+    @Body() body: { mfaCode?: string },
+    @Headers('x-mfa-code') headerMfa?: string,
+    @CurrentUser() actor?: AuthenticatedUser,
+  ) {
+    const code = body?.mfaCode || headerMfa || ''
+    return this.xpLedger.applyLegacyCorrections(actor!, code)
+  }
 
   // --------------------------------------------------------------------------
   // 1. CHRO TASK & MILESTONE WEIGHT VERIFICATION QUEUE
@@ -102,22 +168,36 @@ export class ChroGovernanceController {
   // 3. C-LEVEL MASSIVE XP CONSENSUS VOTING
   // --------------------------------------------------------------------------
   @Post('tasks/weight-verification/:id/vote')
-  @RequireAnyPermission('votes:cast', 'governance:vote', 'performance:evaluate', 'performance:read_all')
+  @RequireAnyPermission('xp:release_frozen', 'votes:cast', 'governance:vote', 'performance:evaluate')
+  @RequiresFreshMfa('xp:release_frozen')
   async castConsensusVote(
     @Param('id') verificationId: string,
     @Body() body: { decision: 'APPROVE' | 'REJECT'; notes?: string },
     @CurrentUser() actor: AuthenticatedUser,
   ) {
-    const isExecutive = ['ceo', 'chro', 'cto', 'cfo', 'cpo'].includes(actor.role?.toLowerCase())
-    if (!isExecutive) {
-      throw new ForbiddenException('Only C-Suite executives can cast consensus votes on massive XP items')
-    }
-    return this.kpiEngine.castConsensusVote(
+    return this.frozenXp.castVote(
       verificationId,
       actor,
       body.decision,
       body.notes,
     )
+  }
+
+  @Get('tasks/weight-verification/:id/tally')
+  @RequireAnyPermission('xp:release_frozen', 'performance:read_all', 'governance:vote')
+  async getConsensusTally(@Param('id') verificationId: string) {
+    return this.frozenXp.getTally(verificationId)
+  }
+
+  @Post('tasks/weight-verification/:id/ceo-override')
+  @RequirePermissions('system:root')
+  @RequiresFreshMfa('xp:release_frozen')
+  async ceoConsensusOverride(
+    @Param('id') verificationId: string,
+    @Body() body: { decision: 'APPROVE' | 'REJECT'; reason: string },
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.frozenXp.ceoOverride(verificationId, actor, body.decision, body.reason)
   }
 
   // --------------------------------------------------------------------------
@@ -381,5 +461,300 @@ export class ChroGovernanceController {
     @CurrentUser() actor: AuthenticatedUser,
   ) {
     return this.kpiEngine.updateAuditLogEntry(id, body, actor)
+  }
+
+  // --------------------------------------------------------------------------
+  // 11. PM MILESTONE XP ROUTING & CONSENSUS APPROVAL
+  // --------------------------------------------------------------------------
+  @Post('milestones/:id/complete-with-xp')
+  @RequireAnyPermission('tasks:approve', 'performance:evaluate', 'governance:vote')
+  async completeMilestoneWithXp(
+    @Param('id') milestoneId: string,
+    @Body() body: { pmId: string; weightPoints: number },
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.pmMilestoneXp.completeMilestoneWithXp(
+      milestoneId,
+      body.pmId,
+      Number(body.weightPoints),
+      actor,
+    )
+  }
+
+  @Post('milestones/verification/:id/approve')
+  @RequireAnyPermission('xp:release_frozen', 'governance:vote')
+  async approveMilestoneVerification(
+    @Param('id') verificationId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.pmMilestoneXp.approveMilestoneConsensus(verificationId, actor)
+  }
+
+  // --------------------------------------------------------------------------
+  // 12. PM WEEKLY EVALUATION INBOX & CONFIRM/ADJUST
+  // --------------------------------------------------------------------------
+  @Get('pm-evaluations/inbox')
+  @RequireAnyPermission('kpis:score_exec', 'performance:evaluate', 'governance:vote')
+  async getPmEvaluationsInbox(@CurrentUser() actor: AuthenticatedUser) {
+    return this.execWeeklyKpi.getPmEvaluationsInbox(actor)
+  }
+
+  @Post('pm-evaluations/:id/confirm')
+  @RequireAnyPermission('kpis:score_exec', 'performance:evaluate', 'governance:vote')
+  async confirmPmEvaluation(
+    @Param('id') evalId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.execWeeklyKpi.confirmPmEvaluation(evalId, actor)
+  }
+
+  @Post('pm-evaluations/:id/adjust')
+  @RequireAnyPermission('kpis:score_exec', 'performance:evaluate', 'governance:vote')
+  async adjustPmEvaluation(
+    @Param('id') evalId: string,
+    @Body() body: { score: number; reason: string },
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.execWeeklyKpi.adjustPmEvaluation(evalId, Number(body.score), body.reason, actor)
+  }
+
+  @Post('c-level/peer-eval')
+  @RequireAnyPermission('kpis:score_exec', 'performance:evaluate', 'governance:vote')
+  async recordCLevelPeerEval(
+    @Body() body: { targetExecutiveId: string; score: number; notes: string },
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.execWeeklyKpi.recordCLevelPeerEval(
+      body.targetExecutiveId,
+      Number(body.score),
+      body.notes,
+      actor,
+    )
+  }
+
+  // --------------------------------------------------------------------------
+  // 13. CHRO & CEO DISCIPLINARY DEDUCTION & REVERSAL
+  // --------------------------------------------------------------------------
+  @Post('disciplinary')
+  @RequirePermissions('kpis:discipline_deduct')
+  @RequiresFreshMfa('kpis:discipline_deduct')
+  async createDisciplinaryDeduction(
+    @Body()
+    body: {
+      userId: string
+      points: number
+      reason: string
+      referenceDocId: string
+      targetWeekStart: string
+    },
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.disciplinaryService.applyDisciplinaryDeduction(body, actor)
+  }
+
+  @Post('disciplinary/:id/reverse')
+  @RequirePermissions('kpis:discipline_deduct')
+  @RequiresFreshMfa('kpis:discipline_deduct')
+  async reverseDisciplinaryDeduction(
+    @Param('id') actionId: string,
+    @Body() body: { reason: string },
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.disciplinaryService.reverseDisciplinaryDeduction(actionId, body.reason, actor)
+  }
+
+  // --------------------------------------------------------------------------
+  // 14. SCOPED PERFORMANCE READ APIS & PUBLIC LEADERBOARD
+  // --------------------------------------------------------------------------
+  @Get('ledger/export')
+  @RequireAnyPermission('kpis:export', 'xp:export')
+  async exportLedger(
+    @Query('userId') userId: string,
+    @Query() query: LedgerQueryDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.performanceRead.exportLedger(userId || actor.id, actor, query)
+  }
+
+  @Get('ledger/me')
+  async getMyLedger(
+    @Query() query: LedgerQueryDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.performanceRead.getLedger(actor.id, actor, query)
+  }
+
+  @Get('ledger/:userId')
+  async getUserLedger(
+    @Param('userId') userId: string,
+    @Query() query: LedgerQueryDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.performanceRead.getLedger(userId, actor, query)
+  }
+
+  @Get('kpi/me')
+  async getMyKpiSeries(@CurrentUser() actor: AuthenticatedUser) {
+    return this.performanceRead.getKpiSeries(actor.id, actor)
+  }
+
+  @Get('kpi/:userId')
+  async getUserKpiSeries(
+    @Param('userId') userId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.performanceRead.getKpiSeries(userId, actor)
+  }
+
+  @Get('xp/me')
+  async getMyXpSummary(@CurrentUser() actor: AuthenticatedUser) {
+    return this.performanceRead.getXpSummary(actor.id, actor)
+  }
+
+  @Get('xp/:userId')
+  async getUserXpSummary(
+    @Param('userId') userId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.performanceRead.getXpSummary(userId, actor)
+  }
+
+  @Get('leaderboard')
+  @RequireAnyPermission(
+    'leaderboards:read',
+    'tasks:read_own',
+    'tasks:read_squad',
+    'tasks:read_team',
+    'performance:read_all',
+    'profile:read',
+  )
+  async getLeaderboard(
+    @Query('period') period?: 'latest_week' | 'four_week_avg' | 'lifetime_xp',
+    @Query('role') role?: string,
+    @Query('squad') squad?: string,
+  ) {
+    return this.performanceRead.getLeaderboard(period, role, squad)
+  }
+
+  // --------------------------------------------------------------------------
+  // 15. CONFIG & BACKFILL WINDOWS GOVERNANCE
+  // --------------------------------------------------------------------------
+  @Get('config')
+  @RequireAnyPermission('performance:read_all', 'kpi:verify_weight', 'performance:discipline')
+  async getPerformanceConfig() {
+    const [kpiConfig, weightConfigs] = await Promise.all([
+      this.prisma.kpiConfig.findFirst(),
+      this.prisma.taskWeightConfig.findMany({ orderBy: { points: 'asc' } }),
+    ])
+    return {
+      kpiConfig: kpiConfig || {
+        massiveXpThreshold: 200,
+        inactivityPenalty: 0.10,
+        mainSquadMultiplier: 1.00,
+        outsideSquadMultiplier: 0.70,
+        isolatedExecMultiplier: 0.50,
+      },
+      weightConfigs,
+    }
+  }
+
+  @Put('config')
+  @RequireAnyPermission('performance:discipline', 'kpis:discipline_deduct')
+  @RequiresFreshMfa('performance:discipline')
+  async updatePerformanceConfig(
+    @Body() body: { kpiConfig?: any; weightConfigs?: any[] },
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    if (body.kpiConfig) {
+      await this.prisma.kpiConfig.upsert({
+        where: { id: 'singleton' },
+        create: {
+          id: 'singleton',
+          massiveXpThreshold: body.kpiConfig.massiveXpThreshold ?? 200,
+          inactivityPenalty: body.kpiConfig.inactivityPenalty ?? 0.10,
+          mainSquadMultiplier: body.kpiConfig.mainSquadMultiplier ?? 1.00,
+          outsideSquadMultiplier: body.kpiConfig.outsideSquadMultiplier ?? 0.70,
+          isolatedExecMultiplier: body.kpiConfig.isolatedExecMultiplier ?? 0.50,
+          updatedById: actor.id,
+        },
+        update: {
+          massiveXpThreshold: body.kpiConfig.massiveXpThreshold,
+          inactivityPenalty: body.kpiConfig.inactivityPenalty,
+          mainSquadMultiplier: body.kpiConfig.mainSquadMultiplier,
+          outsideSquadMultiplier: body.kpiConfig.outsideSquadMultiplier,
+          isolatedExecMultiplier: body.kpiConfig.isolatedExecMultiplier,
+          updatedById: actor.id,
+        },
+      })
+    }
+
+    if (Array.isArray(body.weightConfigs)) {
+      for (const wc of body.weightConfigs) {
+        if (wc.category && wc.points !== undefined) {
+          await this.prisma.taskWeightConfig.upsert({
+            where: { category: wc.category },
+            create: {
+              category: wc.category,
+              points: wc.points,
+              description: wc.description,
+              updatedById: actor.id,
+            },
+            update: {
+              points: wc.points,
+              description: wc.description,
+              updatedById: actor.id,
+            },
+          })
+        }
+      }
+    }
+
+    return this.getPerformanceConfig()
+  }
+
+  @Get('backfill-windows')
+  @RequireAnyPermission('performance:read_all', 'tasks:approve', 'performance:discipline')
+  async getBackfillWindows() {
+    return this.prisma.backfillWindow.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        createdBy: { select: { id: true, name: true, title: true } },
+      },
+    })
+  }
+
+  @Post('backfill-windows')
+  @RequireAnyPermission('performance:discipline', 'kpis:discipline_deduct')
+  @RequiresFreshMfa('performance:discipline')
+  async createBackfillWindow(
+    @Body() body: { startsAt: string; endsAt: string; grantedRole?: string; reason?: string },
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.prisma.backfillWindow.create({
+      data: {
+        startsAt: new Date(body.startsAt),
+        endsAt: new Date(body.endsAt),
+        grantedRole: body.grantedRole || 'pm',
+        createdById: actor.id,
+        isActive: true,
+      },
+    })
+  }
+
+  @Patch('backfill-windows/:id')
+  @RequireAnyPermission('performance:discipline', 'kpis:discipline_deduct')
+  @RequiresFreshMfa('performance:discipline')
+  async updateBackfillWindow(
+    @Param('id') id: string,
+    @Body() body: { isActive?: boolean; endsAt?: string; reason?: string },
+  ) {
+    const data: any = {}
+    if (body.isActive !== undefined) data.isActive = body.isActive
+    if (body.endsAt) data.endsAt = new Date(body.endsAt)
+
+    return this.prisma.backfillWindow.update({
+      where: { id },
+      data,
+    })
   }
 }

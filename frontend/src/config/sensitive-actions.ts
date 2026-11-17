@@ -47,6 +47,10 @@ export const SENSITIVE_PERMISSION_CODES = new Set<string>([
   'security_policies:manage',
   'api_tokens:manage',
   'service_accounts:manage',
+  'performance:discipline',
+  'kpis:discipline_deduct',
+  'xp:release_frozen',
+  'tasks:verify_weight',
 ])
 
 export function isPermissionMfaRequiredEveryTime(

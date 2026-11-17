@@ -58,11 +58,14 @@ export const GOTO_SHORTCUTS: readonly PaletteShortcut[] = [
   { keys: 'g h', sequence: ['g', 'h'], label: 'Go to Home (My Day)', route: 'dashboard' },
   { keys: 'g i', sequence: ['g', 'i'], label: 'Go to Needs My Action (Inbox)', route: 'inbox' },
   { keys: 'g t', sequence: ['g', 't'], label: 'Go to My Tasks', route: 'tasks' },
-  { keys: 'g e', sequence: ['g', 'e'], label: 'Go to My Wallet & XP', route: 'earnings' },
+  { keys: 'g l', sequence: ['g', 'l'], label: 'Go to My Ledger', route: 'earnings' },
+  { keys: 'g k', sequence: ['g', 'k'], label: 'Go to Leaderboard', route: 'performance' },
+  { keys: 'g p', sequence: ['g', 'p'], label: 'Go to Performance', route: 'performance' },
+  { keys: 'g c', sequence: ['g', 'c'], label: 'Go to CHRO Console', route: 'performance' },
+  { keys: 'g m', sequence: ['g', 'm'], label: 'Go to PM Task Operations', route: 'task-management' },
   { keys: 'g d', sequence: ['g', 'd'], label: 'Go to Delegations', route: 'delegations' },
   { keys: 'g b', sequence: ['g', 'b'], label: 'Go to Treasury & Budgets', route: 'budget' },
   { keys: 'g r', sequence: ['g', 'r'], label: 'Go to Roles & Permissions', route: 'access-control' },
-  { keys: 'g l', sequence: ['g', 'l'], label: 'Go to Audit Trail', route: 'audit-log' },
 ]
 
 export function getPermittedQuickActions(
