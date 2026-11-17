@@ -1,9 +1,18 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Card } from '../../components/common/Card'
 import { Badge } from '../../components/common/Badge'
 import { StatusPill } from '../../components/common/StatusPill'
 import { useDeveloperData } from '../../hooks/useDeveloperData'
+import { useApp } from '../../context/AppContext'
+import { erpApi } from '../../api/client'
 import { formatCurrency, formatDate } from '../../utils/formatters'
+import {
+  WeeklyKpiTrendGraph,
+  LifetimeXpStackedChart,
+  KpiXpAuditLedgerTable,
+  type WeeklyKpiItem,
+  type KpiXpAuditItem,
+} from '../../components/performance/KpiXpWidgets'
 import {
   Wallet,
   ShieldCheck,
@@ -20,7 +29,41 @@ import {
 
 export function DeveloperEarningsPage() {
   const { wallet, transactions, performance } = useDeveloperData()
+  const { currentUser } = useApp()
   const [filterType, setFilterType] = useState<'all' | 'payout' | 'penalty'>('all')
+
+  const [kpiHistory, setKpiHistory] = useState<WeeklyKpiItem[]>([])
+  const [auditLogs, setAuditLogs] = useState<KpiXpAuditItem[]>([])
+  const [perfSummary, setPerfSummary] = useState<any>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    if (currentUser?.id) {
+      void erpApi
+        .getEmployeeKpiHistory(currentUser.id)
+        .then((res) => {
+          if (!cancelled && Array.isArray(res)) setKpiHistory(res)
+        })
+        .catch(() => undefined)
+
+      void erpApi
+        .getEmployeeKpiXpAuditLogs(currentUser.id)
+        .then((res) => {
+          if (!cancelled && Array.isArray(res)) setAuditLogs(res)
+        })
+        .catch(() => undefined)
+
+      void erpApi
+        .getPerformanceSummary(currentUser.id)
+        .then((res) => {
+          if (!cancelled && res) setPerfSummary(res)
+        })
+        .catch(() => undefined)
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [currentUser?.id])
 
   const totalPenalties = wallet?.totalPenalties ?? 0
   const totalSpendings = wallet?.totalSpendings ?? 0
@@ -296,6 +339,16 @@ export function DeveloperEarningsPage() {
           </div>
         </div>
       </Card>
+
+      {/* Pointfex KPI & XP Governance Suite */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <WeeklyKpiTrendGraph data={kpiHistory} />
+        <LifetimeXpStackedChart
+          lifetimeXp={perfSummary?.lifetimeXp || (currentUser as any)?.lifetimeXp || 0}
+        />
+      </div>
+
+      {auditLogs.length > 0 && <KpiXpAuditLedgerTable logs={auditLogs} />}
     </div>
   )
 }
