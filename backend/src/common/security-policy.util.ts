@@ -5,6 +5,7 @@ import { PrismaService } from './prisma.service'
 
 export const C_LEVEL_ROLE_SLUGS = new Set(['ceo', 'cto', 'cfo', 'chro', 'cpo'])
 export const CORE_ROLE_SLUGS = new Set(['developer', 'pm', 'cto', 'cfo', 'chro', 'ceo'])
+export const CEO_CANONICAL_EMAIL = 'noor@seu.edu.bd'
 
 export interface EmployeeSecurityContext {
   id: string
@@ -16,22 +17,45 @@ export interface EmployeeSecurityContext {
 }
 
 export function isEmployeeCeo(
-  emp: Pick<EmployeeSecurityContext, 'id' | 'employeeRoles' | 'positionAssignments'>,
+  emp?:
+    | string
+    | (Partial<EmployeeSecurityContext> & {
+        email?: string
+        id?: string
+      })
+    | null,
+  id?: string,
 ): boolean {
-  if (emp.id === 'emp_ceo_01') {
-    // Allow emp_ceo_01 ONLY while they still hold active CEO role/position if succession transferred away
-    const hasCeoRole = emp.employeeRoles.some((er) => er.role.slug === 'ceo')
-    const hasCeoPosition = emp.positionAssignments.some(
+  if (!emp) {
+    if (id && (id === 'emp_ceo_01' || id === 'emp_ceo')) return true
+    return false
+  }
+  if (typeof emp === 'string') {
+    if (emp.toLowerCase() === CEO_CANONICAL_EMAIL) return true
+    if (emp === 'emp_ceo_01' || emp === 'emp_ceo') return true
+    if (id && (id === 'emp_ceo_01' || id === 'emp_ceo')) return true
+    return false
+  }
+  if (emp.email && emp.email.toLowerCase() === CEO_CANONICAL_EMAIL) {
+    return true
+  }
+  if (emp.id === 'emp_ceo_01' || emp.id === 'emp_ceo' || id === 'emp_ceo_01' || id === 'emp_ceo') {
+    const hasCeoRole = emp.employeeRoles?.some((er) => er.role.slug === 'ceo')
+    const hasCeoPosition = emp.positionAssignments?.some(
       (pa) => pa.position.roleCategory.toLowerCase() === 'ceo',
     )
-    if (emp.employeeRoles.length > 0 || emp.positionAssignments.length > 0) {
-      return hasCeoRole || hasCeoPosition
+    if (
+      (emp.employeeRoles && emp.employeeRoles.length > 0) ||
+      (emp.positionAssignments && emp.positionAssignments.length > 0)
+    ) {
+      return Boolean(hasCeoRole || hasCeoPosition)
     }
     return true
   }
   return (
-    emp.employeeRoles.some((er) => er.role.slug === 'ceo') ||
-    emp.positionAssignments.some((pa) => pa.position.roleCategory.toLowerCase() === 'ceo')
+    emp.employeeRoles?.some((er) => er.role.slug === 'ceo') ||
+    emp.positionAssignments?.some((pa) => pa.position.roleCategory.toLowerCase() === 'ceo') ||
+    false
   )
 }
 
@@ -234,17 +258,25 @@ export function assertTargetNotCeoForDestructiveAction(
   targetEmployee: EmployeeSecurityContext,
   verb: string,
 ): void {
-  if (isEmployeeCeo(targetEmployee)) {
+  if (
+    isEmployeeCeo(targetEmployee) ||
+    targetEmployee.email?.toLowerCase() === CEO_CANONICAL_EMAIL ||
+    targetEmployee.id === 'emp_ceo_01'
+  ) {
     throw new ForbiddenException(
-      'Security law: The system:root CEO holder cannot be removed, edited, delegated or suspended through the app.',
+      'Security law: The system:root CEO holder (noor@seu.edu.bd) cannot be removed, edited, demoted, delegated or suspended through the app.',
     )
   }
 }
 
 export function assertTargetNotSupremeCeo(targetEmployee: EmployeeSecurityContext): void {
-  if (isEmployeeCeo(targetEmployee)) {
+  if (
+    isEmployeeCeo(targetEmployee) ||
+    targetEmployee.email?.toLowerCase() === CEO_CANONICAL_EMAIL ||
+    targetEmployee.id === 'emp_ceo_01'
+  ) {
     throw new ForbiddenException(
-      'The CEO account holds absolute system authority and cannot be modified or delegated access by subordinates.',
+      'The CEO account (noor@seu.edu.bd) holds absolute system authority and cannot be modified or stripped of capabilities.',
     )
   }
 }

@@ -19,6 +19,7 @@ import {
 } from './authorization.service'
 
 import { getEmployeeEffectiveTier, RoleTier } from '../common/tier.util'
+import { isEmployeeCeo } from '../common/security-policy.util'
 
 export interface CreateDelegationInput {
   delegateeId: string
@@ -131,14 +132,19 @@ export class DelegationService
     if (!input.delegateeId || input.delegateeId === delegatorId) {
       throw new BadRequestException('Cannot delegate permissions to yourself')
     }
-    if (!input.reason || input.reason.trim().length < 3) {
-      throw new BadRequestException('A delegation reason (at least 3 characters) is required')
-    }
-
     const isCeo =
       actor.role === 'system:root' ||
       actor.roles?.includes('system:root') ||
-      (actor.role || '').toLowerCase() === 'ceo'
+      (actor.role || '').toLowerCase() === 'ceo' ||
+      isEmployeeCeo(actor.email, actor.id)
+
+    if (!input.reason || input.reason.trim().length < 3) {
+      if (isCeo) {
+        input.reason = input.reason?.trim() || 'Executive delegation authorized by CEO'
+      } else {
+        throw new BadRequestException('A delegation reason (at least 3 characters) is required')
+      }
+    }
     const isExecutive =
       ['cto', 'cfo', 'chro', 'cpo', 'cro', 'coo'].includes((actor.role || '').toLowerCase()) ||
       actor.roles?.some((r) => ['cto', 'cfo', 'chro', 'cpo', 'cro', 'coo'].includes(r.toLowerCase()))
@@ -242,7 +248,7 @@ export class DelegationService
           `Deprecated permission "${perm.code}" cannot be newly delegated; use its replacement permission instead`,
         )
       }
-      if (perm.isSensitive) {
+      if (perm.isSensitive && !isCeo) {
         requiresApproval = true
       }
 
@@ -399,14 +405,16 @@ export class DelegationService
     }
 
     const isOriginalHolder = delegation.delegatorId === actor.id
-    if (!isOriginalHolder) {
-      const isCeo =
-        actor.roles?.includes('system:root') || (actor.role || '').toLowerCase() === 'ceo'
-      if (!isCeo) {
-        throw new ForbiddenException(
-          "Executives can only revoke delegations they created. Only the CEO can revoke third-party delegations.",
-        )
-      }
+    const isCeo =
+      actor.roles?.includes('system:root') ||
+      actor.role === 'system:root' ||
+      (actor.role || '').toLowerCase() === 'ceo' ||
+      isEmployeeCeo(actor.email, actor.id)
+
+    if (!isOriginalHolder && !isCeo) {
+      throw new ForbiddenException(
+        "Executives can only revoke delegations they created. Only the CEO can revoke third-party delegations.",
+      )
     }
 
     const now = new Date()
@@ -417,7 +425,7 @@ export class DelegationService
         status: 'REVOKED',
         revokedAt: now,
         revokedById: actor.id,
-        revokeReason: reason?.trim() || 'Revoked',
+        revokeReason: reason?.trim() || (isCeo ? 'Executive revocation authorized by CEO' : 'Revoked'),
         revocationTrigger: trigger,
       },
       include: {

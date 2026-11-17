@@ -17,6 +17,7 @@ describe('KpiEngineService - Dual-Metric Governance & Mathematical Formulas', ()
     prisma = {
       employee: {
         findUnique: jest.fn(),
+        findFirst: jest.fn(),
         update: jest.fn(),
       },
       weeklyKpiRecord: {
@@ -31,6 +32,23 @@ describe('KpiEngineService - Dual-Metric Governance & Mathematical Formulas', ()
         findMany: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
+        upsert: jest.fn(),
+      },
+      projectMilestone: {
+        findUnique: jest.fn(),
+        update: jest.fn(),
+      },
+      teamMembership: {
+        findFirst: jest.fn(),
+      },
+      team: {
+        findMany: jest.fn(),
+      },
+      task: {
+        count: jest.fn(),
+      },
+      xpLedgerEntry: {
+        create: jest.fn(),
       },
       taskWeightConsensusVote: {
         upsert: jest.fn(),
@@ -307,6 +325,258 @@ describe('KpiEngineService - Dual-Metric Governance & Mathematical Formulas', ()
       await expect(
         service.confirmExecutiveReview('rec_provisional', devActor),
       ).rejects.toThrow('Only C-Suite executives can confirm weekly evaluations')
+    })
+  })
+
+  describe('7. Task & Milestone Weight Proposals (PM & C-Level)', () => {
+    it('should allow PM to propose weight which remains PENDING_CHRO', async () => {
+      prisma.taskWeightVerification.upsert.mockImplementation(({ create, update }) => create || update)
+      const pmActor: any = { id: 'emp_pm_01', role: 'pm' }
+
+      const res = await service.proposeTaskWeight({
+        taskId: 'task_123',
+        proposedWeight: 5,
+        category: 'LARGE',
+        context: 'MAIN_SQUAD',
+        actor: pmActor,
+      })
+
+      expect(res.status).toBe('PENDING_CHRO')
+      expect(res.proposerId).toBe('emp_pm_01')
+      expect(Number(res.proposedWeight)).toBe(5)
+    })
+
+    it('should mark massive XP as frozen if proposed weight >= 50', async () => {
+      prisma.taskWeightVerification.upsert.mockImplementation(({ create, update }) => create || update)
+      const pmActor: any = { id: 'emp_pm_01', role: 'pm' }
+
+      const res = await service.proposeTaskWeight({
+        taskId: 'task_massive',
+        proposedWeight: 60,
+        category: 'CRITICAL',
+        actor: pmActor,
+      })
+
+      expect(res.isMassiveXp).toBe(true)
+      expect(res.massiveXpFrozen).toBe(true)
+    })
+
+    it('should auto-approve weight if proposed by C-Level or CEO', async () => {
+      prisma.taskWeightVerification.upsert.mockImplementation(({ create, update }) => create || update)
+      const ctoActor: any = { id: 'emp_cto_01', role: 'cto' }
+
+      const res = await service.proposeTaskWeight({
+        taskId: 'task_exec',
+        proposedWeight: 4,
+        category: 'MEDIUM',
+        actor: ctoActor,
+      })
+
+      expect(res.status).toBe('APPROVED')
+      expect(Number(res.approvedWeight)).toBe(4)
+    })
+  })
+
+  describe('8. Macro Project Milestones XP Award for PMs', () => {
+    it('should award 10x verified milestone weight XP to project PM upon C-Level approval', async () => {
+      prisma.projectMilestone.findUnique.mockResolvedValue({
+        id: 'ms_01',
+        title: 'Core Engine Alpha',
+        weightVerification: { approvedWeight: new Prisma.Decimal(20) },
+        project: {
+          teamProjects: [
+            {
+              team: {
+                pmPosition: {
+                  assignments: [{ employee: { id: 'emp_pm_01', lifetimeXp: 1500 } }],
+                },
+                memberships: [],
+              },
+            },
+          ],
+        },
+      })
+      prisma.employee.update.mockResolvedValue({ id: 'emp_pm_01', lifetimeXp: 1700 })
+      prisma.xpLedgerEntry = { create: jest.fn().mockResolvedValue({}) }
+      prisma.kpiXpAuditLog.findFirst.mockResolvedValue(null)
+      prisma.kpiXpAuditLog.create.mockResolvedValue({ id: 'audit_ms' })
+
+      const ctoActor: any = { id: 'emp_cto_01', role: 'cto' }
+      const res = await service.awardMilestoneXpToPm('ms_01', ctoActor)
+
+      expect(res.success).toBe(true)
+      expect(res.pmId).toBe('emp_pm_01')
+      expect(res.xpYield).toBe(200) // 20 weight * 10 = 200 XP
+      expect(prisma.employee.update).toHaveBeenCalledWith({
+        where: { id: 'emp_pm_01' },
+        data: { lifetimeXp: { increment: 200 } },
+      })
+    })
+  })
+
+  describe('9. Governance Overrides: PM Authority & Squad Isolation', () => {
+    it('should allow PM to modify historical KPI for their assigned squad member', async () => {
+      // Mock squad membership check
+      prisma.teamMembership.findFirst.mockResolvedValue({ id: 'tm_01' })
+      prisma.weeklyKpiRecord.findUnique.mockResolvedValue({
+        id: 'rec_w45',
+        score: new Prisma.Decimal(75),
+        evaluationBreakdown: {},
+      })
+      prisma.weeklyKpiRecord.upsert.mockImplementation(({ create, update }) => create || update)
+      prisma.kpiXpAuditLog.findFirst.mockResolvedValue(null)
+      prisma.kpiXpAuditLog.create.mockResolvedValue({ id: 'audit_override' })
+
+      const pmActor: any = { id: 'emp_pm_01', role: 'pm' }
+      const res = await service.overrideRecord({
+        targetEmployeeId: 'emp_dev_01',
+        metricType: 'KPI',
+        weekNumber: 45,
+        year: 2026,
+        score: 88,
+        reason: 'Retroactive bug fix credit approved',
+        actor: pmActor,
+      })
+
+      expect(res.success).toBe(true)
+      expect(prisma.kpiXpAuditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            metricType: 'KPI',
+            authorizedRole: 'PM',
+            deltaValue: new Prisma.Decimal('13.00'), // 88 - 75 = 13
+          }),
+        }),
+      )
+    })
+
+    it('should reject PM trying to modify records for an employee outside their squad', async () => {
+      prisma.teamMembership.findFirst.mockResolvedValue(null) // Not in squad
+      const pmActor: any = { id: 'emp_pm_01', role: 'pm' }
+
+      await expect(
+        service.overrideRecord({
+          targetEmployeeId: 'emp_stranger',
+          metricType: 'KPI',
+          weekNumber: 45,
+          year: 2026,
+          score: 90,
+          actor: pmActor,
+        }),
+      ).rejects.toThrow('Project Managers may only edit or modify KPI and XP records for their assigned team members')
+    })
+  })
+
+  describe('10. Governance Overrides: CHRO Authority', () => {
+    it('should allow CHRO to override any user KPI or XP across the company', async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: 'emp_any_01', lifetimeXp: 1200 })
+      prisma.employee.update.mockResolvedValue({ id: 'emp_any_01', lifetimeXp: 1500 })
+      prisma.xpLedgerEntry = { create: jest.fn().mockResolvedValue({}) }
+      prisma.kpiXpAuditLog.findFirst.mockResolvedValue(null)
+      prisma.kpiXpAuditLog.create.mockResolvedValue({ id: 'audit_chro_override' })
+
+      const chroActor: any = { id: 'emp_chro_01', role: 'chro' }
+      const res = await service.overrideRecord({
+        targetEmployeeId: 'emp_any_01',
+        metricType: 'XP',
+        deltaXp: 300,
+        reason: 'Company-wide hackathon winner adjustment',
+        actor: chroActor,
+      })
+
+      expect(res.success).toBe(true)
+      expect(res.newLifetimeXp).toBe(1500)
+    })
+  })
+
+  describe('11. Governance Overrides: CEO Supreme Authority (Strictly MFA-Only)', () => {
+    it('should require 6-digit MFA code for CEO override and reject if missing or malformed', async () => {
+      const ceoActor: any = { id: 'emp_ceo_01', email: 'noor@seu.edu.bd', role: 'ceo' }
+
+      await expect(
+        service.overrideRecord({
+          targetEmployeeId: 'emp_dev_01',
+          metricType: 'KPI',
+          weekNumber: 46,
+          year: 2026,
+          score: 95,
+          actor: ceoActor,
+        }),
+      ).rejects.toMatchObject({
+        response: { code: 'MFA_CODE_REQUIRED' },
+      })
+    })
+
+    it('should bypass text justification and authorize any record when valid 6-digit MFA code is provided', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp_ceo_01',
+        mfaSecret: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+        mfaEnabled: false, // Testing code format validation
+      })
+      prisma.weeklyKpiRecord.findUnique.mockResolvedValue(null)
+      prisma.weeklyKpiRecord.upsert.mockImplementation(({ create }) => create)
+      prisma.kpiXpAuditLog.findFirst.mockResolvedValue(null)
+      prisma.kpiXpAuditLog.create.mockResolvedValue({ id: 'audit_ceo' })
+
+      const ceoActor: any = { id: 'emp_ceo_01', email: 'noor@seu.edu.bd', role: 'ceo' }
+      const res = await service.overrideRecord({
+        targetEmployeeId: 'emp_dev_01',
+        metricType: 'KPI',
+        weekNumber: 46,
+        year: 2026,
+        score: 95,
+        mfaCode: '123456',
+        actor: ceoActor,
+        // Notice: NO text justification reason provided!
+      })
+
+      expect(res.success).toBe(true)
+      expect(prisma.kpiXpAuditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            authorizedRole: 'CEO',
+            reason: 'Executive CEO authorization', // Automatically bypassed justification!
+          }),
+        }),
+      )
+    })
+  })
+
+  describe('12. Hierarchical Formulas: Level 3 C-Level & Level 4 CEO Calculations', () => {
+    it('should calculate Level 3 C-Level KPI (40% Goals + 30% Domain Avg + 20% CEO + 10% Peer)', async () => {
+      prisma.weeklyKpiRecord.findMany.mockResolvedValue([
+        { score: new Prisma.Decimal(80) },
+        { score: new Prisma.Decimal(90) },
+      ]) // Domain avg = 85
+      prisma.weeklyKpiRecord.upsert.mockImplementation(({ create, update }) => create || update)
+
+      // 90 * 0.4 (36) + 85 * 0.3 (25.5) + 90 * 0.2 (18) + 80 * 0.1 (8) = 87.5
+      const res = await service.calculateCLevelWeeklyKpi(
+        'emp_cto_01',
+        'CTO',
+        46,
+        2026,
+        90,
+        90,
+        80,
+      )
+
+      expect(Number(res.score)).toBe(87.5)
+      expect(res.roleLevel).toBe(3)
+    })
+
+    it('should calculate Level 4 CEO KPI (60% Company Performance + 40% C-Level Aggregate)', async () => {
+      prisma.weeklyKpiRecord.findMany.mockResolvedValue([
+        { score: new Prisma.Decimal(90) },
+        { score: new Prisma.Decimal(94) },
+      ]) // C-Level aggregate = 92
+      prisma.weeklyKpiRecord.upsert.mockImplementation(({ create, update }) => create || update)
+
+      // 95 * 0.6 (57) + 92 * 0.4 (36.8) = 93.8
+      const res = await service.calculateCeoWeeklyKpi('emp_ceo_01', 46, 2026, 95)
+
+      expect(Number(res.score)).toBe(93.8)
+      expect(res.roleLevel).toBe(4)
     })
   })
 })

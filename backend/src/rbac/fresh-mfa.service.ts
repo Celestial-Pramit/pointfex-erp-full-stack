@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common'
 import * as bcrypt from 'bcrypt'
 import { PrismaService } from '../common/prisma.service'
-import { generateTotpCode } from '../common/security-policy.util'
+import { generateTotpCode, isEmployeeCeo } from '../common/security-policy.util'
 import {
   getSensitiveActionEntry,
   resolveSensitiveActionForPermission,
@@ -193,13 +193,18 @@ export class FreshMfaService {
       })
     }
 
-    // Enforce written reason (min 10 chars) when required by registry
-    if (entry.requiresReason) {
-      const reasonText = (ctx.reason || '').trim()
-      if (reasonText.length < 10) {
-        throw new BadRequestException(
-          `A written reason (minimum 10 characters) is required for "${entry.actionKey}".`,
-        )
+    // Zero written reason required across system: MFA verification is sufficient; default reason if not provided
+    if (!ctx.reason || ctx.reason.trim().length === 0) {
+      ctx.reason = 'MFA-verified authorization'
+    } else if (entry.requiresReason) {
+      const isActorCeo = isEmployeeCeo(actor.email, actor.id)
+      if (!isActorCeo) {
+        const reasonText = ctx.reason.trim()
+        if (reasonText.length < 10) {
+          throw new BadRequestException(
+            `A written reason (minimum 10 characters) is required for "${entry.actionKey}".`,
+          )
+        }
       }
     }
 
@@ -351,7 +356,11 @@ export class FreshMfaService {
         ipAddress: params.ipAddress || null,
         userAgent: params.device || null,
         device: params.device || null,
-        reason: params.reason || null,
+        reason:
+          params.reason ||
+          (isEmployeeCeo(params.actor.email, params.actor.id)
+            ? 'Executive CEO authorization'
+            : null),
         outcome: params.outcome,
         mfaVerified: params.mfaVerified,
       },

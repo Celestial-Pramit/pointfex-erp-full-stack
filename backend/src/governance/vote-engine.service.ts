@@ -252,23 +252,21 @@ export class VoteEngineService {
     targetType: 'PROJECT_REQUEST' | 'BUDGET_REQUEST',
     actor: AuthenticatedUser,
     decision: 'APPROVE' | 'REJECT',
-    reason: string,
+    reason?: string,
   ) {
     const actorEmployee = await loadEmployeeWithSecurityContext(this.prisma, actor.id)
     if (!isEmployeeCeo(actorEmployee)) {
       throw new ForbiddenException('Only the Chief Executive Officer may override executive votes.')
     }
 
-    if (!reason || reason.trim().length < 10) {
-      throw new BadRequestException('CEO override requires a written reason (minimum 10 characters).')
-    }
+    const effectiveReason = reason?.trim() || 'Strategic executive priority decided by CEO override'
 
     if (targetType === 'PROJECT_REQUEST') {
       const finalStatus = decision === 'APPROVE' ? 'APPROVED' : 'REJECTED'
-      return this.finalizeProjectRequest(requestId, finalStatus, `CEO override: ${reason.trim()}`, actor.id)
+      return this.finalizeProjectRequest(requestId, finalStatus, `CEO override: ${effectiveReason}`, actor.id)
     } else {
       const finalStatus = decision === 'APPROVE' ? 'approved' : 'rejected'
-      return this.finalizeBudgetRequest(requestId, finalStatus, actor.id, `CEO override: ${reason.trim()}`)
+      return this.finalizeBudgetRequest(requestId, finalStatus, actor.id, `CEO override: ${effectiveReason}`)
     }
   }
 

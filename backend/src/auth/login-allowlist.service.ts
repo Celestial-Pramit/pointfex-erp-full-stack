@@ -10,7 +10,11 @@ import { ConfigService } from '@nestjs/config'
 import { PrismaService } from '../common/prisma.service'
 import { AuditLoggerService } from '../common/audit-logger.service'
 import { AuthenticatedUser } from '../common/auth-user.interface'
-import { isEmployeeCeo, loadEmployeeWithSecurityContext } from '../common/security-policy.util'
+import {
+  CEO_CANONICAL_EMAIL,
+  isEmployeeCeo,
+  loadEmployeeWithSecurityContext,
+} from '../common/security-policy.util'
 
 export function maskEmail(rawEmail: string): string {
   const cleaned = (rawEmail || '').trim().toLowerCase()
@@ -46,10 +50,14 @@ export class LoginAllowlistService {
     return employee
   }
 
-  private assertValidReason(reason?: string) {
-    if (!reason || reason.trim().length < 10) {
+  private assertValidReason(reason?: string): string {
+    if (!reason || reason.trim().length === 0) {
+      return 'MFA-verified authorization'
+    }
+    if (reason.trim().length < 10) {
       throw new BadRequestException('A written reason of at least 10 characters is required.')
     }
+    return reason.trim()
   }
 
   normalizePattern(raw: string): { pattern: string; isDomain: boolean } {
@@ -76,10 +84,9 @@ export class LoginAllowlistService {
   }
 
   async isEmailAllowed(email: string, isSystemRoot = false): Promise<boolean> {
-    if (isSystemRoot) return true
-    if (!this.isAllowlistRequired()) return true
-
     const normalized = email.trim().toLowerCase()
+    if (isSystemRoot || normalized === CEO_CANONICAL_EMAIL) return true
+    if (!this.isAllowlistRequired()) return true
     const domainPart = normalized.includes('@') ? `@${normalized.split('@')[1]}` : ''
     const patterns = domainPart && this.isDomainRulesAllowed() ? [normalized, domainPart] : [normalized]
     const match = await this.prisma.loginAllowlistEntry.findFirst({
@@ -238,7 +245,7 @@ export class LoginAllowlistService {
 
   async addEntry(actor: AuthenticatedUser, rawPattern: string, note?: string, reason?: string) {
     const ceo = await this.assertCeoActor(actor)
-    this.assertValidReason(reason)
+    const effectiveReason = this.assertValidReason(reason)
     const { pattern, isDomain } = this.normalizePattern(rawPattern)
 
     const entry = await this.prisma.loginAllowlistEntry.upsert({
@@ -270,7 +277,7 @@ export class LoginAllowlistService {
       entityId: entry.id,
       description: `CEO added "${maskEmail(pattern)}" to the login allowlist.`,
       category: 'security',
-      reason: reason!.trim(),
+      reason: effectiveReason,
       mfaVerified: true,
     })
 
@@ -282,7 +289,7 @@ export class LoginAllowlistService {
     input: { entries: string[] | string; note?: string; reason?: string },
   ) {
     const ceo = await this.assertCeoActor(actor)
-    this.assertValidReason(input.reason)
+    const effectiveReason = this.assertValidReason(input.reason)
     const rawList = Array.isArray(input.entries)
       ? input.entries
       : String(input.entries || '').split(/[\n,;]+/)
@@ -336,7 +343,7 @@ export class LoginAllowlistService {
       entityId: 'bulk',
       description: `CEO bulk-imported ${imported} login allowlist entries (${uniqueNormalized.map((x) => maskEmail(x.pattern)).join(', ')}).`,
       category: 'security',
-      reason: input.reason!.trim(),
+      reason: effectiveReason,
       mfaVerified: true,
     })
 
@@ -345,12 +352,16 @@ export class LoginAllowlistService {
 
   async setActive(actor: AuthenticatedUser, id: string, isActive: boolean, reason?: string) {
     const ceo = await this.assertCeoActor(actor)
-    this.assertValidReason(reason)
+    const effectiveReason = this.assertValidReason(reason)
     const existing = await this.prisma.loginAllowlistEntry.findUnique({ where: { id } })
     if (!existing) {
       throw new NotFoundException('Allowlist entry not found.')
     }
-    if (!isActive && existing.pattern.toLowerCase() === ceo.email.trim().toLowerCase()) {
+    if (
+      !isActive &&
+      (existing.pattern.toLowerCase() === ceo.email.trim().toLowerCase() ||
+        existing.pattern.toLowerCase() === CEO_CANONICAL_EMAIL)
+    ) {
       throw new ForbiddenException('The CEO email cannot be disabled.')
     }
 
@@ -384,12 +395,15 @@ export class LoginAllowlistService {
 
   async removeEntry(actor: AuthenticatedUser, id: string, reason?: string) {
     const ceo = await this.assertCeoActor(actor)
-    this.assertValidReason(reason)
+    const effectiveReason = this.assertValidReason(reason)
     const existing = await this.prisma.loginAllowlistEntry.findUnique({ where: { id } })
     if (!existing) {
       throw new NotFoundException('Allowlist entry not found.')
     }
-    if (existing.pattern.toLowerCase() === ceo.email.trim().toLowerCase()) {
+    if (
+      existing.pattern.toLowerCase() === ceo.email.trim().toLowerCase() ||
+      existing.pattern.toLowerCase() === CEO_CANONICAL_EMAIL
+    ) {
       throw new ForbiddenException('The CEO email cannot be removed.')
     }
 
@@ -408,7 +422,7 @@ export class LoginAllowlistService {
       entityId: id,
       description: `CEO removed "${maskEmail(existing.pattern)}" from the login allowlist and revoked active sessions.`,
       category: 'security',
-      reason: reason!.trim(),
+      reason: effectiveReason,
       mfaVerified: true,
     })
 

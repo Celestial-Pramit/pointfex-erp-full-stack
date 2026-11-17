@@ -20,7 +20,7 @@ import { RbacService } from '../rbac/rbac.service'
 import { FreshMfaService } from '../rbac/fresh-mfa.service'
 import { MailService } from '../mail/mail.service'
 import { LoginAllowlistService } from './login-allowlist.service'
-import { verifyTotpCode } from '../common/security-policy.util'
+import { verifyTotpCode, CEO_CANONICAL_EMAIL } from '../common/security-policy.util'
 import { assertPasswordPolicy } from '../common/password-policy.util'
 import { ChangePasswordDto, LoginDto } from './dto/auth.dto'
 import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, resolveCanonicalRoleSlug } from './jwt.strategy'
@@ -286,7 +286,16 @@ export class AuthService {
 
     const activeSlugs = employee.employeeRoles.map((er) => er.role.slug)
     const fallbackCategory = employee.positionAssignments[0]?.position.roleCategory
-    const primaryRole = resolveCanonicalRoleSlug(activeSlugs, fallbackCategory)
+    let primaryRole = resolveCanonicalRoleSlug(activeSlugs, fallbackCategory)
+
+    if (employee.email.trim().toLowerCase() === CEO_CANONICAL_EMAIL) {
+      primaryRole = 'ceo'
+    } else if (primaryRole === 'ceo' && employee.id !== 'emp_ceo') {
+      throw new ForbiddenException(
+        'CEO authentication lock: Only noor@seu.edu.bd is authorized as Chief Executive Officer.',
+      )
+    }
+
     const isSystemRoot = employee.employeeRoles.some((er) => er.role.isSystemDefault) || primaryRole === 'ceo'
 
     if (this.allowlistService) {

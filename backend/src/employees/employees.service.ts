@@ -20,6 +20,7 @@ import { CreateEmployeeDto } from './dto/create-employee.dto'
 import { AuthenticatedUser } from '../common/auth-user.interface'
 import {
   C_LEVEL_ROLE_SLUGS,
+  CEO_CANONICAL_EMAIL,
   assertHorizontalCLevelGuard,
   assertTargetNotSupremeCeo,
   isEmployeeCeo,
@@ -576,6 +577,22 @@ export class EmployeesService {
   ) {
     const existing = await this.findOne(id)
 
+    if (
+      existing.email.toLowerCase() === CEO_CANONICAL_EMAIL ||
+      id === 'emp_ceo_01'
+    ) {
+      throw new ForbiddenException(
+        'The Chief Executive Officer account (noor@seu.edu.bd) is immutable and cannot be modified.',
+      )
+    }
+
+    const targetEmail = (dto as any).email
+    if (targetEmail && targetEmail.trim().toLowerCase() === CEO_CANONICAL_EMAIL && id !== 'emp_ceo_01') {
+      throw new ForbiddenException(
+        'The email noor@seu.edu.bd is exclusively reserved for the Chief Executive Officer.',
+      )
+    }
+
     if (actor?.id && actor.id !== id) {
       if (this.authz && this.authz.getAuthzMode() !== 'legacy') {
         await this.authz.assert(actor, 'employees:update_any')
@@ -658,7 +675,11 @@ export class EmployeesService {
     body: { name?: string; email?: string; addToAllowlist?: boolean; reason: string },
     actor: AuthenticatedUser,
   ) {
-    if (!body.reason || body.reason.trim().length < 10) {
+    const effectiveReason =
+      !body.reason || body.reason.trim().length === 0
+        ? 'MFA-verified identity update'
+        : body.reason.trim()
+    if (body.reason && body.reason.trim().length > 0 && body.reason.trim().length < 10) {
       throw new BadRequestException('Written reason must be at least 10 characters.')
     }
 
@@ -666,6 +687,21 @@ export class EmployeesService {
       where: { id },
     })
     if (!employee) throw new NotFoundException(`Employee "${id}" not found.`)
+
+    if (
+      employee.email.toLowerCase() === CEO_CANONICAL_EMAIL ||
+      id === 'emp_ceo_01'
+    ) {
+      throw new ForbiddenException(
+        'The Chief Executive Officer identity (noor@seu.edu.bd) is immutable and cannot be modified.',
+      )
+    }
+
+    if (body.email && body.email.trim().toLowerCase() === CEO_CANONICAL_EMAIL) {
+      throw new ForbiddenException(
+        'The email noor@seu.edu.bd is exclusively reserved for the Chief Executive Officer.',
+      )
+    }
 
     const beforeState = { name: employee.name, email: employee.email }
     const newName = body.name?.trim()
@@ -750,7 +786,7 @@ export class EmployeesService {
           changeType: 'PROFILE',
           beforeState: beforeState as any,
           afterState: { name: saved.name, email: saved.email } as any,
-          reason: body.reason.trim(),
+          reason: effectiveReason,
         },
       })
 

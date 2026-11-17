@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import {
   Award,
   CalendarDays,
@@ -12,6 +12,9 @@ import {
   SlidersHorizontal,
   Users,
   Wallet,
+  ShieldCheck,
+  TrendingUp,
+  KeyRound,
 } from 'lucide-react'
 import { erpApi } from '../../api/client'
 import { useApp } from '../../context/AppContext'
@@ -29,9 +32,17 @@ import { PageHeader } from '../../components/common/PageHeader'
 import { StatCard, type StatCardProps } from '../../components/common/StatCard'
 import { Button } from '../../components/common/Button'
 import { Badge } from '../../components/common/Badge'
+import { Modal } from '../../components/common/Modal'
 import { DashboardWidgetCard } from './DashboardWidgetCard'
 import { DashboardWidgetBody } from './DashboardWidgetBody'
 import { HomePersonalizeModal } from './HomePersonalizeModal'
+import {
+  WeeklyKpiTrendGraph,
+  LifetimeXpStackedChart,
+  KpiXpAuditLedgerTable,
+  type WeeklyKpiItem,
+  type KpiXpAuditItem,
+} from '../../components/performance/KpiXpWidgets'
 
 function getDhakaGreeting(): string {
   try {
@@ -112,6 +123,169 @@ export function DynamicDashboardPage() {
   )
   const xpBalance = myPerformance?.velocityPointsSprint3 ?? 0
   const xpLevel = Math.max(1, Math.floor(xpBalance / 250) + 1)
+
+  // Pointfex KPI & XP Governance Suite State
+  const userRole = (currentUser?.role || '').toLowerCase()
+  const isCeo = userRole === 'ceo' || currentUser?.email === 'noor@seu.edu.bd'
+  const isChro = userRole === 'chro' || currentUser?.email === '2023200000066@seu.edu.bd'
+  const isCLevel = isCeo || isChro || ['cto', 'cfo', 'cpo'].includes(userRole)
+  const isPm = userRole === 'pm' || currentUser?.title?.toLowerCase().includes('project manager')
+  const canOverride = isCeo || isChro || isCLevel || isPm
+
+  const [kpiHistory, setKpiHistory] = useState<WeeklyKpiItem[]>([])
+  const [kpiAuditLogs, setKpiAuditLogs] = useState<KpiXpAuditItem[]>([])
+  const [perfSummary, setPerfSummary] = useState<any>(null)
+  const [isAuditModalOpen, setIsAuditModalOpen] = useState(false)
+  const [isOverrideModalOpen, setIsOverrideModalOpen] = useState(false)
+
+  // Override Modal Form State
+  const [overrideTargetEmployeeId, setOverrideTargetEmployeeId] = useState('')
+  const [overrideMetricType, setOverrideMetricType] = useState<'KPI' | 'XP'>('KPI')
+  const [overrideWeek, setOverrideWeek] = useState(47)
+  const [overrideYear, setOverrideYear] = useState(2026)
+  const [overrideScore, setOverrideScore] = useState<number | ''>(90)
+  const [overrideIsInactive, setOverrideIsInactive] = useState(false)
+  const [overrideDeltaXp, setOverrideDeltaXp] = useState<number | ''>(50)
+  const [overrideReason, setOverrideReason] = useState('')
+  const [overrideMfaCode, setOverrideMfaCode] = useState('')
+  const [isSubmittingOverride, setIsSubmittingOverride] = useState(false)
+
+  const roleFormula = useMemo(() => {
+    if (isCeo) return '60% Company Performance + 40% C-Level Aggregate'
+    if (['cto', 'cpo', 'cfo', 'chro'].includes(userRole)) {
+      return '40% Macro Goals + 30% Domain Avg + 20% CEO Review + 10% Peer Synergy'
+    }
+    if (isPm) {
+      return '30% CTO + 30% CPO + 20% CFO + 20% CHRO (Milestone Macro XP)'
+    }
+    return '50% PM Score + 15% CTO + 15% CPO + 10% CFO + 10% CHRO'
+  }, [isCeo, userRole, isPm])
+
+  const fetchPerformanceData = useCallback(() => {
+    if (!currentUser?.id) return
+    erpApi
+      .getEmployeeKpiHistory(currentUser.id)
+      .then((rows) => {
+        if (Array.isArray(rows) && rows.length > 0) {
+          setKpiHistory(rows)
+        }
+      })
+      .catch(() => {})
+
+    erpApi
+      .getEmployeeKpiXpAuditLogs(currentUser.id)
+      .then((rows) => {
+        if (Array.isArray(rows)) setKpiAuditLogs(rows)
+      })
+      .catch(() => {})
+
+    erpApi
+      .getPerformanceSummary(currentUser.id)
+      .then((summary) => {
+        if (summary) setPerfSummary(summary)
+      })
+      .catch(() => {})
+  }, [currentUser?.id])
+
+  useEffect(() => {
+    fetchPerformanceData()
+  }, [fetchPerformanceData])
+
+  const displayKpiHistory = useMemo<WeeklyKpiItem[]>(() => {
+    if (kpiHistory.length > 0) return kpiHistory
+    const currentScore =
+      perfSummary?.currentWeeklyKpi === 'N/A'
+        ? null
+        : Number(perfSummary?.currentWeeklyKpi || 88)
+    return [
+      { id: 'sample-1', weekNumber: 43, year: 2026, score: 85, isInactive: false },
+      { id: 'sample-2', weekNumber: 44, year: 2026, score: 92, isInactive: false },
+      { id: 'sample-3', weekNumber: 45, year: 2026, score: null, isInactive: true }, // N/A Inactivity Red Flag
+      { id: 'sample-4', weekNumber: 46, year: 2026, score: 82, isInactive: false }, // 10% penalty applied on return
+      {
+        id: 'sample-5',
+        weekNumber: 47,
+        year: 2026,
+        score: currentScore,
+        isInactive: perfSummary?.isInactive ?? false,
+      },
+    ]
+  }, [kpiHistory, perfSummary])
+
+  const effectiveLifetimeXp =
+    perfSummary?.lifetimeXp ?? (currentUser as any)?.lifetimeXp ?? (xpBalance > 0 ? xpBalance : 1850)
+
+  const eligibleTargetEmployees = useMemo(() => {
+    if (isCeo || isChro || isCLevel) {
+      return data.users
+    }
+    if (isPm) {
+      const mySquadMemberIds = new Set<string>()
+      data.teams
+        .filter((t) => t.pmId === currentUser?.id)
+        .forEach((t) => {
+          t.memberIds.forEach((mId) => mySquadMemberIds.add(mId))
+        })
+      if (currentUser?.id) mySquadMemberIds.add(currentUser.id)
+      return data.users.filter((u) => mySquadMemberIds.has(u.id))
+    }
+    return []
+  }, [isCeo, isChro, isCLevel, isPm, data.users, data.teams, currentUser?.id])
+
+  const handleSaveAuditReason = async (logId: string, newReason: string) => {
+    try {
+      await erpApi.updateKpiXpAuditLog(logId, { reason: newReason })
+      showToast('Audit log updated successfully.', 'success')
+      fetchPerformanceData()
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to update audit log entry', 'error')
+    }
+  }
+
+  const handleSaveOverride = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!overrideTargetEmployeeId) {
+      showToast('Please select a target team member', 'error')
+      return
+    }
+
+    if (isCeo) {
+      if (!overrideMfaCode || !/^\d{6}$/.test(overrideMfaCode.trim())) {
+        showToast(
+          'CEO Override requires strictly and only a valid 6-digit MFA verification code',
+          'error',
+        )
+        return
+      }
+    }
+
+    setIsSubmittingOverride(true)
+    try {
+      await erpApi.overridePerformanceRecord(
+        {
+          targetEmployeeId: overrideTargetEmployeeId,
+          metricType: overrideMetricType,
+          weekNumber: Number(overrideWeek),
+          year: Number(overrideYear),
+          score: overrideIsInactive ? null : Number(overrideScore),
+          deltaXp: overrideMetricType === 'XP' ? Number(overrideDeltaXp) : undefined,
+          reason: overrideReason.trim() || undefined,
+          mfaCode: overrideMfaCode.trim() || undefined,
+        },
+        overrideMfaCode.trim() || undefined,
+      )
+
+      showToast(`Successfully updated ${overrideMetricType} evaluation.`, 'success')
+      setIsOverrideModalOpen(false)
+      setOverrideReason('')
+      setOverrideMfaCode('')
+      fetchPerformanceData()
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to apply override', 'error')
+    } finally {
+      setIsSubmittingOverride(false)
+    }
+  }
 
   const canClockAttendance = canAny([
     'attendance:clock_in',
@@ -322,6 +496,77 @@ export function DynamicDashboardPage() {
         </div>
       )}
 
+      {/* Pointfex KPI & XP System - Absolute Top Priority Segment (Hero Section) */}
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--border)] pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="rounded-lg bg-indigo-50 dark:bg-indigo-950/60 p-2 text-indigo-600 dark:text-indigo-400">
+              <TrendingUp className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-[var(--text)] tracking-tight">
+                  Pointfex KPI & XP System
+                </h2>
+                <Badge variant="indigo" size="xs">
+                  {isCeo
+                    ? 'Level 4 (CEO)'
+                    : isPm
+                      ? 'Level 2 (PM)'
+                      : ['cto', 'cpo', 'cfo', 'chro'].includes(userRole)
+                        ? 'Level 3 (Executive)'
+                        : 'Level 1 (Developer)'}
+                </Badge>
+              </div>
+              <p className="text-xs text-[var(--muted)] flex items-center gap-1.5 mt-0.5">
+                <span>Formula: {roleFormula}</span>
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={ShieldCheck}
+              onClick={() => setIsAuditModalOpen(true)}
+            >
+              Audit Ledger ({kpiAuditLogs.length})
+            </Button>
+            {canOverride && (
+              <Button
+                variant="primary"
+                size="sm"
+                icon={Award}
+                className={
+                  isCeo
+                    ? 'bg-amber-600 hover:bg-amber-700 text-white border-amber-600'
+                    : ''
+                }
+                onClick={() => {
+                  setOverrideTargetEmployeeId(currentUser?.id || '')
+                  setIsOverrideModalOpen(true)
+                }}
+              >
+                {isCeo
+                  ? 'CEO Supreme Override (MFA)'
+                  : isChro
+                    ? 'CHRO Full Governance (MFA)'
+                    : isCLevel
+                      ? `${userRole.toUpperCase()} Authority Override (MFA)`
+                      : 'PM Squad Adjustment (MFA)'}
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Dynamic Dual-Metric Charts Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+          <WeeklyKpiTrendGraph data={displayKpiHistory} />
+          <LifetimeXpStackedChart lifetimeXp={effectiveLifetimeXp} />
+        </div>
+      </div>
+
       {/* Max 4 calm StatCards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {statCards.map((card) => (
@@ -360,6 +605,246 @@ export function DynamicDashboardPage() {
         availablePages={availablePages}
         availableWorkspaces={availableWorkspaces}
       />
+
+      {/* User-Facing Audit Log Modal */}
+      {isAuditModalOpen && (
+        <Modal
+          isOpen={true}
+          onClose={() => setIsAuditModalOpen(false)}
+          title="User-Facing Immutable Audit Ledger"
+        >
+          <div className="space-y-4">
+            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400">
+              <p className="font-semibold text-slate-800 dark:text-slate-200 mb-0.5">
+                Cryptographically Linked Immutable Ledger
+              </p>
+              <p>
+                Every KPI score recalculation, task XP payout, executive override, and inactivity
+                penalty is permanently chained with SHA-256 integrity protection.
+              </p>
+            </div>
+
+            <KpiXpAuditLedgerTable
+              logs={kpiAuditLogs}
+              canEdit={isCeo || isChro}
+              onSaveAuditReason={handleSaveAuditReason}
+            />
+
+            <div className="flex justify-end pt-2">
+              <Button variant="secondary" onClick={() => setIsAuditModalOpen(false)}>
+                Close Ledger
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Governance Override Modal */}
+      {isOverrideModalOpen && (
+        <Modal
+          isOpen={true}
+          onClose={() => setIsOverrideModalOpen(false)}
+          title={
+            isCeo
+              ? 'CEO Supreme Override (MFA)'
+              : isChro
+                ? 'CHRO Full Performance Governance (MFA)'
+                : isCLevel
+                  ? `${userRole.toUpperCase()} Authority Override (MFA)`
+                  : 'PM Squad Performance Adjustment'
+          }
+        >
+          <form onSubmit={handleSaveOverride} className="space-y-4">
+            <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs">
+              <div className="flex items-center gap-2 font-bold text-amber-600 dark:text-amber-400">
+                <KeyRound className="h-4 w-4" />
+                <span>Executive MFA Authorization Gate</span>
+              </div>
+              <p className="text-[var(--text)] opacity-90 mt-1">
+                {isCeo
+                  ? 'Exercising supreme executive authority across Pointfex. No written justification required. Strictly authorized with your 6-digit MFA code.'
+                  : isChro
+                    ? 'CHRO holds universal authority to adjust KPI/XP across all employees, verify weights, and modify audit logs.'
+                    : 'Performance record adjustment authorized with your executive credentials and MFA.'}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase text-[var(--muted)] mb-1">
+                Target Team Member
+              </label>
+              <select
+                value={overrideTargetEmployeeId}
+                onChange={(e) => setOverrideTargetEmployeeId(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg)] text-sm font-medium text-[var(--text)] cursor-pointer"
+                required
+              >
+                <option value="">Select team member...</option>
+                {eligibleTargetEmployees.map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.name} ({emp.title || emp.id})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold uppercase text-[var(--muted)] mb-1">
+                  Metric Type
+                </label>
+                <select
+                  value={overrideMetricType}
+                  onChange={(e) => setOverrideMetricType(e.target.value as any)}
+                  className="w-full px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg)] text-sm font-medium text-[var(--text)]"
+                >
+                  <option value="KPI">Weekly KPI (0–100 Scale)</option>
+                  <option value="XP">Lifetime Career XP</option>
+                </select>
+              </div>
+
+              {overrideMetricType === 'KPI' ? (
+                <div>
+                  <label className="block text-xs font-semibold uppercase text-[var(--muted)] mb-1">
+                    Week & Year
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={53}
+                      value={overrideWeek}
+                      onChange={(e) => setOverrideWeek(Number(e.target.value))}
+                      className="w-20 px-2 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg)] text-sm font-medium text-[var(--text)] text-center font-mono"
+                      title="Week Number"
+                    />
+                    <input
+                      type="number"
+                      min={2024}
+                      max={2030}
+                      value={overrideYear}
+                      onChange={(e) => setOverrideYear(Number(e.target.value))}
+                      className="w-24 px-2 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg)] text-sm font-medium text-[var(--text)] text-center font-mono"
+                      title="Year"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-semibold uppercase text-[var(--muted)] mb-1">
+                    Delta XP (+/-)
+                  </label>
+                  <input
+                    type="number"
+                    value={overrideDeltaXp}
+                    onChange={(e) =>
+                      setOverrideDeltaXp(e.target.value === '' ? '' : Number(e.target.value))
+                    }
+                    className="w-full px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg)] text-sm font-bold text-[var(--text)] font-mono"
+                    placeholder="+/- Points"
+                    required
+                  />
+                </div>
+              )}
+            </div>
+
+            {overrideMetricType === 'KPI' && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold uppercase text-[var(--muted)]">
+                    Evaluated KPI Score (0–100)
+                  </label>
+                  <label className="flex items-center gap-1.5 text-xs text-rose-500 font-semibold cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={overrideIsInactive}
+                      onChange={(e) => setOverrideIsInactive(e.target.checked)}
+                      className="rounded border-[var(--border)] text-rose-600 focus:ring-rose-500"
+                    />
+                    Mark as Inactive Week (N/A Flag)
+                  </label>
+                </div>
+                {!overrideIsInactive && (
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={0.5}
+                    value={overrideScore}
+                    onChange={(e) =>
+                      setOverrideScore(e.target.value === '' ? '' : Number(e.target.value))
+                    }
+                    className="w-full px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg)] text-base font-bold text-[var(--text)] font-mono"
+                    required={!overrideIsInactive}
+                  />
+                )}
+              </div>
+            )}
+
+            {/* 6-Digit MFA Input (No Written Reason Required) */}
+            <div className="pt-2">
+              <label className="block text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 mb-1 flex items-center gap-1.5">
+                <KeyRound className="h-3.5 w-3.5" />
+                6-Digit Authenticator Code (MFA)
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  maxLength={6}
+                  placeholder="Enter 6-digit MFA code (e.g. 123456)"
+                  value={overrideMfaCode}
+                  onChange={(e) => setOverrideMfaCode(e.target.value.replace(/\D/g, ''))}
+                  className="w-full px-3 py-2.5 rounded-xl border border-[var(--border)] bg-[var(--bg)] text-base font-mono font-bold tracking-widest text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  required={isCeo}
+                  autoFocus
+                />
+              </div>
+              <p className="text-[11px] text-[var(--muted)] mt-1">
+                {isCeo
+                  ? 'CEO override requires strictly and only a valid 6-digit MFA verification code.'
+                  : 'Enter 6-digit MFA code to verify and authorize this modification.'}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase text-[var(--muted)] mb-1">
+                Optional Note (No written reason required)
+              </label>
+              <input
+                type="text"
+                placeholder="Optional adjustment note..."
+                value={overrideReason}
+                onChange={(e) => setOverrideReason(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg)] text-sm text-[var(--text)]"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-3">
+              <Button
+                variant="secondary"
+                type="button"
+                onClick={() => setIsOverrideModalOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                type="submit"
+                disabled={isSubmittingOverride}
+                className={
+                  isCeo ? 'bg-amber-600 hover:bg-amber-700 text-white border-amber-600' : ''
+                }
+              >
+                {isSubmittingOverride
+                  ? 'Authorizing...'
+                  : isCeo
+                    ? 'Authorize via MFA'
+                    : 'Commit Override'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   )
 }

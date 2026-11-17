@@ -386,6 +386,48 @@ export const erpApi = {
       method: 'POST',
       body: JSON.stringify(body || {}),
     }),
+  proposeTaskWeight: (body: {
+    taskId?: string
+    milestoneId?: string
+    proposedWeight: number
+    category?: 'SMALL' | 'MEDIUM' | 'LARGE' | 'CRITICAL' | 'CUSTOM'
+    context?: 'MAIN_SQUAD' | 'OUTSIDE_SQUAD' | 'DIRECT_EXECUTIVE'
+  }) =>
+    apiRequest<any>('/performance/propose-weight', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  overridePerformanceRecord: (
+    body: {
+      targetEmployeeId: string
+      metricType: 'KPI' | 'XP'
+      weekNumber?: number
+      year?: number
+      score?: number | null
+      deltaXp?: number
+      newLifetimeXp?: number
+      reason?: string
+      mfaCode?: string
+    },
+    mfaCodeHeader?: string,
+  ) =>
+    apiRequest<any>('/performance/override', {
+      method: 'POST',
+      headers: mfaCodeHeader ? { 'X-MFA-Code': mfaCodeHeader } : undefined,
+      body: JSON.stringify(body),
+    }),
+  awardMilestoneXpToPm: (milestoneId: string) =>
+    apiRequest<any>(`/performance/milestones/${milestoneId}/approve-xp`, {
+      method: 'POST',
+    }),
+  updateKpiXpAuditLog: (
+    id: string,
+    body: { reason?: string; notes?: string; actionType?: string },
+  ) =>
+    apiRequest<any>(`/performance/audit-log/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
 
   // Reports
   getReports: () => apiRequest<any[]>('/reports'),

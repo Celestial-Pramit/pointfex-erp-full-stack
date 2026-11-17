@@ -338,7 +338,11 @@ export class EmployeeLifecycleService {
     actor: AuthenticatedUser,
     reason?: string,
   ) {
-    if (!reason || reason.trim().length < 10) {
+    const effectiveReason =
+      !reason || reason.trim().length === 0
+        ? 'MFA-verified administrative reset'
+        : reason.trim()
+    if (reason && reason.trim().length > 0 && reason.trim().length < 10) {
       throw new BadRequestException('A written reason of at least 10 characters is required.')
     }
     const { actorEmp, employee } = await this.loadProtectedLifecycleTarget(
@@ -395,7 +399,7 @@ export class EmployeeLifecycleService {
           changeType: 'SECURITY',
           beforeState: { mfaEnabled: true } as any,
           afterState: { mfaEnabled: false, mustEnrollMfa: shouldRequireReenroll } as any,
-          reason: reason.trim(),
+          reason: effectiveReason,
         },
       })
     })
@@ -419,7 +423,7 @@ export class EmployeeLifecycleService {
       entityId: employeeId,
       description: `Reset MFA, revoked all sessions, and sent notification email.`,
       category: 'security',
-      reason: reason.trim(),
+      reason: effectiveReason,
     })
 
     return {

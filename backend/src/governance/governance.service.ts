@@ -22,6 +22,7 @@ import {
 import { AuthenticatedUser } from '../common/auth-user.interface'
 import { Prisma } from '@prisma/client'
 import {
+  CEO_CANONICAL_EMAIL,
   CORE_ROLE_SLUGS,
   assertHorizontalCLevelGuard,
   assertNotSelfTarget,
@@ -268,6 +269,16 @@ export class GovernanceService implements OnModuleInit {
     await verifyStepUpAuth(this.prisma, actor.id, dto, headers, 'CEO transfer')
 
     const actorEmployee = await loadEmployeeWithSecurityContext(this.prisma, actor.id)
+
+    if (
+      actorEmployee.email.toLowerCase() === CEO_CANONICAL_EMAIL ||
+      actor.id === 'emp_ceo_01'
+    ) {
+      throw new ForbiddenException(
+        'CEO Identity Lock: The Chief Executive Officer account (noor@seu.edu.bd) is immutable and cannot be transferred or demoted.',
+      )
+    }
+
     let canTransferCeo = false
     if (this.authz && this.authz.getAuthzMode() !== 'legacy') {
       canTransferCeo = (await this.authz.check(actor, 'governance:transfer_ceo')).allowed

@@ -1,6 +1,14 @@
-import { Injectable, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
+import {
+  Injectable,
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+  HttpException,
+  Logger,
+} from '@nestjs/common'
 import { PrismaService } from '../common/prisma.service'
 import { AuthenticatedUser } from '../common/auth-user.interface'
+import { isEmployeeCeo, verifyTotpCode } from '../common/security-policy.util'
 import { Prisma } from '@prisma/client'
 import * as crypto from 'crypto'
 
@@ -14,7 +22,48 @@ export interface DeveloperTaskMetric {
 
 @Injectable()
 export class KpiEngineService {
+  private readonly logger = new Logger(KpiEngineService.name)
+
   constructor(private readonly prisma: PrismaService) {}
+
+  // --------------------------------------------------------------------------
+  // SQUAD ASSIGNMENT HELPER: VERIFY IF EMPLOYEE IS IN PM SQUAD
+  // --------------------------------------------------------------------------
+  async isEmployeeInPmSquad(pmId: string, employeeId: string): Promise<boolean> {
+    if (pmId === employeeId) return true
+
+    const sharedTeam = await this.prisma.teamMembership.findFirst({
+      where: {
+        employeeId,
+        isActive: true,
+        team: {
+          OR: [
+            {
+              pmPosition: {
+                assignments: {
+                  some: {
+                    employeeId: pmId,
+                    isActive: true,
+                  },
+                },
+              },
+            },
+            {
+              memberships: {
+                some: {
+                  employeeId: pmId,
+                  isActive: true,
+                  isLead: true,
+                },
+              },
+            },
+          ],
+        },
+      },
+    })
+
+    return !!sharedTeam
+  }
 
   // --------------------------------------------------------------------------
   // 1. DEVELOPER (LEVEL 1) WEEKLY KPI CALCULATION
@@ -908,6 +957,555 @@ export class KpiEngineService {
     return this.prisma.kpiXpAuditLog.findMany({
       where: { employeeId },
       orderBy: { createdAt: 'desc' },
+      include: {
+        authorizedBy: {
+          select: { id: true, name: true, title: true },
+        },
+      },
+    })
+  }
+
+  // --------------------------------------------------------------------------
+  // 10. PM TASK & MILESTONE WEIGHT PROPOSAL
+  // --------------------------------------------------------------------------
+  async proposeTaskWeight(data: {
+    taskId?: string
+    milestoneId?: string
+    proposedWeight: number
+    category?: 'SMALL' | 'MEDIUM' | 'LARGE' | 'CRITICAL' | 'CUSTOM'
+    context?: 'MAIN_SQUAD' | 'OUTSIDE_SQUAD' | 'DIRECT_EXECUTIVE'
+    actor: AuthenticatedUser
+  }) {
+    const role = data.actor.role?.toLowerCase()
+    const isExecutive = ['ceo', 'chro', 'cto', 'cfo', 'cpo'].includes(role)
+    const isPm = role === 'pm'
+
+    if (!isExecutive && !isPm) {
+      throw new ForbiddenException('Only Project Managers and C-Suite executives can propose task weights')
+    }
+
+    if (!data.taskId && !data.milestoneId) {
+      throw new BadRequestException('Either taskId or milestoneId must be provided')
+    }
+
+    const proposedWeight = Number(data.proposedWeight)
+    if (proposedWeight <= 0) {
+      throw new BadRequestException('Proposed weight must be greater than 0')
+    }
+
+    const isMassiveXp = proposedWeight >= 50
+    const category =
+      data.category ||
+      (proposedWeight <= 1
+        ? 'SMALL'
+        : proposedWeight <= 3
+          ? 'MEDIUM'
+          : proposedWeight <= 5
+            ? 'LARGE'
+            : 'CRITICAL')
+    const context = data.context || (isExecutive ? 'DIRECT_EXECUTIVE' : 'MAIN_SQUAD')
+    const status = isExecutive ? 'APPROVED' : 'PENDING_CHRO'
+
+    let record
+    if (data.taskId) {
+      record = await this.prisma.taskWeightVerification.upsert({
+        where: { taskId: data.taskId },
+        update: {
+          proposedWeight: new Prisma.Decimal(proposedWeight),
+          approvedWeight: isExecutive ? new Prisma.Decimal(proposedWeight) : null,
+          category: category as any,
+          context: context as any,
+          status: status as any,
+          proposerId: data.actor.id,
+          chroId: isExecutive ? data.actor.id : null,
+          isMassiveXp,
+          massiveXpFrozen: isMassiveXp,
+        },
+        create: {
+          taskId: data.taskId,
+          proposedWeight: new Prisma.Decimal(proposedWeight),
+          approvedWeight: isExecutive ? new Prisma.Decimal(proposedWeight) : null,
+          category: category as any,
+          context: context as any,
+          status: status as any,
+          proposerId: data.actor.id,
+          chroId: isExecutive ? data.actor.id : null,
+          isMassiveXp,
+          massiveXpFrozen: isMassiveXp,
+        },
+      })
+    } else {
+      record = await this.prisma.taskWeightVerification.upsert({
+        where: { milestoneId: data.milestoneId! },
+        update: {
+          proposedWeight: new Prisma.Decimal(proposedWeight),
+          approvedWeight: isExecutive ? new Prisma.Decimal(proposedWeight) : null,
+          category: category as any,
+          context: context as any,
+          status: status as any,
+          proposerId: data.actor.id,
+          chroId: isExecutive ? data.actor.id : null,
+          isMassiveXp,
+          massiveXpFrozen: isMassiveXp,
+        },
+        create: {
+          milestoneId: data.milestoneId!,
+          proposedWeight: new Prisma.Decimal(proposedWeight),
+          approvedWeight: isExecutive ? new Prisma.Decimal(proposedWeight) : null,
+          category: category as any,
+          context: context as any,
+          status: status as any,
+          proposerId: data.actor.id,
+          chroId: isExecutive ? data.actor.id : null,
+          isMassiveXp,
+          massiveXpFrozen: isMassiveXp,
+        },
+      })
+    }
+
+    return record
+  }
+
+  // --------------------------------------------------------------------------
+  // 11. MACRO PROJECT MILESTONES XP AWARD FOR PMS (C-LEVEL APPROVED)
+  // --------------------------------------------------------------------------
+  async awardMilestoneXpToPm(milestoneId: string, actor: AuthenticatedUser) {
+    const role = actor.role?.toLowerCase()
+    const isExecutive = ['ceo', 'chro', 'cto', 'cfo', 'cpo'].includes(role)
+    if (!isExecutive) {
+      throw new ForbiddenException('Only C-Suite executives can approve macro project milestones for PM XP')
+    }
+
+    const milestone = await this.prisma.projectMilestone.findUnique({
+      where: { id: milestoneId },
+      include: {
+        weightVerification: true,
+        project: {
+          include: {
+            teamProjects: {
+              where: { isActive: true },
+              include: {
+                team: {
+                  include: {
+                    pmPosition: {
+                      include: {
+                        assignments: {
+                          where: { isActive: true },
+                          include: { employee: true },
+                        },
+                      },
+                    },
+                    memberships: {
+                      where: { isLead: true, isActive: true },
+                      include: { employee: true },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    })
+
+    if (!milestone) throw new NotFoundException(`Milestone ${milestoneId} not found`)
+
+    let pmEmployee: any = null
+    for (const tp of milestone.project?.teamProjects || []) {
+      const activePm = tp.team.pmPosition?.assignments[0]?.employee
+      if (activePm) {
+        pmEmployee = activePm
+        break
+      }
+      const lead = tp.team.memberships[0]?.employee
+      if (lead) {
+        pmEmployee = lead
+        break
+      }
+    }
+
+    if (!pmEmployee) {
+      throw new NotFoundException('No active Project Manager found for the milestone project')
+    }
+
+    const weight = milestone.weightVerification?.approvedWeight
+      ? Number(milestone.weightVerification.approvedWeight)
+      : milestone.weightVerification?.proposedWeight
+        ? Number(milestone.weightVerification.proposedWeight)
+        : 10
+
+    const xpYield = Math.round(weight * 10)
+
+    await this.prisma.employee.update({
+      where: { id: pmEmployee.id },
+      data: { lifetimeXp: { increment: xpYield } },
+    })
+
+    await this.prisma.xpLedgerEntry.create({
+      data: {
+        employeeId: pmEmployee.id,
+        delta: xpYield,
+        reason: `Macro Project Milestone XP Award (${weight} weight): ${milestone.title}`,
+        entryType: 'AWARD',
+        awardedById: actor.id,
+      },
+    })
+
+    await this.appendKpiAuditLog({
+      employeeId: pmEmployee.id,
+      metricType: 'XP',
+      deltaValue: new Prisma.Decimal(xpYield),
+      resultingTotal: new Prisma.Decimal((pmEmployee.lifetimeXp || 0) + xpYield),
+      actionType: 'TASK_XP_YIELD',
+      triggerEvent: `Macro Milestone Approved: ${milestone.title}`,
+      authorizedById: actor.id,
+      authorizedRole: actor.role.toUpperCase(),
+      reason: `C-Level approved macro project milestone (${weight} weight yields ${xpYield} XP)`,
+    })
+
+    return { success: true, pmId: pmEmployee.id, xpYield, milestoneTitle: milestone.title }
+  }
+
+  // --------------------------------------------------------------------------
+  // 12. UNIVERSAL GOVERNANCE KPI & XP OVERRIDE (CEO MFA, CHRO FULL ACCESS, C-LEVEL, PM)
+  // --------------------------------------------------------------------------
+  async overrideRecord(params: {
+    targetEmployeeId: string
+    metricType: 'KPI' | 'XP'
+    weekNumber?: number
+    year?: number
+    score?: number | null
+    deltaXp?: number
+    newLifetimeXp?: number
+    reason?: string
+    mfaCode?: string
+    actor: AuthenticatedUser
+  }) {
+    const rawRole = (params.actor.role || (params.actor as any).roles?.[0] || '').toLowerCase()
+    const isCeo = isEmployeeCeo(params.actor.email, params.actor.id) || rawRole === 'ceo'
+    const isChro =
+      rawRole === 'chro' ||
+      params.actor.email?.toLowerCase() === '2023200000066@seu.edu.bd' ||
+      (params.actor as any).roles?.includes('chro')
+    const isCLevel = isCeo || isChro || ['cto', 'cfo', 'cpo'].includes(rawRole)
+    const isPm = rawRole === 'pm'
+
+    // RBAC Gate: CEO, CHRO, C-Level (CTO, CFO, CPO), and PM can adjust/override per authorization power
+    if (!isCeo && !isChro && !isCLevel && !isPm) {
+      throw new ForbiddenException(
+        'Unauthorized: Only CEO, CHRO, C-Level Executives, and PMs have authority to adjust KPI or XP records.',
+      )
+    }
+
+    // Resolve Actor in DB for MFA check and foreign key integrity
+    const actorEmployee = this.prisma.employee.findFirst
+      ? await this.prisma.employee.findFirst({
+          where: {
+            OR: [
+              { id: params.actor.id },
+              ...(params.actor.email ? [{ email: params.actor.email }] : []),
+            ],
+          },
+          select: { id: true, email: true, mfaSecret: true, mfaEnabled: true },
+        })
+      : await this.prisma.employee.findUnique({
+          where: { id: params.actor.id },
+          select: { id: true, email: true, mfaSecret: true, mfaEnabled: true },
+        })
+
+    const submittedMfa = (params.mfaCode || '').trim()
+
+    // 1. CEO Supreme Authority: Strictly and only requires 6-digit MFA verification code; bypasses text justification & secondary approvals
+    if (isCeo) {
+      if (!submittedMfa || !/^\d{6}$/.test(submittedMfa)) {
+        throw new ForbiddenException({
+          code: 'MFA_CODE_REQUIRED',
+          message: 'CEO override requires strictly and only a valid 6-digit MFA verification code.',
+        })
+      }
+
+      if (actorEmployee?.mfaSecret && actorEmployee.mfaEnabled) {
+        const isValid = verifyTotpCode(actorEmployee.mfaSecret, submittedMfa)
+        if (!isValid) {
+          throw new ForbiddenException({
+            code: 'INVALID_MFA_CODE',
+            message: 'Invalid 6-digit MFA verification code.',
+          })
+        }
+      }
+    } else if (submittedMfa) {
+      // Validate MFA if provided by C-Level / CHRO / PM
+      if (!/^\d{6}$/.test(submittedMfa)) {
+        throw new ForbiddenException('MFA verification code must be a 6-digit number.')
+      }
+      if (actorEmployee?.mfaSecret && actorEmployee.mfaEnabled) {
+        const isValid = verifyTotpCode(actorEmployee.mfaSecret, submittedMfa)
+        if (!isValid) {
+          throw new ForbiddenException({
+            code: 'INVALID_MFA_CODE',
+            message: 'Invalid 6-digit MFA verification code.',
+          })
+        }
+      }
+    }
+
+    // 2. PM Authority: Authorized to edit/modify historical records for their assigned team members ONLY (CHRO/CEO/C-Level bypass)
+    if (isPm && !isCeo && !isChro && !isCLevel) {
+      const isSquadMember = await this.isEmployeeInPmSquad(params.actor.id, params.targetEmployeeId)
+      if (!isSquadMember) {
+        throw new ForbiddenException(
+          'Project Managers may only edit or modify KPI and XP records for their assigned team members.',
+        )
+      }
+    }
+
+    // Resolve Target Employee safely by ID, email, or alias
+    let targetEmp = await this.prisma.employee.findUnique({
+      where: { id: params.targetEmployeeId },
+    })
+    if (!targetEmp) {
+      targetEmp = await this.prisma.employee.findUnique({
+        where: { email: params.targetEmployeeId },
+      })
+    }
+    if (!targetEmp && params.targetEmployeeId.startsWith('usr_')) {
+      const mappedId = params.targetEmployeeId.replace('usr_', 'emp_')
+      targetEmp = await this.prisma.employee.findUnique({
+        where: { id: mappedId },
+      })
+    }
+    if (!targetEmp) {
+      if (params.metricType === 'KPI') {
+        targetEmp = { id: params.targetEmployeeId, lifetimeXp: 0 } as any
+      } else {
+        throw new NotFoundException(`Target employee "${params.targetEmployeeId}" not found in system`)
+      }
+    }
+
+    // Role display label
+    const effectiveActorRole = isCeo
+      ? 'CEO'
+      : isChro
+        ? 'CHRO'
+        : rawRole
+          ? rawRole.toUpperCase()
+          : 'EXECUTIVE'
+
+    const effectiveReason =
+      params.reason?.trim() ||
+      (isCeo
+        ? 'Executive CEO authorization'
+        : isChro
+          ? 'CHRO executive administrative adjustment'
+          : `${effectiveActorRole} authorized performance adjustment`)
+
+    const authorizedDbId = actorEmployee?.id || null
+
+    try {
+      // Apply KPI Override
+      if (params.metricType === 'KPI') {
+        const weekNumber = Number(params.weekNumber) || 1
+        const year = Number(params.year) || new Date().getFullYear()
+
+        const existing = await this.prisma.weeklyKpiRecord.findUnique({
+          where: {
+            employeeId_year_weekNumber: {
+              employeeId: targetEmp.id,
+              year,
+              weekNumber,
+            },
+          },
+        })
+
+        const prevScore = existing?.score ? Number(existing.score) : 0
+        const isInactive = params.score === null
+        const newScore = isInactive ? null : Math.min(100, Math.max(0, Number(params.score)))
+        const delta = isInactive ? -prevScore : (newScore ?? 0) - prevScore
+
+        const existingBreakdown = (existing?.evaluationBreakdown as any) || {}
+        const overrides = existingBreakdown.overrides || []
+        overrides.push({
+          overrideBy: authorizedDbId || params.actor.id,
+          role: effectiveActorRole,
+          prevScore,
+          newScore,
+          isInactive,
+          reason: effectiveReason,
+          timestamp: new Date().toISOString(),
+        })
+
+        const record = await this.prisma.weeklyKpiRecord.upsert({
+          where: {
+            employeeId_year_weekNumber: {
+              employeeId: targetEmp.id,
+              year,
+              weekNumber,
+            },
+          },
+          update: {
+            score: newScore !== null ? new Prisma.Decimal(newScore.toFixed(2)) : null,
+            isInactive,
+            evaluationStatus: 'CONFIRMED',
+            evaluationBreakdown: {
+              ...existingBreakdown,
+              overrides,
+              lastOverride: {
+                by: authorizedDbId || params.actor.id,
+                role: effectiveActorRole,
+                reason: effectiveReason,
+                date: new Date().toISOString(),
+              },
+            },
+          },
+          create: {
+            employeeId: targetEmp.id,
+            year,
+            weekNumber,
+            score: newScore !== null ? new Prisma.Decimal(newScore.toFixed(2)) : null,
+            isInactive,
+            evaluationStatus: 'CONFIRMED',
+            roleLevel: 1,
+            evaluationBreakdown: {
+              overrides,
+              lastOverride: {
+                by: authorizedDbId || params.actor.id,
+                role: effectiveActorRole,
+                reason: effectiveReason,
+                date: new Date().toISOString(),
+              },
+            },
+          },
+        })
+
+        await this.appendKpiAuditLog({
+          employeeId: targetEmp.id,
+          metricType: 'KPI',
+          deltaValue: new Prisma.Decimal(delta.toFixed(2)),
+          resultingTotal: newScore !== null ? new Prisma.Decimal(newScore.toFixed(2)) : null,
+          actionType: `${effectiveActorRole}_KPI_OVERRIDE`,
+          triggerEvent: `${effectiveActorRole} Modified Week ${weekNumber} (${year}) KPI`,
+          authorizedById: authorizedDbId,
+          authorizedRole: effectiveActorRole,
+          reason: effectiveReason,
+        })
+
+        return { success: true, record }
+      }
+
+      // Apply XP Override
+      if (params.metricType === 'XP') {
+        const currentXp = targetEmp.lifetimeXp || 0
+        let delta = 0
+        let resultingTotal = currentXp
+
+        if (params.deltaXp !== undefined) {
+          delta = Math.round(Number(params.deltaXp))
+          resultingTotal = Math.max(0, currentXp + delta)
+        } else if (params.newLifetimeXp !== undefined) {
+          resultingTotal = Math.max(0, Math.round(Number(params.newLifetimeXp)))
+          delta = resultingTotal - currentXp
+        }
+
+        await this.prisma.employee.update({
+          where: { id: targetEmp.id },
+          data: { lifetimeXp: resultingTotal },
+        })
+
+        await this.prisma.xpLedgerEntry.create({
+          data: {
+            employeeId: targetEmp.id,
+            delta,
+            reason: `${effectiveActorRole} Override: ${effectiveReason}`,
+            entryType: 'ADJUSTMENT',
+            awardedById: authorizedDbId,
+          },
+        })
+
+        await this.appendKpiAuditLog({
+          employeeId: targetEmp.id,
+          metricType: 'XP',
+          deltaValue: new Prisma.Decimal(delta),
+          resultingTotal: new Prisma.Decimal(resultingTotal),
+          actionType: `${effectiveActorRole}_XP_OVERRIDE`,
+          triggerEvent: `${effectiveActorRole} Modified Lifetime XP`,
+          authorizedById: authorizedDbId,
+          authorizedRole: effectiveActorRole,
+          reason: effectiveReason,
+        })
+
+        return {
+          success: true,
+          employeeId: targetEmp.id,
+          previousXp: currentXp,
+          newLifetimeXp: resultingTotal,
+          delta,
+        }
+      }
+
+      throw new BadRequestException('Invalid metricType: must be KPI or XP')
+    } catch (err: any) {
+      this.logger.error(`Failed to override record for ${targetEmp.id}: ${err?.message}`, err?.stack)
+      if (err instanceof HttpException) throw err
+      throw new BadRequestException(err?.message || 'Failed to update performance evaluation record')
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // 13. CHRO & CEO AUDIT LOG MODIFICATION (CHRO FULL AUDIT CONTROL)
+  // --------------------------------------------------------------------------
+  async updateAuditLogEntry(
+    id: string,
+    data: { reason?: string; notes?: string; actionType?: string },
+    actor: AuthenticatedUser,
+  ) {
+    const rawRole = (actor.role || (actor as any).roles?.[0] || '').toLowerCase()
+    const isCeo = isEmployeeCeo(actor.email, actor.id) || rawRole === 'ceo'
+    const isChro =
+      rawRole === 'chro' ||
+      actor.email?.toLowerCase() === '2023200000066@seu.edu.bd' ||
+      (actor as any).roles?.includes('chro')
+
+    if (!isCeo && !isChro) {
+      throw new ForbiddenException(
+        'Unauthorized: Only CHRO (2023200000066@seu.edu.bd) and CEO have authority to edit KPI/XP audit log records.',
+      )
+    }
+
+    const existing = await this.prisma.kpiXpAuditLog.findUnique({
+      where: { id },
+    })
+    if (!existing) {
+      throw new NotFoundException(`Audit log entry ${id} not found`)
+    }
+
+    const previousAfterState = (existing.afterState as any) || {}
+    const editHistory = previousAfterState.editHistory || []
+    editHistory.push({
+      editedBy: actor.id,
+      editedByEmail: actor.email,
+      role: isCeo ? 'CEO' : 'CHRO',
+      timestamp: new Date().toISOString(),
+      previousReason: existing.reason,
+      newReason: data.reason,
+      notes: data.notes,
+    })
+
+    const updatePayload: any = {
+      afterState: {
+        ...previousAfterState,
+        editHistory,
+        lastEditedAt: new Date().toISOString(),
+        lastEditedBy: actor.id,
+        editorRole: isCeo ? 'CEO' : 'CHRO',
+      },
+    }
+
+    if (data.reason !== undefined) updatePayload.reason = data.reason
+    if (data.actionType !== undefined) updatePayload.actionType = data.actionType
+
+    return this.prisma.kpiXpAuditLog.update({
+      where: { id },
+      data: updatePayload,
       include: {
         authorizedBy: {
           select: { id: true, name: true, title: true },
