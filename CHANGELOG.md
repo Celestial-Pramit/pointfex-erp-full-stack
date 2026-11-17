@@ -1,6 +1,28 @@
 # Changelog
 
-## Phase 4: Frozen-XP Consensus, Weekly Sweep, PM/C-Level/CEO KPIs, Disciplinary Deduction & Read APIs
+## 4.0.0 (Production Release — November 2026)
+
+### Frontend Governance & View Synchronization
+- **Strict Permission-View Sync (`nav-registry.ts`, `App.tsx`)**:
+  - Fixed route permission leaking where users with `governance:read` or `delegations:create` could view `Roles & Permissions` (`access-control`).
+  - Scoped `access-control` strictly to CEO and root administrators (`roles:read`, `roles:create`, `system:root`).
+  - Prevented non-root executives (including CHRO) from accessing CEO Role Capability Matrix or triggering unauthorized permission catalog calls (`permissions:read`).
+- **CHRO Performance Console & Pure KPI/XP Governance (`ChroPerformancePage.tsx`)**:
+  - Removed all discretionary monetary inputs (`MoneyInput`, BDT cash bonuses and financial penalties) from the CHRO console. All executive citations strictly use Pointfex KPI & XP mechanics.
+  - Recognition actions award Commendation Career XP (+10, +25, +50, +100 XP) into the immutable ledger.
+  - Disciplinary actions enforce formal KPI Percentage Deductions ($1 \le p \le 100$) with mandatory documentation and cryptographic audit logs.
+  - Added reactive local optimistic updates to immediately refresh staff roster scores upon recording quarterly performance evaluations.
+- **Universal Company Leaderboard Access (`chro-governance.controller.ts`, `LeaderboardPage.tsx`)**:
+  - Expanded permissions on `GET /api/performance/leaderboard` to `@RequireAnyPermission('leaderboards:read', 'tasks:read_own', 'tasks:read_squad', 'tasks:read_team', 'performance:read_all', 'profile:read')`, allowing every active employee to view standings.
+  - Replaced error/`N/A` displays with clean `0.00` and `0 XP` metrics for new or inactive staff.
+- **Enterprise Staff Roster & Real Data Filtering**:
+  - Purged 33 dummy `@pointfex.internal` accounts from active operations (`isSuspended: true`).
+  - Enforced strict institutional domain filtering (`@seu.edu.bd`) across employee directories, team rosters, and leaderboards.
+- **CEO Role Creation MFA Alignment (`FreshMfaService`, `client.ts`)**:
+  - Resolved MFA target mismatch (`code is bound to "new", not "global"`) by establishing target equivalence for new entity creation in `FreshMfaService` and setting `X-MFA-Target: global` in `client.ts`.
+- **Design System, UX & Robustness (Stages A–C)**:
+  - 100% token-based color system, unified component suite (`Button`, `Card`, `Modal`, `Tabs`, `DataTable`, `ErrorState`, `EmptyState`, etc.).
+  - Global error boundaries, confirmation modals with destructive safeguards, and full mobile responsive views.
 - **Frozen-XP Consensus Release (`FrozenXpConsensusService`)**:
   - Consensus request opened upon massive XP freeze ($\ge 200\text{ XP}$) with 7-day voting deadline.
   - Quorum threshold: strictly more than half of eligible active C-Suite seats (`CTO`, `CPO`, `CFO`, `CHRO`). Proposer PM and developer beneficiary excluded from voting.

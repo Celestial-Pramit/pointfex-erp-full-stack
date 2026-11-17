@@ -200,7 +200,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
         )
 
         const isRoot = activePermSet.has('system:root') || activePermSet.has('*')
-        const canFetch = (code: string) => isRoot || activePermSet.has(code)
+        const canFetch = (code: string) => {
+          if (isRoot) return true
+          if (activePermSet.has(code)) return true
+          const [prefix] = code.split(':')
+          if (activePermSet.has(`${prefix}:*`)) return true
+          if (prefix === 'performance' && (activePermSet.has('performance:read_all') || activePermSet.has('hr:*') || activePermSet.has('performance:evaluate'))) return true
+          if (prefix === 'employees' && (activePermSet.has('employees:read_directory') || activePermSet.has('hr:*'))) return true
+          if (prefix === 'treasury' && (activePermSet.has('finance:*') || activePermSet.has('treasury:read'))) return true
+          if (prefix === 'wallets' && (activePermSet.has('finance:*') || activePermSet.has('wallets:read_all'))) return true
+          return false
+        }
 
         const [
           employees,
@@ -272,7 +282,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setData((prev) => {
           const mapped = mapBackendBundleToSeedData(
             {
-              employees,
+              employees: employees.filter(
+                (e: any) => !e.isSuspended && (!e.email || e.email.endsWith('@seu.edu.bd')),
+              ),
               positions,
               teams,
               projects,
@@ -1777,6 +1789,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
     ) => {
       const targetUser = data.users.find((u) => u.id === userId)
+
+      // Optimistically update local performanceRecords so UI immediately reflects new score & tier
+      setData((prev) => {
+        const existingIdx = prev.performanceRecords.findIndex(
+          (r) => r.userId === userId || r.developerId === userId,
+        )
+        const updatedRecord = {
+          userId,
+          developerId: userId,
+          overallScore: evaluation.score,
+          performanceTier: evaluation.tier as any,
+          evaluationNotes: evaluation.notes,
+          strengths: evaluation.strengths || [],
+          improvements: evaluation.improvementAreas || [],
+          lastEvaluationDate: new Date().toISOString().split('T')[0],
+          deliverySpeed: evaluation.score,
+          codeQuality: evaluation.score,
+          reliability: evaluation.score,
+          collaboration: evaluation.score,
+          attendanceRate: 98,
+          satisfactionIndex: 4.8,
+        }
+        const updatedRecords =
+          existingIdx >= 0
+            ? prev.performanceRecords.map((r, i) =>
+                i === existingIdx ? { ...r, ...updatedRecord } : r,
+              )
+            : [...prev.performanceRecords, updatedRecord]
+        return {
+          ...prev,
+          performanceRecords: updatedRecords,
+        }
+      })
+
       void runApiMutation(
         () =>
           erpApi.recordEvaluation({

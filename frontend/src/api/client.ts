@@ -626,7 +626,7 @@ export const erpApi = {
     apiRequest<any>('/rbac/roles', {
       method: 'POST',
       headers: mfaCode
-        ? { 'X-MFA-Code': mfaCode, 'X-MFA-Action': 'roles:create', 'X-MFA-Target': 'new' }
+        ? { 'X-MFA-Code': mfaCode, 'X-MFA-Action': 'roles:create', 'X-MFA-Target': 'global' }
         : undefined,
       body: JSON.stringify(body),
     }),

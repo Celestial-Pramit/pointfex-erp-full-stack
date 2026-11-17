@@ -231,19 +231,15 @@ function MainContentRouter() {
   }
   if (
     currentRoute === 'access-control' &&
-    canAny([
+    (canAny([
       'roles:read',
       'roles:create',
       'roles:update',
       'roles:delete',
       'users:assign_role',
       'permissions:read',
-      'permissions:delegate',
-      'delegations:create',
-      'governance:read',
-      'decisions:read',
-      'decisions:ratify',
-    ])
+    ]) ||
+      can('system:root'))
   ) {
     return <CeoRoleMatrixPage />
   }

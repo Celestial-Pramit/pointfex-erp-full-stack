@@ -1,6 +1,6 @@
 {
   "name": "pointfex-erp-backend",
-  "version": "3.14.0",
+  "version": "4.0.0",
   "description": "Pointfex ERP Backend - NestJS + TypeScript + Prisma + PostgreSQL",
   "author": "Pointfex Engineering",
   "private": true,

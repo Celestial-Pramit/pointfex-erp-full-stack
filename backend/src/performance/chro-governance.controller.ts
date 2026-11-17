@@ -620,7 +620,14 @@ export class ChroGovernanceController {
   }
 
   @Get('leaderboard')
-  @RequirePermissions('leaderboards:read')
+  @RequireAnyPermission(
+    'leaderboards:read',
+    'tasks:read_own',
+    'tasks:read_squad',
+    'tasks:read_team',
+    'performance:read_all',
+    'profile:read',
+  )
   async getLeaderboard(
     @Query('period') period?: 'latest_week' | 'four_week_avg' | 'lifetime_xp',
     @Query('role') role?: string,

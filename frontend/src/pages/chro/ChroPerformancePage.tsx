@@ -21,7 +21,6 @@ import { useApp } from '../../context/AppContext'
 import { Modal } from '../../components/common/Modal'
 import { Button } from '../../components/common/Button'
 import { Avatar } from '../../components/common/Avatar'
-import { MoneyInput } from '../../components/common/MoneyInput'
 import { MfaConfirmModal } from '../../components/common/MfaConfirmModal'
 
 export function ChroPerformancePage() {
@@ -104,7 +103,7 @@ export function ChroPerformancePage() {
   )
   const [actionTitleInput, setActionTitleInput] = useState('')
   const [actionDescInput, setActionDescInput] = useState('')
-  const [actionBonusPenaltyInput, setActionBonusPenaltyInput] = useState<number>(0)
+  const [actionXpAwardInput, setActionXpAwardInput] = useState<number>(25)
   const [actionKpiDeductionInput, setActionKpiDeductionInput] = useState<number>(0)
 
   const [selectedComplaint, setSelectedComplaint] = useState<any>(null)
@@ -352,7 +351,9 @@ export function ChroPerformancePage() {
 
   // Combined staff roster with performance details
   const staffRoster = useMemo(() => {
-    const all = [...projectManagers, ...developers]
+    const all = [...projectManagers, ...developers].filter(
+      (u) => !u.isSuspended && (!u.email || u.email.endsWith('@seu.edu.bd')),
+    )
     return all.map((user) => {
       const perf = performanceRecords.find((r) => r.userId === user.id || r.developerId === user.id)
       const userTeam = teams.find((t) => t.id === user.teamId)
@@ -361,18 +362,18 @@ export function ChroPerformancePage() {
         perf: perf || {
           userId: user.id,
           developerId: user.id,
-          overallScore: 88,
-          deliverySpeed: 87,
-          codeQuality: 89,
-          reliability: 90,
-          collaboration: 91,
-          attendanceRate: 96,
-          satisfactionIndex: 4.6,
+          overallScore: 0,
+          deliverySpeed: 0,
+          codeQuality: 0,
+          reliability: 0,
+          collaboration: 0,
+          attendanceRate: 0,
+          satisfactionIndex: 0,
           performanceTier: 'strong_contributor' as const,
-          evaluationNotes: 'Standard quarterly performance baseline established.',
-          lastEvaluationDate: '2026-11-01',
-          strengths: ['Consistent velocity'],
-          improvements: ['Documentation'],
+          evaluationNotes: 'Pending initial quarterly evaluation.',
+          lastEvaluationDate: new Date().toISOString().split('T')[0],
+          strengths: [],
+          improvements: [],
         },
         team: userTeam,
       }
@@ -439,7 +440,7 @@ export function ChroPerformancePage() {
         ? 'Consistently delivered flawless milestones with exceptional proactive collaboration.'
         : 'Repeated delays exceeding the 48-hour SLA for mandatory PR reviews.',
     )
-    setActionBonusPenaltyInput(initialType === 'recognition' ? 300 : 150)
+    setActionXpAwardInput(initialType === 'recognition' ? 25 : 0)
     setActionKpiDeductionInput(initialType === 'disciplinary' ? 5 : 0)
   }
 
@@ -451,14 +452,27 @@ export function ChroPerformancePage() {
         selectedStaffAction.user.id,
         actionTitleInput,
         actionDescInput,
-        actionBonusPenaltyInput > 0 ? Number(actionBonusPenaltyInput) : undefined,
       )
+      if (actionXpAwardInput > 0) {
+        void erpApi
+          .overridePerformanceRecord({
+            targetEmployeeId: selectedStaffAction.user.id,
+            metricType: 'XP',
+            deltaXp: actionXpAwardInput,
+            reason: `Recognition Award: ${actionTitleInput}`,
+          })
+          .then(() => {
+            showToast(`Awarded ${actionXpAwardInput} XP to ${selectedStaffAction.user.name}.`, 'success')
+          })
+          .catch((err: any) => {
+            showToast(err?.message || 'Failed to append XP ledger entry', 'error')
+          })
+      }
     } else {
       issueDisciplinaryAction(
         selectedStaffAction.user.id,
         actionTitleInput,
         actionDescInput,
-        actionBonusPenaltyInput > 0 ? Number(actionBonusPenaltyInput) : undefined,
       )
       if (actionKpiDeductionInput > 0) {
         void erpApi
@@ -1753,17 +1767,27 @@ export function ChroPerformancePage() {
               />
             </div>
 
-            <MoneyInput
-              label={
-                actionCategory === 'recognition'
-                  ? 'Discretionary Bonus (BDT, Optional)'
-                  : 'Financial Penalty (BDT, Optional)'
-              }
-              min={0}
-              value={actionBonusPenaltyInput}
-              onChangeDigits={(val) => setActionBonusPenaltyInput(val)}
-              hint="Leave as 0 for non-monetary citation. Non-zero amounts adjust the employee wallet."
-            />
+            {actionCategory === 'recognition' ? (
+              <div>
+                <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
+                  Commendation Career XP (+XP Points)
+                </label>
+                <select
+                  value={actionXpAwardInput}
+                  onChange={(e) => setActionXpAwardInput(Number(e.target.value))}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                >
+                  <option value={0}>0 XP (Formal Commendation Citation Only)</option>
+                  <option value={10}>+10 XP (Sprint Team Support)</option>
+                  <option value={25}>+25 XP (Excellence in Execution)</option>
+                  <option value={50}>+50 XP (Major Innovation & Leadership)</option>
+                  <option value={100}>+100 XP (Supreme Enterprise Achievement)</option>
+                </select>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Appends cryptographic XP points directly to the employee career ledger. No discretionary cash or wallet mutations.
+                </p>
+              </div>
+            ) : null}
 
             {actionCategory === 'disciplinary' && (
               <div>

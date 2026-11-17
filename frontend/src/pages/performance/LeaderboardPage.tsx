@@ -136,17 +136,15 @@ export function LeaderboardPage() {
           )
         }
 
-        if (r.isInactive || r.kpiScore === null || r.kpiScore === undefined) {
-          return (
-            <span className="inline-block px-2 py-0.5 rounded bg-rose-500/10 text-rose-500 font-extrabold text-[11px]">
-              N/A
-            </span>
-          )
-        }
-
+        const scoreVal = r.kpiScore !== null && r.kpiScore !== undefined ? Number(r.kpiScore) : 0
         return (
           <div className="text-right font-mono font-bold text-xs text-indigo-600 dark:text-indigo-400">
-            {Number(r.kpiScore).toFixed(2)}
+            {scoreVal.toFixed(2)}
+            {r.isInactive && (
+              <span className="ml-1 text-[10px] text-slate-400 dark:text-slate-500 font-normal">
+                (Inactive)
+              </span>
+            )}
             {r.isProvisional && (
               <span className="ml-1 text-[10px] text-amber-500 font-normal">
                 (Prov)

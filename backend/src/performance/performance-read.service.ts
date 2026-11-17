@@ -249,7 +249,10 @@ export class PerformanceReadService {
     squadFilter?: string,
   ): Promise<PublicLeaderboardEntry[]> {
     const employees = await this.prisma.employee.findMany({
-      where: { isSuspended: false },
+      where: {
+        isSuspended: false,
+        email: { endsWith: '@seu.edu.bd' },
+      },
       include: {
         xpBalance: true,
         weeklyKpiRecords: {
