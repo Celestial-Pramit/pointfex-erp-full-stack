@@ -17,6 +17,7 @@ import {
   DataTable,
   type DataTableColumn,
   DateRangePicker,
+  ErrorState,
 } from '../../components/common'
 
 export function PerformanceLedgerPage() {
@@ -37,6 +38,7 @@ export function PerformanceLedgerPage() {
 
   // Ledger state & cursor pagination
   const [loading, setLoading] = useState<boolean>(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [ledgerItems, setLedgerItems] = useState<any[]>([])
   const [cursorHistory, setCursorHistory] = useState<string[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
@@ -60,6 +62,7 @@ export function PerformanceLedgerPage() {
     async (cursor?: string) => {
       if (!selectedUserId) return
       setLoading(true)
+      setLoadError(null)
       try {
         const query: any = {
           limit: pageSize,
@@ -78,6 +81,7 @@ export function PerformanceLedgerPage() {
         setLedgerItems(res?.items || [])
         setNextCursor(res?.nextCursor || null)
       } catch (err: any) {
+        setLoadError(err.message || 'Failed to load ledger records.')
         showToast(err.message || 'Failed to load ledger', 'error')
         setLedgerItems([])
       } finally {
@@ -302,14 +306,22 @@ export function PerformanceLedgerPage() {
 
       {/* Ledger Table */}
       <div className="space-y-3">
-        <DataTable
-          data={ledgerItems}
-          columns={columns}
-          rowKey={(r) => r.id}
-          loading={loading}
-          emptyTitle="No Ledger Entries Found"
-          emptyDescription="No immutable audit entries match the selected filters."
-        />
+        {loadError ? (
+          <ErrorState
+            title="Unable to load ledger entries"
+            error={loadError}
+            onRetry={() => void fetchLedger()}
+          />
+        ) : (
+          <DataTable
+            data={ledgerItems}
+            columns={columns}
+            rowKey={(r) => r.id}
+            loading={loading}
+            emptyTitle="No Ledger Entries Found"
+            emptyDescription="No immutable audit entries match the selected filters."
+          />
+        )}
 
         {/* Cursor Pagination Bar */}
         <div className="flex items-center justify-between px-2 text-xs text-[var(--muted)]">

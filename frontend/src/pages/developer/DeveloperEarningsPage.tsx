@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { Card } from '../../components/common/Card'
 import { Badge } from '../../components/common/Badge'
 import { StatusPill } from '../../components/common/StatusPill'
+import { EmptyState } from '../../components/common/EmptyState'
 import { useDeveloperData } from '../../hooks/useDeveloperData'
 import { useApp } from '../../context/AppContext'
 import { erpApi } from '../../api/client'
@@ -211,8 +212,12 @@ export function DeveloperEarningsPage() {
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {filteredTransactions.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-8 text-center text-slate-400 dark:text-slate-500">
-                    No transactions match the selected filter.
+                  <td colSpan={5} className="py-6">
+                    <EmptyState
+                      icon={Wallet}
+                      title="No transactions found"
+                      description="No wallet records match your current filter."
+                    />
                   </td>
                 </tr>
               ) : (

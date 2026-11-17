@@ -3,6 +3,7 @@ import { Card } from '../../components/common/Card'
 import { Badge } from '../../components/common/Badge'
 import { Button } from '../../components/common/Button'
 import { StatusPill } from '../../components/common/StatusPill'
+import { EmptyState } from '../../components/common/EmptyState'
 import { useApp } from '../../context/AppContext'
 import { formatDate } from '../../utils/formatters'
 import { Send, Lightbulb, AlertTriangle, ExternalLink, FileText, UserCheck } from 'lucide-react'
@@ -272,9 +273,11 @@ export function DeveloperReportPage() {
             {activeTab === 'submission' ? (
               <div className="space-y-3">
                 {projectSubmissions.length === 0 ? (
-                  <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-6">
-                    No project proposals submitted yet.
-                  </p>
+                  <EmptyState
+                    icon={Lightbulb}
+                    title="No project proposals"
+                    description="Submit a new architecture or product idea to get started."
+                  />
                 ) : (
                   projectSubmissions.map((prop) => (
                     <div
@@ -324,9 +327,11 @@ export function DeveloperReportPage() {
             ) : (
               <div className="space-y-3">
                 {complaints.length === 0 ? (
-                  <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-6">
-                    No complaints filed.
-                  </p>
+                  <EmptyState
+                    icon={AlertTriangle}
+                    title="No complaints filed"
+                    description="Issues submitted will appear here with reviewer feedback."
+                  />
                 ) : (
                   complaints.map((comp) => (
                     <div

@@ -35,6 +35,9 @@ import {
   WeeklyKpiTrendGraph,
   LifetimeXpStackedChart,
 } from '../src/components/performance/KpiXpWidgets'
+import { ErrorState } from '../src/components/common/ErrorState'
+import { ConfirmDialog } from '../src/components/common/ConfirmDialog'
+import { Stepper } from '../src/components/common/Stepper'
 
 export function runFrontendSuite(): Array<{ name: string; pass: boolean }> {
   const results: Array<{ name: string; pass: boolean }> = []
@@ -558,6 +561,59 @@ export function runFrontendSuite(): Array<{ name: string; pass: boolean }> {
       !myAccountSource.includes('LifetimeXpStackedChart'),
       'MyAccountPage must NOT embed XP charts',
     )
+  })
+
+  // Stage C: Shared Design System & UX components
+  test('ErrorState component renders title, error message, and retry button', () => {
+    let retried = false
+    const html = renderToStaticMarkup(
+      React.createElement(ErrorState, {
+        title: 'Connection Lost',
+        error: new Error('Network timeout after 5000ms'),
+        onRetry: () => {
+          retried = true
+        },
+      }),
+    )
+
+    assert.ok(html.includes('Connection Lost'), 'ErrorState must render title')
+    assert.ok(html.includes('Network timeout after 5000ms'), 'ErrorState must render error details')
+    assert.ok(html.includes('Try again'), 'ErrorState must render retry action')
+  })
+
+  test('ConfirmDialog renders title, message, and action buttons', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ConfirmDialog, {
+        isOpen: true,
+        onClose: () => {},
+        onConfirm: () => {},
+        title: 'Revoke Device Session',
+        message: 'This device will be logged out immediately.',
+        severity: 'danger',
+        confirmLabel: 'Revoke Now',
+      }),
+    )
+
+    assert.ok(html.includes('Revoke Device Session'), 'ConfirmDialog must render modal title')
+    assert.ok(html.includes('This device will be logged out immediately.'), 'ConfirmDialog must render message')
+    assert.ok(html.includes('Revoke Now'), 'ConfirmDialog must render confirm button')
+  })
+
+  test('Stepper component renders step labels and indicates active step', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(Stepper, {
+        steps: [
+          { id: '0', label: 'Details' },
+          { id: '1', label: 'Staffing' },
+          { id: '2', label: 'Review' },
+        ],
+        currentStep: 1,
+      }),
+    )
+
+    assert.ok(html.includes('Details'), 'Stepper must render step 1 label')
+    assert.ok(html.includes('Staffing'), 'Stepper must render step 2 label')
+    assert.ok(html.includes('Review'), 'Stepper must render step 3 label')
   })
 
   return results

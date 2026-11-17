@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
 import { erpApi } from '../../api/client'
-import { PageHeader, Card, StatCard, Badge, EmptyState, Skeleton } from '../../components/common'
+import { PageHeader, Card, StatCard, Badge, EmptyState, Skeleton, ErrorState } from '../../components/common'
 import { WeeklyKpiTrendGraph, LifetimeXpStackedChart, type WeeklyKpiItem } from '../../components/performance/KpiXpWidgets'
 
 export function MyPerformancePage() {
@@ -26,15 +26,17 @@ export function MyPerformancePage() {
     byCategory?: Record<string, number>
   } | null>(null)
   const [disciplinaryHistory, setDisciplinaryHistory] = useState<any[]>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
     if (!currentUser?.id) return
     setLoading(true)
+    setLoadError(null)
     try {
       const [series, xp, ledger] = await Promise.all([
-        erpApi.getMyKpiSeries().catch(() => []),
-        erpApi.getMyXpSummary().catch(() => null),
-        erpApi.getMyLedger({ limit: 50 }).catch(() => ({ items: [] })),
+        erpApi.getMyKpiSeries(),
+        erpApi.getMyXpSummary(),
+        erpApi.getMyLedger({ limit: 50 }),
       ])
 
       setKpiSeries(Array.isArray(series) ? series : [])
@@ -49,6 +51,8 @@ export function MyPerformancePage() {
           i.triggerEvent?.includes('DISCIPLINARY'),
       )
       setDisciplinaryHistory(disciplinary)
+    } catch (err: any) {
+      setLoadError(err?.message || 'Failed to load performance metrics.')
     } finally {
       setLoading(false)
     }
@@ -94,6 +98,13 @@ export function MyPerformancePage() {
             <Skeleton className="h-24" />
           </div>
         </div>
+      ) : loadError ? (
+        <ErrorState
+          title="Unable to load performance data"
+          description="Could not synchronize weekly KPI series or append-only XP balances."
+          error={loadError}
+          onRetry={loadData}
+        />
       ) : (
         <>
           {/* Top Status & Evaluation State Banner */}

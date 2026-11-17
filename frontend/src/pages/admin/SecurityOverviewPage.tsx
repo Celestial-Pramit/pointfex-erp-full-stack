@@ -9,6 +9,7 @@ import { StatCard } from '../../components/common/StatCard'
 import { Button } from '../../components/common/Button'
 import { Badge } from '../../components/common/Badge'
 import { EmptyState } from '../../components/common/EmptyState'
+import { ErrorState } from '../../components/common/ErrorState'
 import { MfaConfirmModal, type MfaConfirmPayload } from '../../components/common/MfaConfirmModal'
 
 function formatDhaka(iso?: string | null): string {
@@ -39,24 +40,30 @@ export function SecurityOverviewPage() {
     email: string
   } | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
+    setLoadError(null)
     try {
       const res = await erpApi.getMfaSecurityOverview()
       setData(res)
     } catch (err: any) {
+      setLoadError(err?.message || 'Unable to load MFA security overview.')
       showToast(err?.message || 'Unable to load MFA security overview.', 'error')
     }
   }, [showToast])
 
   useEffect(() => {
     let cancelled = false
+    setLoadError(null)
     void erpApi
       .getMfaSecurityOverview()
       .then((res) => {
         if (!cancelled) setData(res)
       })
-      .catch(() => undefined)
+      .catch((err: any) => {
+        if (!cancelled) setLoadError(err?.message || 'Unable to load MFA security overview.')
+      })
     return () => {
       cancelled = true
     }
@@ -165,7 +172,13 @@ export function SecurityOverviewPage() {
           </div>
         </div>
 
-        {filtered.length === 0 ? (
+        {loadError ? (
+          <ErrorState
+            title="Failed to load security overview"
+            error={loadError}
+            onRetry={reload}
+          />
+        ) : filtered.length === 0 ? (
           <EmptyState
             icon={ShieldCheck}
             title="No employees match"

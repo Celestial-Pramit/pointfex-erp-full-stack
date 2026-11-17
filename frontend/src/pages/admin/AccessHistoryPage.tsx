@@ -19,6 +19,7 @@ import { Badge } from '../../components/common/Badge'
 import { Button } from '../../components/common/Button'
 import { SkeletonCard } from '../../components/common/Skeleton'
 import { EmptyState } from '../../components/common/EmptyState'
+import { ErrorState } from '../../components/common/ErrorState'
 import { formatDate } from '../../utils/formatters'
 
 export function AccessHistoryPage() {
@@ -29,6 +30,7 @@ export function AccessHistoryPage() {
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   // Filters
   const [changeTypeFilter, setChangeTypeFilter] = useState<string>('all')
@@ -37,6 +39,7 @@ export function AccessHistoryPage() {
 
   const fetchHistory = useCallback(async (pageNum = 1) => {
     setIsLoading(true)
+    setLoadError(null)
     try {
       const res = await erpApi.getAccessHistory({
         page: pageNum,
@@ -48,6 +51,7 @@ export function AccessHistoryPage() {
       setPage(res?.page || 1)
       setTotalPages(res?.totalPages || 1)
     } catch (err: any) {
+      setLoadError(err?.message || 'Failed to load access history records.')
       showToast(err?.message || 'Failed to load access history records.', 'error')
     } finally {
       setIsLoading(false)
@@ -235,6 +239,12 @@ export function AccessHistoryPage() {
           <SkeletonCard />
           <SkeletonCard />
         </div>
+      ) : loadError ? (
+        <ErrorState
+          title="Failed to load access history"
+          error={loadError}
+          onRetry={() => void fetchHistory(page)}
+        />
       ) : filteredItems.length === 0 ? (
         <Card>
           <EmptyState

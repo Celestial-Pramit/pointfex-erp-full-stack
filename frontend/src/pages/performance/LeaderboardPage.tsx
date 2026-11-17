@@ -11,6 +11,7 @@ import {
   Badge,
   DataTable,
   type DataTableColumn,
+  ErrorState,
 } from '../../components/common'
 
 export function LeaderboardPage() {
@@ -20,10 +21,12 @@ export function LeaderboardPage() {
   const [squadFilter, setSquadFilter] = useState<string>('')
   const [searchQuery, setSearchQuery] = useState<string>('')
   const [loading, setLoading] = useState<boolean>(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [leaderboard, setLeaderboard] = useState<any[]>([])
 
   const fetchLeaderboard = useCallback(async () => {
     setLoading(true)
+    setLoadError(null)
     try {
       const data = await erpApi.getLeaderboard({
         period: activeTab,
@@ -31,7 +34,8 @@ export function LeaderboardPage() {
         squad: squadFilter || undefined,
       })
       setLeaderboard(Array.isArray(data) ? data : [])
-    } catch {
+    } catch (err: any) {
+      setLoadError(err?.message || 'Failed to load leaderboard data.')
       setLeaderboard([])
     } finally {
       setLoading(false)
@@ -236,14 +240,22 @@ export function LeaderboardPage() {
       )}
 
       {/* Leaderboard Table */}
-      <DataTable
-        data={filteredRows}
-        columns={columns}
-        rowKey={(r) => r.userId}
-        loading={loading}
-        emptyTitle="No Leaderboard Data"
-        emptyDescription="No employees match the selected leaderboard criteria."
-      />
+      {loadError ? (
+        <ErrorState
+          title="Failed to load leaderboard rankings"
+          error={loadError}
+          onRetry={fetchLeaderboard}
+        />
+      ) : (
+        <DataTable
+          data={filteredRows}
+          columns={columns}
+          rowKey={(r) => r.userId}
+          loading={loading}
+          emptyTitle="No Leaderboard Data"
+          emptyDescription="No employees match the selected leaderboard criteria."
+        />
+      )}
     </div>
   )
 }

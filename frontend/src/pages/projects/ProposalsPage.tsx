@@ -18,6 +18,7 @@ import { Badge } from '../../components/common/Badge'
 import { Button } from '../../components/common/Button'
 import { EmptyState } from '../../components/common/EmptyState'
 import { SkeletonCard } from '../../components/common/Skeleton'
+import { ErrorState } from '../../components/common/ErrorState'
 import { formatDate } from '../../utils/formatters'
 
 export function ProposalsPage() {
@@ -30,6 +31,7 @@ export function ProposalsPage() {
   const [myProposals, setMyProposals] = useState<any[]>([])
   const [inboxProposals, setInboxProposals] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   // Submit Form State
   const [title, setTitle] = useState('')
@@ -52,16 +54,18 @@ export function ProposalsPage() {
 
   const loadProposals = useCallback(async () => {
     setIsLoading(true)
+    setLoadError(null)
     try {
       const [myRes, inboxRes] = await Promise.all([
-        erpApi.listProjectProposals({ role: 'requester' }).catch(() => []),
+        erpApi.listProjectProposals({ role: 'requester' }),
         canForward
-          ? erpApi.listProjectProposals({ role: 'reviewer' }).catch(() => [])
+          ? erpApi.listProjectProposals({ role: 'reviewer' })
           : Promise.resolve([]),
       ])
       setMyProposals(Array.isArray(myRes) ? myRes : [])
       setInboxProposals(Array.isArray(inboxRes) ? inboxRes : [])
     } catch (err: any) {
+      setLoadError(err?.message || 'Failed to load project proposals.')
       showToast(err?.message || 'Failed to load proposals.', 'error')
     } finally {
       setIsLoading(false)
@@ -190,6 +194,12 @@ export function ProposalsPage() {
         <div className="space-y-4">
           {isLoading ? (
             <SkeletonCard />
+          ) : loadError ? (
+            <ErrorState
+              title="Failed to load project proposals"
+              error={loadError}
+              onRetry={loadProposals}
+            />
           ) : myProposals.length === 0 ? (
             <Card>
               <EmptyState
@@ -262,6 +272,12 @@ export function ProposalsPage() {
         <div className="space-y-4">
           {isLoading ? (
             <SkeletonCard />
+          ) : loadError ? (
+            <ErrorState
+              title="Failed to load review inbox"
+              error={loadError}
+              onRetry={loadProposals}
+            />
           ) : inboxProposals.length === 0 ? (
             <Card>
               <EmptyState
