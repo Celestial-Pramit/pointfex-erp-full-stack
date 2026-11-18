@@ -240,6 +240,66 @@ export class PerformanceReadService {
     }
   }
 
+  async getLeaderboardProfile(userId: string) {
+    const employee = await this.prisma.employee.findFirst({
+      where: { id: userId, isSuspended: false },
+      select: {
+        id: true, name: true, title: true,
+        weeklyKpiRecords: {
+          orderBy: [{ year: 'asc' }, { weekNumber: 'asc' }],
+          select: {
+            year: true, weekNumber: true, score: true, isInactive: true,
+            evaluationStatus: true,
+            ctoScore: true, cpoScore: true, cfoScore: true, chroScore: true,
+            execEvaluations: {
+              select: { evaluatorRole: true, score: true, status: true },
+            },
+          },
+        },
+      },
+    })
+    if (!employee) throw new NotFoundException('Employee not found')
+
+    const tasks = await this.prisma.task.findMany({
+      where: { assigneeId: userId, status: { in: ['completed', 'COMPLETED'] } },
+      orderBy: [{ completedAt: 'desc' }, { id: 'asc' }],
+      select: {
+        id: true, title: true, completedAt: true, pmScore: true,
+        execScores: {
+          select: { execRole: true, score: true, status: true },
+        },
+      },
+    })
+
+    // Public performance facts only; private ledgers and review notes stay scoped.
+    return {
+      userId: employee.id,
+      name: employee.name,
+      role: employee.title || 'Engineer',
+      kpiSeries: employee.weeklyKpiRecords.map((w) => ({
+        year: w.year,
+        weekNumber: w.weekNumber,
+        score: w.score === null ? null : Number(w.score),
+        isInactive: w.isInactive,
+        isProvisional: w.evaluationStatus === 'PROVISIONAL',
+        evaluations: w.execEvaluations.length > 0
+          ? w.execEvaluations.map((e) => ({
+              role: e.evaluatorRole, score: Number(e.score), status: e.status,
+            }))
+          : Object.entries({ CTO: w.ctoScore, CPO: w.cpoScore, CFO: w.cfoScore, CHRO: w.chroScore })
+              .filter(([, score]) => score != null)
+              .map(([role, score]) => ({ role, score: Number(score), status: w.evaluationStatus })),
+      })),
+      tasks: tasks.map((t) => ({
+        id: t.id, title: t.title, completedAt: t.completedAt,
+        pmScore: t.pmScore === null ? null : Number(t.pmScore),
+        evaluations: t.execScores.map((e) => ({
+          role: e.execRole, score: Number(e.score), status: e.status,
+        })),
+      })),
+    }
+  }
+
   /**
    * Public Leaderboard: open to all authenticated users with zero private/sensitive fields exposed.
    */
@@ -251,9 +311,9 @@ export class PerformanceReadService {
     const employees = await this.prisma.employee.findMany({
       where: {
         isSuspended: false,
-        email: { endsWith: '@seu.edu.bd' },
       },
       include: {
+        employeeRoles: { where: { isActive: true }, include: { role: true } },
         xpBalance: true,
         weeklyKpiRecords: {
           orderBy: [{ year: 'desc' }, { weekNumber: 'desc' }],
@@ -273,7 +333,8 @@ export class PerformanceReadService {
       const squadName = emp.teamMemberships?.[0]?.team?.name || 'General'
       const roleName = emp.title || 'Engineer'
 
-      if (roleFilter && !roleName.toLowerCase().includes(roleFilter.toLowerCase())) {
+      if (roleFilter && !roleName.toLowerCase().includes(roleFilter.toLowerCase()) &&
+          !emp.employeeRoles?.some(({ role }) => role.slug.toLowerCase() === roleFilter.toLowerCase())) {
         continue
       }
       if (squadFilter && !squadName.toLowerCase().includes(squadFilter.toLowerCase())) {
