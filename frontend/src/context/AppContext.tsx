@@ -110,6 +110,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false)
   const [selectedTaskModal, setSelectedTaskModal] = useState<any>(null)
   const [selectedProjectModal, setSelectedProjectModal] = useState<any>(null)
+  const [selectedProfileUser, setSelectedProfileUser] = useState<any>(null)
   const [toastMessage, setToastMessage] = useState<ToastMessage | null>(null)
 
   const showToast = useCallback(
@@ -1007,15 +1008,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   )
 
   const handleApproveTask = useCallback(
-    (taskId: string, feedback?: string) => {
+    (taskId: string, feedback?: string, pmScore?: number) => {
       setData((prev) => ({
         ...prev,
         tasks: prev.tasks.map((t) =>
-          t.id === taskId ? { ...t, status: 'completed' as TaskStatus } : t,
+          t.id === taskId ? { ...t, status: 'completed' as TaskStatus, pmScore } : t,
         ),
       }))
       void runApiMutation(
-        () => erpApi.approveTask(taskId, { feedback }),
+        () => erpApi.approveTask(taskId, { feedback, pmScore }),
         'Task approved and marked as Completed',
       )
     },
@@ -1228,28 +1229,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
       title: string
       description?: string
       projectId: string
-      pmId: string
+      pmId?: string
+      assigneeId?: string
       priority?: TaskPriority
       dueDate?: string
       estimatedHours?: number | string
       tags?: string[]
+      weightCategory?: string
+      weightPoints?: number
+      initialStatus?: string
+      initialScore?: number
     }): Task => {
       const creatorId = currentUser?.id || 'emp_cto_01'
+      const assigneeId = taskData.assigneeId || taskData.pmId || ''
+      const isCompletedDirectly = taskData.initialStatus === 'completed'
+      const initialScore = taskData.initialScore !== undefined ? Number(taskData.initialScore) : 85
+      const weightPts = Number(taskData.weightPoints || 2)
+
       const newTask: Task = {
         id: `task_cto_${Date.now()}`,
         title: taskData.title,
         description: taskData.description || '',
         projectId: taskData.projectId,
-        assigneeId: taskData.pmId,
+        assigneeId,
         creatorId,
-        status: 'todo',
+        status: isCompletedDirectly ? 'completed' : 'todo',
         priority: taskData.priority || 'high',
         dueDate:
           taskData.dueDate || new Date(Date.now() + 10 * 86400000).toISOString().split('T')[0],
         estimatedHours: Number(taskData.estimatedHours) || 8,
         loggedHours: 0,
-        tags: taskData.tags || ['Engineering Task', 'CTO Mandate'],
+        tags: taskData.tags || ['Engineering Task', 'Executive Directive'],
         createdAt: new Date().toISOString().split('T')[0],
+        weightCategory: (taskData.weightCategory as any) || 'MEDIUM',
+        weightPoints: weightPts,
+        weightStatus: isCompletedDirectly ? 'VERIFIED' : 'PENDING_CHRO_VERIFICATION',
+        pmScore: isCompletedDirectly ? initialScore : null,
       }
 
       setData((prev) => ({
@@ -1263,13 +1278,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
             title: taskData.title,
             description: taskData.description || '',
             projectId: taskData.projectId,
-            assigneeId: taskData.pmId,
+            assigneeId,
             priority: taskData.priority || 'high',
             dueDate: taskData.dueDate ? new Date(taskData.dueDate).toISOString() : undefined,
             estimatedHours: Number(taskData.estimatedHours) || 8,
-            tags: taskData.tags || ['Engineering Task', 'CTO Mandate'],
+            tags: taskData.tags || ['Engineering Task', 'Executive Directive'],
+            weightCategory: taskData.weightCategory || 'MEDIUM',
+            proposedWeight: weightPts,
+            initialStatus: taskData.initialStatus,
+            initialScore: taskData.initialScore,
           }),
-        'Engineering task created and assigned to PM',
+        'Executive directive assigned successfully',
       )
 
       return newTask
@@ -2005,6 +2024,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     isSearchOpen,
     selectedTaskModal,
     selectedProjectModal,
+    selectedProfileUser,
     toastMessage,
     currentUser,
     currentTeam,
@@ -2049,6 +2069,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setIsSearchOpen,
     setSelectedTaskModal,
     setSelectedProjectModal,
+    setSelectedProfileUser,
     updateTaskStatus: handleUpdateTaskStatus,
     addTaskComment: handleAddTaskComment,
     updateUserProfile: handleUpdateUserProfile,

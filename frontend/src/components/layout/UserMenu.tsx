@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
-import { Settings, LogOut } from 'lucide-react'
+import { Settings, LogOut, Award } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
 import { Avatar } from '../common/Avatar'
 import { ConfirmDialog } from '../common/ConfirmDialog'
 
 export function UserMenu() {
-  const { currentUser, setRoute, logout } = useApp()
+  const { currentUser, setRoute, logout, setSelectedProfileUser } = useApp()
   const [isOpen, setIsOpen] = useState(false)
   const [confirmSignOutOpen, setConfirmSignOutOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -55,6 +55,17 @@ export function UserMenu() {
           </div>
 
           <div className="space-y-0.5 text-xs">
+            <button
+              onClick={() => {
+                setSelectedProfileUser(currentUser)
+                setIsOpen(false)
+              }}
+              className="w-full text-left px-3 py-2 rounded-xl flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-semibold hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors cursor-pointer"
+            >
+              <Award className="w-3.5 h-3.5 text-indigo-500" />
+              <span>Performance Profile &amp; KPI</span>
+            </button>
+
             <button
               onClick={() => {
                 setRoute('settings')

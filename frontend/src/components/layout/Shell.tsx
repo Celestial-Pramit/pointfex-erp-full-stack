@@ -16,6 +16,7 @@ import { QuickSearchModal } from '../common/QuickSearchModal'
 import { KeyboardShortcutsModal } from '../common/KeyboardShortcutsModal'
 import { TaskDetailModal } from '../common/TaskDetailModal'
 import { ProjectDetailModal } from '../common/ProjectDetailModal'
+import { UserProfileModal } from '../common/UserProfileModal'
 import { Toast } from '../common/Toast'
 import { DelegationBanner } from './DelegationBanner'
 
@@ -33,6 +34,8 @@ export function Shell({ children }: ShellProps) {
     setSelectedTaskModal,
     selectedProjectModal,
     setSelectedProjectModal,
+    selectedProfileUser,
+    setSelectedProfileUser,
     toastMessage,
     isDataLoading,
     data,
@@ -206,6 +209,12 @@ export function Shell({ children }: ShellProps) {
         project={selectedProjectModal}
         isOpen={Boolean(selectedProjectModal)}
         onClose={() => setSelectedProjectModal(null)}
+      />
+
+      <UserProfileModal
+        user={selectedProfileUser}
+        isOpen={Boolean(selectedProfileUser)}
+        onClose={() => setSelectedProfileUser(null)}
       />
 
       {/* Toast notification */}

@@ -2,6 +2,27 @@
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || '/api'
 
+export interface LeaderboardProfile {
+  userId: string
+  name: string
+  role: string
+  kpiSeries: {
+    year: number
+    weekNumber: number
+    score: number | null
+    isInactive: boolean
+    isProvisional: boolean
+    evaluations: { role: string; score: number; status: string }[]
+  }[]
+  tasks: {
+    id: string
+    title: string
+    completedAt: string | null
+    pmScore: number | null
+    evaluations: { role: string; score: number; status: string }[]
+  }[]
+}
+
 export class ApiError extends Error {
   readonly status: number
 
@@ -274,8 +295,19 @@ export const erpApi = {
     apiRequest<any>('/tasks', { method: 'POST', body: JSON.stringify(body) }),
   updateTaskStatus: (id: string, status: string) =>
     apiRequest<any>(`/tasks/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
-  approveTask: (id: string, body: { feedback?: string; payoutAmount?: number }) =>
+  approveTask: (id: string, body: { feedback?: string; pmScore?: number; payoutAmount?: number }) =>
     apiRequest<any>(`/tasks/${id}/approve`, { method: 'POST', body: JSON.stringify(body) }),
+  // ponytail: Direct C-level grading / score assignment on any task
+  scoreTaskExec: (taskId: string, body: { score: number; reason?: string }) =>
+    apiRequest<any>(`/tasks/${taskId}/exec-score`, { method: 'POST', body: JSON.stringify(body) }),
+  // ponytail: Direct CHRO / Executive task weight modification anytime
+  changeTaskWeight: (
+    taskId: string,
+    body: { weightPoints?: number; weightCategory?: string; reason?: string },
+  ) =>
+    apiRequest<any>(`/tasks/${taskId}/weight`, { method: 'PATCH', body: JSON.stringify(body) }),
+  getTasksByTeam: (teamId: string) => apiRequest<any[]>(`/tasks?teamId=${teamId}`),
+  getTasksByAssignee: (assigneeId: string) => apiRequest<any[]>(`/tasks?assigneeId=${assigneeId}`),
   rejectTask: (id: string, feedback: string) =>
     apiRequest<any>(`/tasks/${id}/reject`, { method: 'POST', body: JSON.stringify({ feedback }) }),
   reassignTask: (id: string, newAssigneeId: string) =>
@@ -461,6 +493,8 @@ export const erpApi = {
     const qs = params.toString()
     return apiRequest<any>(`/performance/ledger/export${qs ? `?${qs}` : ''}`)
   },
+  getLeaderboardProfile: (userId: string) =>
+    apiRequest<LeaderboardProfile>(`/performance/leaderboard/${encodeURIComponent(userId)}`),
   getLeaderboard: (params?: { period?: 'latest_week' | 'four_week_avg' | 'lifetime_xp'; role?: string; squad?: string }) => {
     const qs = new URLSearchParams()
     if (params?.period) qs.append('period', params.period)
