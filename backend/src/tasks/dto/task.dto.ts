@@ -54,6 +54,15 @@ export class CreateTaskDto {
 
   @IsOptional()
   isIsolatedExecutive?: boolean
+
+  // ponytail: Allow C-level to immediately complete and score newly assigned tasks
+  @IsOptional()
+  @IsString()
+  initialStatus?: string
+
+  @IsOptional()
+  @IsNumber()
+  initialScore?: number
 }
 
 export class ProposeTaskWeightDto {

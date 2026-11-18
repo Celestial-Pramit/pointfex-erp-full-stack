@@ -1,3 +1,4 @@
+import { isProjectManager } from '../common/employee-role.util'
 import { getCurrentRequestIp } from '../common/ip-address.util'
 import * as crypto from 'crypto'
 import {
@@ -26,7 +27,7 @@ import {
 } from './dto/task.dto'
 import { Prisma } from '@prisma/client'
 import { AuthenticatedUser } from '../common/auth-user.interface'
-import { xpForTask, taskScoreDeveloper, decideBackfill } from '../performance/kpi-engine'
+import { xpForTask, taskScoreDeveloper, decideBackfill, weeklyKpiDeveloper } from '../performance/kpi-engine'
 import { getDhakaWeekBoundaries } from '../common/dhaka-time.util'
 
 @Injectable()
@@ -126,14 +127,29 @@ export class TasksService {
     if (filters.creatorId) where.creatorId = filters.creatorId
     if (filters.status) where.status = filters.status
     if (filters.teamId) {
-      where.project = {
-        teamProjects: {
-          some: {
-            teamId: filters.teamId,
-            isActive: true,
+      // ponytail: Query tasks belonging to the squad's projects OR assigned to squad members
+      where.OR = [
+        {
+          project: {
+            teamProjects: {
+              some: {
+                teamId: filters.teamId,
+                isActive: true,
+              },
+            },
           },
         },
-      }
+        {
+          assignee: {
+            teamMemberships: {
+              some: {
+                teamId: filters.teamId,
+                isActive: true,
+              },
+            },
+          },
+        },
+      ]
     }
 
     return this.prisma.task.findMany({
@@ -148,8 +164,13 @@ export class TasksService {
           orderBy: { submittedAt: 'desc' },
         },
         comments: {
+          include: { author: true },
           orderBy: { createdAt: 'desc' },
         },
+        execScores: {
+          include: { actedBy: true },
+        },
+        weightVerification: true,
       },
       orderBy: { createdAt: 'desc' },
     })
@@ -159,7 +180,7 @@ export class TasksService {
     const task = await this.prisma.task.findUnique({
       where: { id },
       include: {
-        assignee: true,
+        assignee: { include: { employeeRoles: { where: { isActive: true }, include: { role: true } } } },
         creator: true,
         project: true,
         milestone: true,
@@ -172,6 +193,10 @@ export class TasksService {
           include: { author: true },
           orderBy: { createdAt: 'desc' },
         },
+        execScores: {
+          include: { actedBy: true },
+        },
+        weightVerification: true,
       },
     })
 
@@ -225,11 +250,23 @@ export class TasksService {
 
     // Determine Origin server-side
     const actorRole = (actor.role || '').toLowerCase()
-    const isExecutive = ['ceo', 'chro', 'cto', 'cfo', 'cpo', 'system:root', 'admin'].includes(actorRole)
+    const userRoles = [
+      actorRole,
+      ...(actor.roles || []).map((r: any) =>
+        (typeof r === 'string' ? r : r?.slug || '').toLowerCase(),
+      ),
+    ]
+    const isExecutive =
+      userRoles.some((r) =>
+        ['ceo', 'chro', 'cto', 'cfo', 'cpo', 'system:root', 'admin', 'executive', 'c-level'].includes(r),
+      ) ||
+      (actor.permissions || []).includes('directives:dispatch') ||
+      (actor.permissions || []).includes('projects:read_all')
+
     let origin: 'MAIN_SQUAD' | 'OUTSIDE_SQUAD' | 'ISOLATED_EXECUTIVE' = 'MAIN_SQUAD'
 
-    if (isExecutive && dto.isIsolatedExecutive) {
-      origin = 'ISOLATED_EXECUTIVE'
+    if (isExecutive) {
+      origin = dto.isIsolatedExecutive ? 'ISOLATED_EXECUTIVE' : 'MAIN_SQUAD'
     } else {
       const isMain = await this.isAssigneeInPmSquad(actor.id, dto.assigneeId)
       origin = isMain ? 'MAIN_SQUAD' : 'OUTSIDE_SQUAD'
@@ -238,10 +275,7 @@ export class TasksService {
     // Determine Weight & Category
     const weightCategory: any = dto.weightCategory || 'MEDIUM'
     let proposedWeight = dto.proposedWeight || (
-      weightCategory === 'SMALL' ? 1 :
-      weightCategory === 'MEDIUM' ? 2 :
-      weightCategory === 'LARGE' ? 3 :
-      weightCategory === 'CRITICAL' ? 5 : 2
+      ({ SMALL: 1, MEDIUM: 2, LARGE: 3, CRITICAL: 5 } as const)[weightCategory as 'SMALL' | 'MEDIUM' | 'LARGE' | 'CRITICAL'] ?? 2
     )
 
     if (weightCategory === 'CUSTOM') {
@@ -252,6 +286,9 @@ export class TasksService {
     }
 
     const taskId = `task_${Date.now()}`
+    // ponytail: Support C-level direct task creation with immediate completion and scoring
+    const isCompletedDirectly = isExecutive && dto.initialStatus === 'completed'
+    const initialScore = dto.initialScore !== undefined ? Number(dto.initialScore) : 85
 
     return this.prisma.$transaction(async (tx) => {
       const task = await tx.task.create({
@@ -263,7 +300,9 @@ export class TasksService {
           assigneeId: dto.assigneeId,
           creatorId: actor.id,
           milestoneId: dto.milestoneId || null,
-          status: 'todo',
+          status: isCompletedDirectly ? 'completed' : 'todo',
+          completedAt: isCompletedDirectly ? now : null,
+          pmScore: isCompletedDirectly ? new Prisma.Decimal(initialScore) : null,
           priority: dto.priority || 'medium',
           dueDate: dto.dueDate ? new Date(dto.dueDate) : new Date(Date.now() + 7 * 86400000),
           estimatedHours: dto.estimatedHours
@@ -273,7 +312,7 @@ export class TasksService {
           tags: dto.tags || [],
           weightCategory,
           weightPoints: new Prisma.Decimal(proposedWeight),
-          weightStatus: 'PENDING_CHRO_VERIFICATION',
+          weightStatus: isCompletedDirectly ? 'VERIFIED' : 'PENDING_CHRO_VERIFICATION',
           origin: origin as any,
           proposedById: actor.id,
           effectiveAt,
@@ -289,14 +328,14 @@ export class TasksService {
             : undefined,
         },
         include: {
-          assignee: true,
+          assignee: { include: { employeeRoles: { where: { isActive: true }, include: { role: true } } } },
           creator: true,
           project: true,
           checklist: true,
         },
       })
 
-      // Backward-compatible record in taskWeightVerification if table exists
+      // Record in taskWeightVerification
       if (tx.taskWeightVerification && typeof tx.taskWeightVerification.create === 'function') {
         await tx.taskWeightVerification.create({
           data: {
@@ -312,6 +351,92 @@ export class TasksService {
             massiveXpFrozen: proposedWeight >= 20,
           },
         })
+      }
+
+      // If completed directly by C-level executive, create exec scores and update weekly KPI
+      if (isCompletedDirectly) {
+        if (tx.taskExecScore && typeof tx.taskExecScore.createMany === 'function') {
+          await tx.taskExecScore.createMany({
+            data: (['CTO', 'CPO', 'CFO', 'CHRO'] as const).map((execRole) => ({
+              taskId,
+              execRole,
+              score: new Prisma.Decimal(initialScore),
+              status: 'CONFIRMED',
+              actedById: actor.id,
+              actedAt: now,
+            })),
+            skipDuplicates: true,
+          })
+        }
+
+        if (!isProjectManager(task.assignee)) {
+          const pureXp = xpForTask({
+            weightPoints: proposedWeight,
+            weightStatus: 'VERIFIED',
+            isFrozenThresholdXp: 200,
+          })
+
+          if (this.xpLedger) {
+            await this.xpLedger.appendEvent(
+              {
+                employeeId: dto.assigneeId,
+                delta: pureXp.xp,
+                eventType: pureXp.state === 'FROZEN' ? 'FREEZE' : 'VERIFY_RELEASE',
+                reason: `Direct executive deliverable completed [${taskId}]: ${dto.title} (${proposedWeight} pts -> ${pureXp.xp} XP)`,
+                taskId,
+                taskCategory: weightCategory,
+                awardedById: actor.id,
+                effectiveAt,
+                isBackfilled,
+              },
+              tx,
+            )
+          }
+
+          const { year, weekNumber, weekStartUtc, weekEndUtc } = getDhakaWeekBoundaries(now)
+          const weekTasks = await tx.task.findMany({
+            where: {
+              assigneeId: dto.assigneeId,
+              status: 'completed',
+              completedAt: { gte: weekStartUtc, lte: weekEndUtc },
+            },
+          })
+
+          const weeklyKpi = weeklyKpiDeveloper({
+            tasks: weekTasks.map((t) => ({
+              score: Number(t.pmScore || initialScore),
+              weightPoints: Number(t.weightPoints || 2),
+              context: (t.origin || 'MAIN_SQUAD') as any,
+            })),
+          })
+
+          const weeklyScore = weeklyKpi.value !== null ? weeklyKpi.value : initialScore
+          await tx.weeklyKpiRecord.upsert({
+            where: {
+              employeeId_year_weekNumber: {
+                employeeId: dto.assigneeId,
+                year,
+                weekNumber,
+              },
+            },
+            create: {
+              employeeId: dto.assigneeId,
+              year,
+              weekNumber,
+              weekStart: weekStartUtc,
+              score: new Prisma.Decimal(weeklyScore),
+              evaluationStatus: 'PROVISIONAL',
+              isInactive: false,
+              evaluationBreakdown: { taskCount: weekTasks.length, latestScore: initialScore },
+            },
+            update: {
+              score: new Prisma.Decimal(weeklyScore),
+              evaluationStatus: 'PROVISIONAL',
+              isInactive: false,
+              evaluationBreakdown: { taskCount: weekTasks.length, latestScore: initialScore },
+            },
+          })
+        }
       }
 
       // Log Audit
@@ -419,10 +544,7 @@ export class TasksService {
         throw new BadRequestException('CUSTOM weight category requires points > 0')
       }
     } else if (!points) {
-      points = dto.weightCategory === 'SMALL' ? 1 :
-               dto.weightCategory === 'MEDIUM' ? 2 :
-               dto.weightCategory === 'LARGE' ? 3 :
-               dto.weightCategory === 'CRITICAL' ? 5 : 2
+      points = ({ SMALL: 1, MEDIUM: 2, LARGE: 3, CRITICAL: 5 } as const)[dto.weightCategory as 'SMALL' | 'MEDIUM' | 'LARGE' | 'CRITICAL'] ?? 2
     }
 
     const updated = await this.prisma.task.update({
@@ -538,6 +660,347 @@ export class TasksService {
     })
   }
 
+  // ponytail: Direct C-level grading / score assignment on any task, affecting assignee KPI
+  async scoreTaskDirectly(
+    taskId: string,
+    score: number,
+    reason: string = 'Executive score assignment',
+    actor: AuthenticatedUser,
+  ) {
+    if (isNaN(score) || score < 0 || score > 100) {
+      throw new BadRequestException('score must be a valid number between 0 and 100')
+    }
+
+    const task = await this.findOne(taskId)
+    const actorRole = (actor.role || '').toUpperCase().trim()
+    const execRole: 'CTO' | 'CPO' | 'CFO' | 'CHRO' =
+      (['CTO', 'CPO', 'CFO'].includes(actorRole) ? actorRole : 'CHRO') as 'CTO' | 'CPO' | 'CFO' | 'CHRO'
+
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Update task pmScore and complete task if not yet completed
+      await tx.task.update({
+        where: { id: taskId },
+        data: {
+          pmScore: task.pmScore ? task.pmScore : new Prisma.Decimal(score),
+          status: 'completed',
+          completedAt: task.completedAt || new Date(),
+        },
+      })
+
+      // 2. Upsert TaskExecScore for this executive
+      if (tx.taskExecScore) {
+        await tx.taskExecScore.upsert({
+          where: { taskId_execRole: { taskId, execRole } },
+          create: {
+            taskId,
+            execRole,
+            score: new Prisma.Decimal(score),
+            status: 'CONFIRMED',
+            reason,
+            actedById: actor.id,
+            actedAt: new Date(),
+          },
+          update: {
+            score: new Prisma.Decimal(score),
+            status: 'ADJUSTED',
+            reason,
+            actedById: actor.id,
+            actedAt: new Date(),
+          },
+        })
+      }
+
+      // PM weekly scores come exclusively from C-level weekly evaluations.
+      if (!isProjectManager(task.assignee)) {
+        // 3. Recompute developer weekly KPI
+        const completedDate = task.completedAt || new Date()
+        const { year, weekNumber, weekStartUtc, weekEndUtc } = getDhakaWeekBoundaries(completedDate)
+
+        const weekTasks = await tx.task.findMany({
+          where: {
+            assigneeId: task.assigneeId,
+            status: 'completed',
+            completedAt: { gte: weekStartUtc, lte: weekEndUtc },
+          },
+          include: { execScores: true },
+        })
+
+        const developerTasksInput = weekTasks.map((t) => {
+          const pm = Number(t.pmScore || score)
+          const cto = t.execScores.find((s) => s.execRole === 'CTO')
+          const cpo = t.execScores.find((s) => s.execRole === 'CPO')
+          const cfo = t.execScores.find((s) => s.execRole === 'CFO')
+          const chro = t.execScores.find((s) => s.execRole === 'CHRO')
+
+          const scoreResult = taskScoreDeveloper({
+            pm: { score: pm },
+            cto: cto ? { score: Number(cto.score), status: cto.status } : undefined,
+            cpo: cpo ? { score: Number(cpo.score), status: cpo.status } : undefined,
+            cfo: cfo ? { score: Number(cfo.score), status: cfo.status } : undefined,
+            chro: chro ? { score: Number(chro.score), status: chro.status } : undefined,
+          })
+
+          return {
+            score: scoreResult.finalScore,
+            weightPoints: Number(t.weightPoints || 2),
+            context: (t.origin || 'MAIN_SQUAD') as any,
+          }
+        })
+
+        const weeklyKpi = weeklyKpiDeveloper({
+          tasks:
+            developerTasksInput.length > 0
+              ? developerTasksInput
+              : [{ score, weightPoints: Number(task.weightPoints || 2), context: 'MAIN_SQUAD' }],
+        })
+
+        const finalKpiScore = weeklyKpi.value !== null ? weeklyKpi.value : score
+
+        await tx.weeklyKpiRecord.upsert({
+          where: {
+            employeeId_year_weekNumber: {
+              employeeId: task.assigneeId,
+              year,
+              weekNumber,
+            },
+          },
+          create: {
+            employeeId: task.assigneeId,
+            year,
+            weekNumber,
+            weekStart: weekStartUtc,
+            score: new Prisma.Decimal(finalKpiScore),
+            evaluationStatus: 'PROVISIONAL',
+            isInactive: false,
+            evaluationBreakdown: {
+              taskCount: weekTasks.length || 1,
+              score: finalKpiScore,
+            },
+          },
+          update: {
+            score: new Prisma.Decimal(finalKpiScore),
+            evaluationStatus: 'PROVISIONAL',
+            isInactive: false,
+            evaluationBreakdown: {
+              taskCount: weekTasks.length || 1,
+              score: finalKpiScore,
+            },
+          },
+        })
+
+      }
+
+      // 4. Audit Log
+      await tx.auditLog.create({
+        data: {
+          ipAddress: getCurrentRequestIp(),
+          actorId: actor.id,
+          actorName: actor.id,
+          actorEmail: `${actor.id}@pointfex.internal`,
+          actorRole: actor.role.toUpperCase(),
+          action: 'EXEC_TASK_SCORED',
+          actionCode: 'EXEC_TASK_SCORED',
+          severity: 'INFO',
+          entityType: 'task',
+          entityId: taskId,
+          entityTitle: task.title,
+          description: `${execRole} scored task "${task.title}" with ${score}/100: ${reason}`,
+          category: 'task',
+          badgeColor: 'purple',
+        },
+      })
+
+      return { success: true, taskId, score, execRole, assigneeId: task.assigneeId }
+    })
+  }
+
+  // ponytail: CHRO / Executive direct task weight modification anytime
+  async changeWeightDirectly(
+    taskId: string,
+    weightPoints?: number,
+    weightCategory?: string,
+    reason?: string,
+    actor?: AuthenticatedUser,
+  ) {
+    const task = await this.findOne(taskId)
+    const actorRole = (actor?.role || '').toLowerCase()
+    const isExecutive = ['ceo', 'chro', 'cto', 'cfo', 'cpo', 'system:root', 'admin'].includes(actorRole)
+
+    if (!isExecutive && actorRole !== 'pm') {
+      throw new ForbiddenException('Only CHRO, executives, or managers can modify task weight.')
+    }
+
+    let newPoints = weightPoints !== undefined ? Number(weightPoints) : Number(task.weightPoints || 2)
+
+    if (weightCategory && weightPoints === undefined) {
+      newPoints =
+        ({ SMALL: 1, MEDIUM: 2, LARGE: 3, CRITICAL: 5 } as const)[weightCategory as 'SMALL' | 'MEDIUM' | 'LARGE' | 'CRITICAL'] ?? newPoints
+    }
+
+    if (isNaN(newPoints) || newPoints <= 0) {
+      throw new BadRequestException('Weight points must be a valid positive number')
+    }
+
+    let newCategory: any = weightCategory || 'CUSTOM'
+    if (newCategory !== 'CUSTOM') {
+      if (newPoints === 1) newCategory = 'SMALL'
+      else if (newPoints === 2) newCategory = 'MEDIUM'
+      else if (newPoints === 3) newCategory = 'LARGE'
+      else if (newPoints === 5) newCategory = 'CRITICAL'
+      else newCategory = 'CUSTOM'
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Update task weight and mark verified
+      const updated = await tx.task.update({
+        where: { id: taskId },
+        data: {
+          weightPoints: new Prisma.Decimal(newPoints),
+          weightCategory: newCategory as any,
+          weightStatus: 'VERIFIED',
+          verifiedById: actor?.id,
+        },
+        include: {
+          assignee: true,
+          project: true,
+          execScores: true,
+        },
+      })
+
+      // 2. Synchronize any existing TaskWeightVerification records
+      if (tx.taskWeightVerification && typeof tx.taskWeightVerification.updateMany === 'function') {
+        await tx.taskWeightVerification.updateMany({
+          where: { taskId },
+          data: {
+            status: 'APPROVED',
+            approvedWeight: new Prisma.Decimal(newPoints),
+            category: newCategory as any,
+            chroId: actor?.id,
+            chroNotes: reason || 'Weight modified and verified by CHRO',
+          },
+        })
+      }
+
+      // 3. If task is completed, recalculate developer's weekly KPI and XP
+      if ((task.status === 'completed' || task.status === 'COMPLETED') && task.assigneeId) {
+        const completedAt = task.completedAt || new Date()
+        const { year, weekNumber, weekStartUtc, weekEndUtc } = getDhakaWeekBoundaries(completedAt)
+
+        const weekTasks = await tx.task.findMany({
+          where: {
+            assigneeId: task.assigneeId,
+            status: 'completed',
+            completedAt: { gte: weekStartUtc, lte: weekEndUtc },
+          },
+          include: { execScores: true },
+        })
+
+        const developerTasksInput = weekTasks.map((t) => {
+          const pm = Number(t.pmScore || 85)
+          const cto = t.execScores.find((s) => s.execRole === 'CTO')
+          const cpo = t.execScores.find((s) => s.execRole === 'CPO')
+          const cfo = t.execScores.find((s) => s.execRole === 'CFO')
+          const chro = t.execScores.find((s) => s.execRole === 'CHRO')
+
+          const scoreResult = taskScoreDeveloper({
+            pm: { score: pm },
+            cto: cto ? { score: Number(cto.score), status: cto.status } : undefined,
+            cpo: cpo ? { score: Number(cpo.score), status: cpo.status } : undefined,
+            cfo: cfo ? { score: Number(cfo.score), status: cfo.status } : undefined,
+            chro: chro ? { score: Number(chro.score), status: chro.status } : undefined,
+          })
+          const pts = t.id === taskId ? newPoints : Number(t.weightPoints || 2)
+          return {
+            score: scoreResult.finalScore,
+            weightPoints: pts,
+            context: (t.origin || 'MAIN_SQUAD') as any,
+          }
+        })
+
+        const weeklyKpi = weeklyKpiDeveloper({
+          tasks:
+            developerTasksInput.length > 0
+              ? developerTasksInput
+              : [{ score: 85, weightPoints: newPoints, context: 'MAIN_SQUAD' }],
+        })
+
+        const finalKpiScore = weeklyKpi.value !== null ? weeklyKpi.value : 85
+
+        await tx.weeklyKpiRecord.upsert({
+          where: {
+            employeeId_year_weekNumber: {
+              employeeId: task.assigneeId,
+              year,
+              weekNumber,
+            },
+          },
+          create: {
+            employeeId: task.assigneeId,
+            year,
+            weekNumber,
+            weekStart: weekStartUtc,
+            score: new Prisma.Decimal(finalKpiScore),
+            evaluationStatus: 'PROVISIONAL',
+            isInactive: false,
+            evaluationBreakdown: {
+              taskCount: weekTasks.length || 1,
+              score: finalKpiScore,
+            },
+          },
+          update: {
+            score: new Prisma.Decimal(finalKpiScore),
+            evaluationBreakdown: {
+              taskCount: weekTasks.length || 1,
+              score: finalKpiScore,
+            },
+          },
+        })
+
+        // XP ledger adjustment
+        if (this.xpLedger) {
+          const pureXp = xpForTask({
+            weightPoints: newPoints,
+            weightStatus: 'VERIFIED',
+          })
+          await this.xpLedger.appendEvent(
+            {
+              employeeId: task.assigneeId,
+              delta: pureXp.xp,
+              eventType: 'VERIFY_RELEASE',
+              reason: `CHRO updated weight to ${newPoints} pts (${pureXp.xp} XP) on task ${taskId}`,
+              taskId,
+              taskCategory: newCategory,
+              awardedById: actor?.id,
+            },
+            tx,
+          )
+        }
+      }
+
+      // 4. Audit Log
+      await tx.auditLog.create({
+        data: {
+          ipAddress: getCurrentRequestIp(),
+          actorId: actor?.id || 'chro',
+          actorName: actor?.id || 'CHRO',
+          actorEmail: actor?.email || 'chro@pointfex.internal',
+          actorRole: actorRole.toUpperCase(),
+          action: 'TASK_WEIGHT_CHANGED_BY_CHRO',
+          actionCode: 'TASK_WEIGHT_CHANGED',
+          severity: 'INFO',
+          entityType: 'task',
+          entityId: taskId,
+          entityTitle: task.title,
+          description: `CHRO changed task "${task.title}" weight to ${newCategory} (${newPoints} pts): ${reason || 'Direct CHRO weight change'}`,
+          category: 'task',
+          badgeColor: 'amber',
+        },
+      })
+
+      return updated
+    })
+  }
+
   async returnWork(taskId: string, dto: ReturnTaskWorkDto, actor: AuthenticatedUser) {
     const task = await this.findOne(taskId)
 
@@ -584,8 +1047,11 @@ export class TasksService {
     }
 
     // 3. State Machine Transition validation
-    if (this.transitionService) {
-      this.transitionService.validateTransition(task.status, 'COMPLETED', actor.role)
+    // Allow PM and executives to directly approve/complete deliverables from any active working state
+    if (this.transitionService && task.status) {
+      if (task.status.toUpperCase() === 'IN_REVIEW' || (!isExecutive && actorRole !== 'pm')) {
+        this.transitionService.validateTransition(task.status, 'COMPLETED', actor.role)
+      }
     }
 
     // 4. Validate PM Score (0..100)
@@ -699,19 +1165,21 @@ export class TasksService {
       // 4. Create 4 TaskExecScore rows (CTO, CPO, CFO, CHRO) default = pmScore, status UNREAD
       if (tx.taskExecScore && typeof tx.taskExecScore.createMany === 'function') {
         await tx.taskExecScore.createMany({
-          data: [
-            { taskId: id, execRole: 'CTO', score: new Prisma.Decimal(pmScore), status: 'UNREAD' },
-            { taskId: id, execRole: 'CPO', score: new Prisma.Decimal(pmScore), status: 'UNREAD' },
-            { taskId: id, execRole: 'CFO', score: new Prisma.Decimal(pmScore), status: 'UNREAD' },
-            { taskId: id, execRole: 'CHRO', score: new Prisma.Decimal(pmScore), status: 'UNREAD' },
-          ],
+          data: (['CTO', 'CPO', 'CFO', 'CHRO'] as const).map((execRole) => ({
+            taskId: id,
+            execRole,
+            score: new Prisma.Decimal(pmScore),
+            status: 'UNREAD',
+          })),
           skipDuplicates: true,
         })
       }
 
+      const isAssigneePm = isProjectManager(task.assignee)
+
       // 5. Inactivity return penalty consumption (FIFO, exactly one)
       let penaltyApplied = false
-      if (tx.inactivityPenalty && typeof tx.inactivityPenalty.findFirst === 'function') {
+      if (!isAssigneePm && tx.inactivityPenalty && typeof tx.inactivityPenalty.findFirst === 'function') {
         const oldestPenalty = await tx.inactivityPenalty.findFirst({
           where: { userId: task.assigneeId, consumed: false },
           orderBy: { weekStart: 'asc' },
@@ -747,9 +1215,6 @@ export class TasksService {
 
       // 8. Append XP Ledger Event
       // Security & Governance Rule: PMs NEVER earn micro-task XP from deliverables they assign or complete
-      const assigneeRole = (task.assignee?.title || '').toLowerCase()
-      const isAssigneePm = assigneeRole.includes('project manager') || assigneeRole === 'pm'
-
       if (this.xpLedger && !isAssigneePm) {
         let eventType: any = 'AWARD_PENDING'
         if (weightStatus === 'VERIFIED') {
@@ -773,7 +1238,7 @@ export class TasksService {
       }
 
       // 9. Recompute that week's WeeklyKpiRecord (provisional if any UNREAD)
-      if (tx.weeklyKpiRecord && typeof tx.weeklyKpiRecord.upsert === 'function') {
+      if (!isAssigneePm && tx.weeklyKpiRecord && typeof tx.weeklyKpiRecord.upsert === 'function') {
         const completedDate = new Date()
         const { year, weekNumber, weekStartUtc } = getDhakaWeekBoundaries(completedDate)
 

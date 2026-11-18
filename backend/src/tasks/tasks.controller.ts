@@ -106,6 +106,34 @@ export class TasksController {
     return this.tasksService.verifyWeight(id, dto, actor)
   }
 
+  // ponytail: Direct C-level grading / score assignment on any task, affecting assignee KPI
+  @Post(':id/exec-score')
+  @RequireAnyPermission('kpis:score_exec', 'performance:evaluate', 'governance:vote', 'tasks:approve')
+  scoreTask(
+    @Param('id') id: string,
+    @Body() body: { score: number; reason?: string },
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.tasksService.scoreTaskDirectly(id, Number(body.score), body.reason, actor)
+  }
+
+  // ponytail: CHRO / Executive direct task weight modification anytime
+  @Patch(':id/weight')
+  @RequireAnyPermission('tasks:verify_weight', 'performance:evaluate', 'kpi:verify_weight', 'governance:vote')
+  changeWeight(
+    @Param('id') id: string,
+    @Body() body: { weightPoints?: number; weightCategory?: string; reason?: string },
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.tasksService.changeWeightDirectly(
+      id,
+      body.weightPoints,
+      body.weightCategory,
+      body.reason,
+      actor,
+    )
+  }
+
   @Post(':id/return')
   @RequirePermissions('tasks:approve')
   returnWork(
