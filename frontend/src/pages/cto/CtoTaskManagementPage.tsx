@@ -17,8 +17,9 @@ interface ColumnDef {
 }
 
 export function CtoTaskManagementPage() {
-  const { ctoEngineeringTasks, projects, projectManagers } = useCtoData()
+  const { ctoEngineeringTasks, projects, projectManagers, developers } = useCtoData()
   const {
+    data,
     createCtoEngineeringTask,
     reviewCtoTaskSubmission,
     updateTaskStatus,
@@ -26,7 +27,12 @@ export function CtoTaskManagementPage() {
     showToast,
   } = useApp()
 
-  // Filters (PM filter on left + Search on right)
+  const allActiveAssignees = useMemo(() => {
+    const list = [...projectManagers, ...ctoEngineeringTasks.map((t) => t.assignee).filter(Boolean)]
+    return Array.from(new Map(list.map((u) => [u.id, u])).values())
+  }, [projectManagers, ctoEngineeringTasks])
+
+  // Filters (Assignee filter on left + Search on right)
   const [selectedPmId, setSelectedPmId] = useState<string>('all')
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState<string>('')
@@ -44,10 +50,30 @@ export function CtoTaskManagementPage() {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [projectId, setProjectId] = useState(projects[0]?.id || '')
-  const [pmId, setPmId] = useState(projectManagers[0]?.id || '')
+  const [assigneeId, setAssigneeId] = useState(
+    developers[0]?.id || projectManagers[0]?.id || '',
+  )
   const [priority, setPriority] = useState<TaskPriority>('high')
   const [deadline, setDeadline] = useState('')
   const [tagsInput, setTagsInput] = useState('Architecture, Security')
+  const [weightCategory, setWeightCategory] = useState<
+    'SMALL' | 'MEDIUM' | 'LARGE' | 'CRITICAL' | 'CUSTOM'
+  >('MEDIUM')
+  const [customWeightPoints, setCustomWeightPoints] = useState<number>(2)
+  const [completedImmediately, setCompletedImmediately] = useState<boolean>(false)
+  const [assignedScore, setAssignedScore] = useState<number>(95)
+
+  useEffect(() => {
+    if (!assigneeId && (developers.length > 0 || projectManagers.length > 0)) {
+      setAssigneeId(developers[0]?.id || projectManagers[0]?.id || '')
+    }
+  }, [developers, projectManagers, assigneeId])
+
+  useEffect(() => {
+    if (!projectId && projects.length > 0) {
+      setProjectId(projects[0].id)
+    }
+  }, [projects, projectId])
 
   const columns: ColumnDef[] = [
     { id: 'todo', label: 'Assigned', dot: 'bg-slate-400 dark:bg-slate-500' },
@@ -117,7 +143,8 @@ export function CtoTaskManagementPage() {
   // Handle create directive
   const handleCreateDirective = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!title.trim() || !projectId || !pmId) {
+    const targetAssigneeId = assigneeId || developers[0]?.id || projectManagers[0]?.id || ''
+    if (!title.trim() || !projectId || !targetAssigneeId) {
       showToast('Please fill in all required fields.', 'error')
       return
     }
@@ -127,19 +154,32 @@ export function CtoTaskManagementPage() {
       .map((t) => t.trim())
       .filter(Boolean)
 
+    const weightPts =
+      ({ SMALL: 1, MEDIUM: 2, LARGE: 3, CRITICAL: 5 } as const)[weightCategory as 'SMALL' | 'MEDIUM' | 'LARGE' | 'CRITICAL'] ?? customWeightPoints
+
     createCtoEngineeringTask({
       projectId,
-      pmId,
+      assigneeId: targetAssigneeId,
       title: title.trim(),
       description: description.trim(),
       priority,
       dueDate: deadline || new Date(Date.now() + 14 * 86400000).toISOString(),
       tags,
+      weightCategory,
+      weightPoints: weightPts,
+      initialStatus: completedImmediately ? 'completed' : 'todo',
+      initialScore: completedImmediately ? assignedScore : undefined,
     })
 
-    showToast('Technical directive assigned to PM successfully.', 'success')
+    showToast(
+      completedImmediately
+        ? `Directive assigned & completed directly with score ${assignedScore}/100.`
+        : 'C-Level directive assigned successfully.',
+      'success',
+    )
     setTitle('')
     setDescription('')
+    setCompletedImmediately(false)
     setIsCreateModalOpen(false)
   }
 
@@ -157,8 +197,11 @@ export function CtoTaskManagementPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-slate-900 dark:text-white font-display">
-            Technical Directives & PM Assignments
+            Directives &amp; Tasks (C-Level)
           </h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            C-Level executive directive board — assign tasks to anyone in the organization.
+          </p>
         </div>
         <div className="flex items-center gap-2">
           {inReviewCount > 0 && (
@@ -173,7 +216,7 @@ export function CtoTaskManagementPage() {
             icon={Plus}
             onClick={() => setIsCreateModalOpen(true)}
           >
-            Assign Directive
+            Assign Directive (C-Level)
           </Button>
         </div>
       </div>
@@ -184,14 +227,14 @@ export function CtoTaskManagementPage() {
         <div className="lg:col-span-4 xl:col-span-3 space-y-3">
           <div className="flex items-center justify-between px-1">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-              Project Managers
+              Assignees &amp; Staff
             </span>
             <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
-              {projectManagers.length} PMs
+              {allActiveAssignees.length} Staff
             </span>
           </div>
 
-          {/* "All PMs" Card */}
+          {/* "All Assignees" Card */}
           <div
             onClick={() => setSelectedPmId('all')}
             className={`p-3.5 rounded-2xl cursor-pointer transition-all duration-150 border ${
@@ -213,7 +256,7 @@ export function CtoTaskManagementPage() {
                 </div>
                 <div>
                   <span className="text-xs font-bold text-slate-900 dark:text-slate-100 block">
-                    All Project Managers
+                    All Directives &amp; Tasks
                   </span>
                   <span className="text-[10px] text-slate-500 dark:text-slate-400">
                     {activeCount} Active • {completedCount} Completed
@@ -239,19 +282,18 @@ export function CtoTaskManagementPage() {
             </div>
           </div>
 
-          {/* Individual PM Cards */}
-          {projectManagers.map((pm) => {
-            const isSelected = selectedPmId === pm.id
-            const pmTasks = ctoEngineeringTasks.filter((t) => t.assigneeId === pm.id)
-            const pmCompleted = pmTasks.filter((t) => t.status === 'completed').length
-            const pmInReview = pmTasks.filter((t) => t.status === 'in_review').length
-            const pmProgress =
-              pmTasks.length > 0 ? Math.round((pmCompleted / pmTasks.length) * 100) : 0
+          {/* Individual Assignee Cards */}
+          {allActiveAssignees.map((emp) => {
+            const isSelected = selectedPmId === emp.id
+            const empTasks = ctoEngineeringTasks.filter((t) => t.assigneeId === emp.id)
+            const empCompleted = empTasks.filter((t) => t.status === 'completed').length
+            const empProgress =
+              empTasks.length > 0 ? Math.round((empCompleted / empTasks.length) * 100) : 0
 
             return (
               <div
-                key={pm.id}
-                onClick={() => setSelectedPmId(pm.id)}
+                key={emp.id}
+                onClick={() => setSelectedPmId(emp.id)}
                 className={`p-3 rounded-2xl cursor-pointer transition-all duration-150 border ${
                   isSelected
                     ? 'bg-lime-50/70 dark:bg-lime-950/20 border-lime-300 dark:border-lime-700/60 shadow-xs'
@@ -261,37 +303,24 @@ export function CtoTaskManagementPage() {
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-2">
                     <Avatar
-                      src={pm.avatarUrl || pm.avatar}
-                      name={pm.name}
-                      initials={pm.initials}
+                      src={emp.avatarUrl || emp.avatar}
+                      name={emp.name}
+                      initials={emp.initials}
                       size="sm"
                       className="border border-slate-200 dark:border-slate-700"
                     />
                     <div>
                       <h4 className="font-semibold text-xs text-slate-900 dark:text-slate-100">
-                        {pm.name}
+                        {emp.name}
                       </h4>
                       <span className="text-[10px] text-slate-400 block truncate max-w-[130px]">
-                        {pm.title}
+                        {emp.title || emp.role}
                       </span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1">
-                    {pmInReview > 0 && (
-                      <span className="w-2 h-2 rounded-full bg-purple-500" title="Review waiting" />
-                    )}
-                    <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400">
-                      {pmTasks.length}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Progress bar */}
-                <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1 mt-2 overflow-hidden">
-                  <div
-                    className="bg-sky-500 h-1 rounded-full transition-all duration-300"
-                    style={{ width: `${pmProgress}%` }}
-                  />
+                  <Badge variant={empProgress === 100 ? 'success' : 'slate'} size="xs">
+                    {empCompleted}/{empTasks.length}
+                  </Badge>
                 </div>
               </div>
             )
@@ -476,16 +505,16 @@ export function CtoTaskManagementPage() {
         </div>
       </div>
 
-      {/* Modal: Create Technical Directive */}
+      {/* Modal: Create Technical Directive / C-Level Task */}
       <Modal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
-        title="Assign Technical Directive to Project Manager"
+        title="Assign Directive / Task (C-Level)"
       >
         <form onSubmit={handleCreateDirective} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Directive Title *
+              Directive / Task Title *
             </label>
             <input
               type="text"
@@ -505,7 +534,7 @@ export function CtoTaskManagementPage() {
               <select
                 value={projectId}
                 onChange={(e) => setProjectId(e.target.value)}
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-lime-500"
+                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-lime-500 cursor-pointer"
               >
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -517,18 +546,43 @@ export function CtoTaskManagementPage() {
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Assignee PM *
+                Assignee (Anyone in Org) *
               </label>
               <select
-                value={pmId}
-                onChange={(e) => setPmId(e.target.value)}
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-lime-500"
+                value={assigneeId}
+                onChange={(e) => setAssigneeId(e.target.value)}
+                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-lime-500 cursor-pointer"
               >
-                {projectManagers.map((pm) => (
-                  <option key={pm.id} value={pm.id}>
-                    {pm.name} ({pm.title})
-                  </option>
-                ))}
+                <optgroup label="Developers">
+                  {developers.map((dev) => (
+                    <option key={dev.id} value={dev.id}>
+                      {dev.name} ({dev.title || 'Developer'})
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="Project Managers &amp; Team Leads">
+                  {(projectManagers.length > 0
+                    ? projectManagers
+                    : data.users.filter((u) => u.role === 'pm')
+                  ).map((pm) => (
+                    <option key={pm.id} value={pm.id}>
+                      {pm.name} ({pm.title || 'Project Manager'})
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="Other Staff &amp; Executives">
+                  {data.users
+                    .filter(
+                      (u) =>
+                        !developers.some((d) => d.id === u.id) &&
+                        !projectManagers.some((p) => p.id === u.id),
+                    )
+                    .map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name} — {u.title || u.role?.toUpperCase()}
+                      </option>
+                    ))}
+                </optgroup>
               </select>
             </div>
           </div>
@@ -536,31 +590,98 @@ export function CtoTaskManagementPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Priority
+                Weight Category
               </label>
               <select
-                value={priority}
-                onChange={(e) => setPriority(e.target.value as TaskPriority)}
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-lime-500"
+                value={weightCategory}
+                onChange={(e) => setWeightCategory(e.target.value as any)}
+                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-lime-500 cursor-pointer"
               >
-                <option value="urgent">Urgent (Immediate sprint focus)</option>
-                <option value="high">High (Sprint milestone)</option>
-                <option value="medium">Medium (Standard directive)</option>
-                <option value="low">Low (Backlog refinement)</option>
+                <option value="SMALL">SMALL (1 pt / 10 XP)</option>
+                <option value="MEDIUM">MEDIUM (2 pts / 20 XP)</option>
+                <option value="LARGE">LARGE (3 pts / 30 XP)</option>
+                <option value="CRITICAL">CRITICAL (5 pts / 50 XP)</option>
+                <option value="CUSTOM">CUSTOM</option>
               </select>
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Target Deadline
-              </label>
+            {weightCategory === 'CUSTOM' ? (
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Custom Weight Points
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="50"
+                  value={customWeightPoints}
+                  onChange={(e) => setCustomWeightPoints(Number(e.target.value))}
+                  className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-lime-500"
+                />
+              </div>
+            ) : (
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Priority
+                </label>
+                <select
+                  value={priority}
+                  onChange={(e) => setPriority(e.target.value as TaskPriority)}
+                  className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-lime-500 cursor-pointer"
+                >
+                  <option value="urgent">Urgent (Immediate sprint focus)</option>
+                  <option value="high">High (Sprint milestone)</option>
+                  <option value="medium">Medium (Standard directive)</option>
+                  <option value="low">Low (Backlog refinement)</option>
+                </select>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              Target Deadline
+            </label>
+            <input
+              type="date"
+              value={deadline}
+              onChange={(e) => setDeadline(e.target.value)}
+              className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-lime-500 cursor-pointer"
+            />
+          </div>
+
+          {/* Immediate completion & score by C-Level */}
+          <div className="p-3 rounded-xl bg-lime-50/70 dark:bg-lime-950/30 border border-lime-200 dark:border-lime-900/40 space-y-2">
+            <label className="flex items-center gap-2 cursor-pointer font-bold text-xs text-slate-800 dark:text-slate-200">
               <input
-                type="date"
-                value={deadline}
-                onChange={(e) => setDeadline(e.target.value)}
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-lime-500"
+                type="checkbox"
+                checked={completedImmediately}
+                onChange={(e) => setCompletedImmediately(e.target.checked)}
+                className="rounded text-lime-600 accent-lime-600 cursor-pointer"
               />
-            </div>
+              <span>Mark as Completed Immediately &amp; Assign C-Level Score</span>
+            </label>
+
+            {completedImmediately && (
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                    Assigned Score (0-100)
+                  </span>
+                  <span className="font-mono text-sm font-bold text-lime-600 dark:text-lime-400">
+                    {assignedScore} / 100
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={assignedScore}
+                  onChange={(e) => setAssignedScore(Number(e.target.value))}
+                  className="w-full accent-lime-600 cursor-pointer"
+                />
+              </div>
+            )}
           </div>
 
           <div>
@@ -594,7 +715,7 @@ export function CtoTaskManagementPage() {
               Cancel
             </Button>
             <Button variant="primary" size="sm" type="submit" icon={Send}>
-              Issue Directive
+              Assign Directive (C-Level)
             </Button>
           </div>
         </form>

@@ -14,6 +14,9 @@ import {
   Settings,
   Calendar,
   Sliders,
+  ArrowLeft,
+  Plus,
+  Award,
 } from 'lucide-react'
 import { erpApi } from '../../api/client'
 import { useExecutiveData } from '../../hooks/useExecutiveData'
@@ -30,21 +33,72 @@ export function ChroPerformancePage() {
     developers,
     projectManagers,
     teams,
+    projects,
     confidentialComplaints,
   } = useExecutiveData()
 
   const {
+    data,
     recordPerformanceEvaluation,
     issueEmployeeRecognition,
     issueDisciplinaryAction,
     updateConfidentialComplaintStatus,
     showToast,
+    setSelectedProfileUser,
   } = useApp()
 
   // Tab State
   const [activeTab, setActiveTab] = useState<
     'roster' | 'squads' | 'grievances' | 'weight_queue' | 'disciplinary' | 'config' | 'backfill_windows'
   >('roster')
+
+  // ponytail: Squad drill-down & C-level task grading / direct assignment state
+  const [selectedSquad, setSelectedSquad] = useState<any | null>(null)
+  const [squadTasks, setSquadTasks] = useState<any[]>([])
+  const [loadingSquadTasks, setLoadingSquadTasks] = useState(false)
+  const [squadTaskFilter, setSquadTaskFilter] = useState<string>('all')
+  const [squadTaskSearch, setSquadTaskSearch] = useState<string>('')
+
+  // C-Level direct grading modal
+  const [scoringTask, setScoringTask] = useState<any | null>(null)
+  const [execScoreInput, setExecScoreInput] = useState<number>(90)
+  const [execScoreReason, setExecScoreReason] = useState<string>('')
+  const [submittingExecScore, setSubmittingExecScore] = useState(false)
+
+  // C-Level direct task assignment modal
+  const [isDirectTaskModalOpen, setIsDirectTaskModalOpen] = useState(false)
+  const [directTaskTitle, setDirectTaskTitle] = useState('')
+  const [directTaskDesc, setDirectTaskDesc] = useState('')
+  const [directTaskAssignee, setDirectTaskAssignee] = useState('')
+  const [directTaskProject, setDirectTaskProject] = useState('')
+  const [directTaskWeightCat, setDirectTaskWeightCat] = useState<'SMALL' | 'MEDIUM' | 'LARGE' | 'CRITICAL' | 'CUSTOM'>('MEDIUM')
+  const [directTaskWeightPoints, setDirectTaskWeightPoints] = useState<number>(2)
+  const [directTaskCompletedImmediately, setDirectTaskCompletedImmediately] = useState(true)
+  const [directTaskScore, setDirectTaskScore] = useState<number>(92)
+  const [submittingDirectTask, setSubmittingDirectTask] = useState(false)
+
+  // ponytail: CHRO Task Weight Modification State
+  const [editingWeightTask, setEditingWeightTask] = useState<any | null>(null)
+  const [editWeightCategory, setEditWeightCategory] = useState<'SMALL' | 'MEDIUM' | 'LARGE' | 'CRITICAL' | 'CUSTOM'>('MEDIUM')
+  const [editWeightPoints, setEditWeightPoints] = useState<number>(2)
+  const [editWeightReason, setEditWeightReason] = useState<string>('')
+  const [submittingWeightChange, setSubmittingWeightChange] = useState<boolean>(false)
+
+  // ponytail: Auto-populate default selection for C-level direct task creation
+  useEffect(() => {
+    if (!directTaskAssignee && developers.length > 0) {
+      const squadDevs = developers.filter((d: any) => !selectedSquad || d.teamId === selectedSquad.id)
+      const match = squadDevs.length > 0 ? squadDevs : developers
+      setDirectTaskAssignee(match[0]?.id || '')
+    }
+  }, [developers, selectedSquad, directTaskAssignee])
+
+  useEffect(() => {
+    if (!directTaskProject && projects.length > 0) {
+      setDirectTaskProject(projects[0].id)
+    }
+  }, [projects, directTaskProject])
+
 
   // Search and Filters
   const [searchQuery, setSearchQuery] = useState('')
@@ -156,6 +210,158 @@ export function ChroPerformancePage() {
       setLoadingWindows(false)
     }
   }, [])
+
+  // ponytail: Load squad tasks from backend with local fallback
+  const loadSquadTasks = useCallback(
+    async (team: any) => {
+      setSelectedSquad(team)
+      setLoadingSquadTasks(true)
+      try {
+        const res = await erpApi.getTasksByTeam(team.id)
+        if (Array.isArray(res) && res.length > 0) {
+          setSquadTasks(res)
+        } else {
+          const teamDevIds = developers.filter((d: any) => d.teamId === team.id).map((d: any) => d.id)
+          const teamProjIds = (team.projectIds || []).concat(team.projects?.map((p: any) => p.id) || [])
+          const matched = data.tasks.filter(
+            (t: any) =>
+              t.teamId === team.id ||
+              teamDevIds.includes(t.assigneeId) ||
+              teamProjIds.includes(t.projectId),
+          )
+          setSquadTasks(matched)
+        }
+      } catch {
+        const teamDevIds = developers.filter((d: any) => d.teamId === team.id).map((d: any) => d.id)
+        const matched = data.tasks.filter((t: any) => teamDevIds.includes(t.assigneeId))
+        setSquadTasks(matched)
+      } finally {
+        setLoadingSquadTasks(false)
+      }
+    },
+    [developers, data.tasks],
+  )
+
+  // ponytail: Open global rich staff profile modal (KPI, deliverables, who marked what, review comments)
+  const handleOpenEmployeeProfile = useCallback((emp: any) => {
+    setSelectedProfileUser(emp)
+  }, [setSelectedProfileUser])
+
+  // ponytail: C-level direct task grading
+  const handleAssignExecScore = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!scoringTask) return
+    setSubmittingExecScore(true)
+    try {
+      await erpApi.scoreTaskExec(scoringTask.id, {
+        score: execScoreInput,
+        reason: execScoreReason.trim() || 'C-Level executive score assignment',
+      })
+      showToast(
+        `Assigned ${execScoreInput}/100 to "${scoringTask.title}". Assignee KPI updated.`,
+        'success',
+      )
+      setScoringTask(null)
+      setExecScoreReason('')
+      if (selectedSquad) {
+        void loadSquadTasks(selectedSquad)
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Failed to assign score', 'error')
+    } finally {
+      setSubmittingExecScore(false)
+    }
+  }
+
+  // ponytail: C-level direct task creation & assignment with immediate completion option
+  const handleCreateDirectTask = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const targetAssignee =
+      directTaskAssignee ||
+      (developers.filter((d: any) => !selectedSquad || d.teamId === selectedSquad.id)[0]?.id ||
+        developers[0]?.id)
+    const targetProj = directTaskProject || projects[0]?.id
+
+    if (!directTaskTitle.trim() || !targetAssignee || !targetProj) {
+      showToast('Please fill in task title, assignee, and project.', 'error')
+      return
+    }
+    setSubmittingDirectTask(true)
+    try {
+      const pts = Number(directTaskWeightPoints)
+      const cat =
+        directTaskWeightCat !== 'CUSTOM' && ({ 1: 'SMALL', 2: 'MEDIUM', 3: 'LARGE', 5: 'CRITICAL' } as const)[pts]
+          ? ({ 1: 'SMALL', 2: 'MEDIUM', 3: 'LARGE', 5: 'CRITICAL' } as const)[pts]!
+          : 'CUSTOM'
+
+      await erpApi.createTask({
+        title: directTaskTitle.trim(),
+        description: directTaskDesc.trim(),
+        assigneeId: targetAssignee,
+        projectId: targetProj,
+        weightCategory: cat,
+        proposedWeight: pts,
+        initialStatus: directTaskCompletedImmediately ? 'completed' : 'todo',
+        initialScore: directTaskCompletedImmediately ? directTaskScore : undefined,
+      })
+
+      showToast(
+        directTaskCompletedImmediately
+          ? `Direct task created with ${pts} pts (${cat}) & completed with score ${directTaskScore}/100!`
+          : `Direct task created with ${pts} pts (${cat}) & assigned successfully!`,
+        'success',
+      )
+
+      setIsDirectTaskModalOpen(false)
+      setDirectTaskTitle('')
+      setDirectTaskDesc('')
+      if (selectedSquad) {
+        void loadSquadTasks(selectedSquad)
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Failed to create direct task', 'error')
+    } finally {
+      setSubmittingDirectTask(false)
+    }
+  }
+
+  // ponytail: CHRO direct task weight modification handler
+  const handleSaveWeightChange = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingWeightTask) return
+    setSubmittingWeightChange(true)
+    try {
+      const pts = Number(editWeightPoints)
+      if (isNaN(pts) || pts <= 0) {
+        showToast('Weight points must be a valid positive number', 'error')
+        setSubmittingWeightChange(false)
+        return
+      }
+
+      const cat =
+        editWeightCategory !== 'CUSTOM' && ({ 1: 'SMALL', 2: 'MEDIUM', 3: 'LARGE', 5: 'CRITICAL' } as const)[pts]
+          ? ({ 1: 'SMALL', 2: 'MEDIUM', 3: 'LARGE', 5: 'CRITICAL' } as const)[pts]!
+          : 'CUSTOM'
+
+      await erpApi.changeTaskWeight(editingWeightTask.id, {
+        weightPoints: pts,
+        weightCategory: cat,
+        reason: editWeightReason.trim() || 'Direct CHRO weight change',
+      })
+
+      showToast(`Task weight updated to ${pts} pts (${cat}) successfully!`, 'success')
+      setEditingWeightTask(null)
+
+      if (selectedSquad) {
+        void loadSquadTasks(selectedSquad)
+      }
+      void fetchWeightQueue()
+    } catch (err: any) {
+      showToast(err.message || 'Failed to update task weight', 'error')
+    } finally {
+      setSubmittingWeightChange(false)
+    }
+  }
 
   useEffect(() => {
     void fetchWeightQueue()
@@ -732,12 +938,27 @@ export function ChroPerformancePage() {
                 </select>
               </div>
 
-              <div className="text-xs text-slate-500 dark:text-slate-400">
-                Showing{' '}
-                <span className="font-semibold text-slate-900 dark:text-white">
-                  {filteredRoster.length}
-                </span>{' '}
-                staff members
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs"
+                  icon={Plus}
+                  onClick={() => {
+                    if (!directTaskAssignee) setDirectTaskAssignee(developers[0]?.id || '')
+                    if (!directTaskProject && projects.length > 0) setDirectTaskProject(projects[0].id)
+                    setIsDirectTaskModalOpen(true)
+                  }}
+                >
+                  Assign Direct Task (C-Level)
+                </Button>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  Showing{' '}
+                  <span className="font-semibold text-slate-900 dark:text-white">
+                    {filteredRoster.length}
+                  </span>{' '}
+                  staff members
+                </div>
               </div>
             </div>
 
@@ -763,16 +984,20 @@ export function ChroPerformancePage() {
                       className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors"
                     >
                       <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-3">
+                        <div
+                          className="flex items-center gap-3 cursor-pointer group"
+                          onClick={() => handleOpenEmployeeProfile(user)}
+                          title="Click to view full performance profile and deliverables"
+                        >
                           <Avatar
                             src={user.avatarUrl || user.avatar}
                             name={user.name}
                             initials={user.initials}
                             size="md"
-                            className="border border-slate-200 dark:border-slate-700"
+                            className="border border-slate-200 dark:border-slate-700 group-hover:ring-2 group-hover:ring-indigo-500/50 transition-all"
                           />
                           <div>
-                            <div className="font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
+                            <div className="font-semibold text-slate-900 dark:text-white flex items-center gap-1.5 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
                               {user.name}
                               <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
                                 {user.role}
@@ -835,6 +1060,14 @@ export function ChroPerformancePage() {
                           <Button
                             variant="secondary"
                             size="sm"
+                            className="text-indigo-600 dark:text-indigo-400 font-medium"
+                            onClick={() => handleOpenEmployeeProfile(user)}
+                          >
+                            Profile
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
                             onClick={() => handleOpenEvaluation({ user, perf, team })}
                           >
                             Evaluate
@@ -873,7 +1106,7 @@ export function ChroPerformancePage() {
         )}
 
         {/* TAB 2: SQUAD MORALE & ATTENDANCE MATRIX */}
-        {activeTab === 'squads' && (
+        {activeTab === 'squads' && !selectedSquad && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {teams.map((team) => {
               const squadDevs = staffRoster.filter(
@@ -903,12 +1136,13 @@ export function ChroPerformancePage() {
               return (
                 <div
                   key={team.id}
-                  className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm flex flex-col justify-between"
+                  className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm flex flex-col justify-between hover:border-indigo-400 dark:hover:border-indigo-600 transition-all cursor-pointer group"
+                  onClick={() => void loadSquadTasks(team)}
                 >
                   <div>
                     <div className="flex items-center justify-between mb-3">
                       <div>
-                        <h4 className="text-base font-bold text-slate-900 dark:text-white">
+                        <h4 className="text-base font-bold text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
                           {team.name}
                         </h4>
                         <p className="text-xs text-slate-400 font-mono">{team.code}</p>
@@ -970,18 +1204,306 @@ export function ChroPerformancePage() {
                   <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
                     <span className="text-xs text-slate-500">Weekly Retrospective Complete</span>
                     <button
-                      onClick={() => {
-                        setRoleFilter('developer')
-                        setActiveTab('roster')
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void loadSquadTasks(team)
                       }}
-                      className="text-xs font-semibold text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-1 cursor-pointer"
+                      className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer"
                     >
-                      View Members <ChevronRight className="w-3.5 h-3.5" />
+                      Enter Squad &amp; View Tasks <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
               )
             })}
+          </div>
+        )}
+
+        {/* TAB 2 - SQUAD DETAIL VIEW (DRILL-DOWN) */}
+        {activeTab === 'squads' && selectedSquad && (
+          <div className="space-y-5">
+            {/* Header bar */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setSelectedSquad(null)}
+                  className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+                  title="Back to all squads"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                      {selectedSquad.name}
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-400">
+                      {selectedSquad.code || 'SQUAD'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Squad PM: <strong className="text-slate-800 dark:text-slate-200">{selectedSquad.pm?.name || 'Assigned PM'}</strong>
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-1.5 shadow-sm"
+                  onClick={() => {
+                    const squadDevs = developers.filter((d: any) => d.teamId === selectedSquad.id)
+                    const candidateDevs = squadDevs.length > 0 ? squadDevs : developers
+                    setDirectTaskAssignee(candidateDevs[0]?.id || '')
+
+                    const squadProjects = projects.filter(
+                      (p: any) =>
+                        (selectedSquad.projectIds || []).includes(p.id) ||
+                        p.teamId === selectedSquad.id,
+                    )
+                    if (squadProjects.length > 0) setDirectTaskProject(squadProjects[0].id)
+                    else if (projects.length > 0) setDirectTaskProject(projects[0].id)
+                    setIsDirectTaskModalOpen(true)
+                  }}
+                >
+                  <Plus className="w-4 h-4" />
+                  Assign Direct Task (C-Level)
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => void loadSquadTasks(selectedSquad)}
+                  disabled={loadingSquadTasks}
+                >
+                  {loadingSquadTasks ? 'Refreshing...' : 'Refresh Tasks'}
+                </Button>
+              </div>
+            </div>
+
+            {/* Squad Members horizontal pills */}
+            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
+              <div className="text-xs font-bold uppercase text-slate-500 mb-2">
+                Squad Members — Click any member to view full Overall KPI profile:
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {developers
+                  .filter((d: any) => d.teamId === selectedSquad.id)
+                  .map((dev: any) => {
+                    const perf = performanceRecords.find((p: any) => p.employeeId === dev.id)
+                    const kpiScore = perf?.overallScore ?? 92
+                    return (
+                      <button
+                        key={dev.id}
+                        onClick={() => void handleOpenEmployeeProfile(dev)}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-indigo-500 transition-all cursor-pointer group shadow-2xs"
+                      >
+                        <Avatar
+                          src={dev.avatarUrl}
+                          name={dev.name}
+                          initials={dev.initials}
+                          className="w-6 h-6 text-[10px]"
+                        />
+                        <span className="text-xs font-semibold text-slate-900 dark:text-white group-hover:text-indigo-600">
+                          {dev.name}
+                        </span>
+                        <span className="px-1.5 py-0.2 rounded text-[10px] font-bold font-mono bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400">
+                          {kpiScore}% KPI
+                        </span>
+                      </button>
+                    )
+                  })}
+              </div>
+            </div>
+
+            {/* Tasks Filters & List */}
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto">
+                  {['all', 'completed', 'in_progress', 'in_review', 'todo'].map((st) => (
+                    <button
+                      key={st}
+                      onClick={() => setSquadTaskFilter(st)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                        squadTaskFilter === st
+                          ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      {st === 'all'
+                        ? `All Tasks (${squadTasks.length})`
+                        : `${st.replace('_', ' ').toUpperCase()} (${
+                            squadTasks.filter((t: any) => t.status === st).length
+                          })`}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="relative w-full sm:w-64">
+                  <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search squad tasks..."
+                    value={squadTaskSearch}
+                    onChange={(e) => setSquadTaskSearch(e.target.value)}
+                    className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {/* Tasks List Cards / Rows */}
+              {loadingSquadTasks ? (
+                <div className="p-12 text-center text-sm text-slate-500">Loading squad tasks...</div>
+              ) : squadTasks.length === 0 ? (
+                <div className="p-12 text-center rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                  <p className="text-sm text-slate-500">No tasks found for this squad yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {squadTasks
+                    .filter((t: any) => {
+                      if (squadTaskFilter !== 'all' && t.status !== squadTaskFilter) return false
+                      if (
+                        squadTaskSearch &&
+                        !t.title.toLowerCase().includes(squadTaskSearch.toLowerCase()) &&
+                        !t.assignee?.name?.toLowerCase().includes(squadTaskSearch.toLowerCase())
+                      )
+                        return false
+                      return true
+                    })
+                    .map((task: any) => {
+                      const assigneeUser =
+                        task.assignee || developers.find((d: any) => d.id === task.assigneeId)
+                      const isCompleted = task.status === 'completed'
+                      const weightPts = Number(task.weightPoints || 2)
+                      const isWeightVerified = task.weightStatus === 'VERIFIED'
+                      const execScore =
+                        task.execScores && task.execScores.length > 0
+                          ? Number(task.execScores[0].score)
+                          : task.pmScore
+                            ? Number(task.pmScore)
+                            : null
+
+                      return (
+                        <div
+                          key={task.id}
+                          className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-2xs"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold font-mono ${
+                                  isCompleted
+                                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400'
+                                    : task.status === 'in_progress'
+                                      ? 'bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-400'
+                                      : task.status === 'in_review'
+                                        ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400'
+                                        : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                                }`}
+                              >
+                                {task.status.toUpperCase().replace('_', ' ')}
+                              </span>
+
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
+                                Weight: {weightPts} pts ({task.weightCategory || 'MEDIUM'})
+                              </span>
+
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  isWeightVerified
+                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                    : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                }`}
+                              >
+                                {isWeightVerified ? 'CHRO VERIFIED' : 'PENDING CHRO'}
+                              </span>
+
+                              {task.project?.code && (
+                                <span className="text-[10px] font-mono text-slate-400">
+                                  {task.project.code}
+                                </span>
+                              )}
+                            </div>
+
+                            <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-1">
+                              {task.title}
+                            </h4>
+
+                            <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500">
+                              {/* Assignee - Clickable to open Overall KPI profile */}
+                              <div
+                                onClick={() =>
+                                  assigneeUser && void handleOpenEmployeeProfile(assigneeUser)
+                                }
+                                className="flex items-center gap-1.5 cursor-pointer hover:underline text-indigo-600 dark:text-indigo-400 font-semibold"
+                                title="Click to view full overall KPI profile"
+                              >
+                                <Avatar
+                                  src={assigneeUser?.avatarUrl}
+                                  name={assigneeUser?.name || 'Assignee'}
+                                  initials={assigneeUser?.initials || 'AS'}
+                                  className="w-4 h-4 text-[9px]"
+                                />
+                                <span>{assigneeUser?.name || 'Unassigned'}</span>
+                              </div>
+
+                              {task.pmScore && (
+                                <span>
+                                  PM Score:{' '}
+                                  <strong className="text-slate-900 dark:text-white font-mono">
+                                    {Number(task.pmScore)}/100
+                                  </strong>
+                                </span>
+                              )}
+
+                              {execScore !== null && (
+                                <span>
+                                  C-Level Mark:{' '}
+                                  <strong className="text-purple-600 dark:text-purple-400 font-mono">
+                                    {execScore}/100
+                                  </strong>
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Actions: Grade / Assign Mark & Change Weight */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            <Button
+                              variant="secondary"
+                              size="xs"
+                              className="bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800 hover:bg-amber-100 flex items-center gap-1 text-[11px]"
+                              onClick={() => {
+                                setEditingWeightTask(task)
+                                setEditWeightCategory(task.weightCategory || 'MEDIUM')
+                                setEditWeightPoints(Number(task.weightPoints || 2))
+                                setEditWeightReason('')
+                              }}
+                            >
+                              <Scale className="w-3.5 h-3.5" />
+                              Change Weight
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="xs"
+                              className="bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800 hover:bg-purple-100 flex items-center gap-1 text-[11px]"
+                              onClick={() => {
+                                setScoringTask(task)
+                                setExecScoreInput(execScore ? Number(execScore) : 90)
+                                setExecScoreReason('')
+                              }}
+                            >
+                              <Award className="w-3.5 h-3.5" />
+                              Grade / Assign Mark
+                            </Button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -1212,6 +1734,26 @@ export function ChroPerformancePage() {
                         )}
                         {isPending && (
                           <>
+                            <Button
+                              variant="secondary"
+                              size="xs"
+                              className="text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/40 text-[11px] flex items-center gap-1"
+                              onClick={() => {
+                                const t = item.task || {
+                                  id: item.taskId,
+                                  title: item.title,
+                                  weightPoints: item.proposedWeight,
+                                  weightCategory: item.category,
+                                }
+                                setEditingWeightTask(t)
+                                setEditWeightCategory(item.category || 'MEDIUM')
+                                setEditWeightPoints(Number(item.approvedWeight || item.proposedWeight || 2))
+                                setEditWeightReason('')
+                              }}
+                            >
+                              <Scale className="w-3 h-3" />
+                              Change Weight
+                            </Button>
                             <Button
                               variant="secondary"
                               size="xs"
@@ -2269,6 +2811,425 @@ export function ChroPerformancePage() {
             await handleCloseBackfillWindow(payload.mfaCode)
           }}
         />
+      )}
+
+      {/* MODAL: C-Level Direct Task Grading / Mark Assignment */}
+      {scoringTask && (
+        <Modal
+          isOpen={true}
+          onClose={() => setScoringTask(null)}
+          title={`Assign C-Level Mark: ${scoringTask.title}`}
+        >
+          <form onSubmit={handleAssignExecScore} className="space-y-4 text-xs">
+            <p className="text-slate-600 dark:text-slate-400">
+              Assign or adjust the official C-Level executive mark for this task. This directly recalculates the assignee&apos;s Weekly KPI.
+            </p>
+
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-1">
+              <div><strong>Task:</strong> {scoringTask.title}</div>
+              <div><strong>Assignee:</strong> {scoringTask.assignee?.name || 'Squad Member'}</div>
+              <div><strong>Weight:</strong> {scoringTask.weightPoints || 2} pts</div>
+              <div><strong>PM Score:</strong> {scoringTask.pmScore ? `${scoringTask.pmScore}/100` : 'Not scored'}</div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="font-semibold text-slate-700 dark:text-slate-300">
+                  C-Level Executive Mark (0-100)
+                </label>
+                <span className="font-mono text-base font-extrabold text-purple-600 dark:text-purple-400">
+                  {execScoreInput} / 100
+                </span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={execScoreInput}
+                onChange={(e) => setExecScoreInput(Number(e.target.value))}
+                className="w-full accent-purple-600 cursor-pointer"
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Evaluation Justification &amp; Notes
+              </label>
+              <textarea
+                rows={2}
+                value={execScoreReason}
+                onChange={(e) => setExecScoreReason(e.target.value)}
+                placeholder="Notes on architecture quality, delivery speed, or executive feedback..."
+                className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs focus:outline-none"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Button variant="secondary" size="sm" onClick={() => setScoringTask(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                type="submit"
+                size="sm"
+                className="bg-purple-600 hover:bg-purple-700 text-white"
+                disabled={submittingExecScore}
+              >
+                {submittingExecScore ? 'Assigning...' : 'Save & Update Assignee KPI'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* MODAL: C-Level Direct Task Creation & Completion */}
+      {isDirectTaskModalOpen && (
+        <Modal
+          isOpen={true}
+          onClose={() => setIsDirectTaskModalOpen(false)}
+          title="Direct C-Level Task Assignment"
+        >
+          <form onSubmit={handleCreateDirectTask} className="space-y-4 text-xs">
+            <p className="text-slate-600 dark:text-slate-400">
+              Assign a new deliverable directly to a squad member. Optionally mark it completed immediately and assign its official executive score.
+            </p>
+
+            <div>
+              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Task Title *
+              </label>
+              <input
+                type="text"
+                required
+                value={directTaskTitle}
+                onChange={(e) => setDirectTaskTitle(e.target.value)}
+                placeholder="e.g. Implement security sandbox bypass mitigation"
+                className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Task Description
+              </label>
+              <textarea
+                rows={2}
+                value={directTaskDesc}
+                onChange={(e) => setDirectTaskDesc(e.target.value)}
+                placeholder="Detailed acceptance criteria..."
+                className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs focus:outline-none"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Assignee (Anyone in Organization) *
+                </label>
+                <select
+                  required
+                  value={directTaskAssignee}
+                  onChange={(e) => setDirectTaskAssignee(e.target.value)}
+                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs focus:outline-none cursor-pointer"
+                >
+                  <optgroup label="Engineers &amp; Developers">
+                    {(developers.length > 0 ? developers : data.users.filter((u: any) => u.role === 'developer')).map((dev: any) => (
+                      <option key={dev.id} value={dev.id}>
+                        {dev.name} ({dev.title || 'Developer'})
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Project Managers &amp; Team Leads">
+                    {(projectManagers.length > 0 ? projectManagers : data.users.filter((u: any) => u.role === 'pm')).map((pm: any) => (
+                      <option key={pm.id} value={pm.id}>
+                        {pm.name} ({pm.title || 'Project Manager'})
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="All Other Staff &amp; Executives">
+                    {data.users
+                      .filter(
+                        (u: any) =>
+                          !developers.some((d: any) => d.id === u.id) &&
+                          !projectManagers.some((p: any) => p.id === u.id),
+                      )
+                      .map((u: any) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name} — {u.title || u.role?.toUpperCase()}
+                        </option>
+                      ))}
+                  </optgroup>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Project *
+                </label>
+                <select
+                  required
+                  value={directTaskProject}
+                  onChange={(e) => setDirectTaskProject(e.target.value)}
+                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs focus:outline-none cursor-pointer"
+                >
+                  {projects.map((proj: any) => (
+                    <option key={proj.id} value={proj.id}>
+                      {proj.name} ({proj.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="font-semibold text-slate-700 dark:text-slate-300">
+                  Deliverable Weight &amp; XP Yield
+                </label>
+                <span className="text-[11px] font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                  {directTaskWeightPoints} pts = {Number(directTaskWeightPoints || 0) * 10} XP
+                  {Number(directTaskWeightPoints) >= 20 ? ' (Massive XP)' : ''}
+                </span>
+              </div>
+              <div className="grid grid-cols-5 gap-1.5 mb-2">
+                {[
+                  { cat: 'SMALL', pts: 1, label: '1 pt' },
+                  { cat: 'MEDIUM', pts: 2, label: '2 pts' },
+                  { cat: 'LARGE', pts: 3, label: '3 pts' },
+                  { cat: 'CRITICAL', pts: 5, label: '5 pts' },
+                  { cat: 'CUSTOM', pts: directTaskWeightPoints, label: 'Custom' },
+                ].map((item) => {
+                  const isSel =
+                    item.cat === 'CUSTOM'
+                      ? directTaskWeightCat === 'CUSTOM' || ![1, 2, 3, 5].includes(directTaskWeightPoints)
+                      : directTaskWeightCat === item.cat && directTaskWeightPoints === item.pts
+                  return (
+                    <button
+                      key={item.cat}
+                      type="button"
+                      onClick={() => {
+                        setDirectTaskWeightCat(item.cat as any)
+                        if (item.cat !== 'CUSTOM') {
+                          setDirectTaskWeightPoints(item.pts)
+                        }
+                      }}
+                      className={`p-1.5 rounded-xl text-center border text-xs cursor-pointer transition-all ${
+                        isSel
+                          ? 'bg-indigo-500/10 border-indigo-500 text-indigo-700 dark:text-indigo-300 font-bold'
+                          : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  )
+                })}
+              </div>
+              <input
+                type="number"
+                min="0.5"
+                max="100"
+                step="0.5"
+                value={directTaskWeightPoints}
+                onChange={(e) => {
+                  const val = Number(e.target.value)
+                  setDirectTaskWeightPoints(val)
+                  if (![1, 2, 3, 5].includes(val)) {
+                    setDirectTaskWeightCat('CUSTOM')
+                  }
+                }}
+                className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white"
+                placeholder="Enter custom points (e.g. 7, 10, 15)..."
+              />
+            </div>
+
+            {/* Checkbox: Mark as Completed Immediately */}
+            <div className="p-3 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/40 space-y-3">
+              <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-800 dark:text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={directTaskCompletedImmediately}
+                  onChange={(e) => setDirectTaskCompletedImmediately(e.target.checked)}
+                  className="rounded text-indigo-600 accent-indigo-600 cursor-pointer"
+                />
+                <span>Mark as Completed Immediately &amp; Assign Score</span>
+              </label>
+
+              {directTaskCompletedImmediately && (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                      Assigned Score (0-100)
+                    </span>
+                    <span className="font-mono text-sm font-bold text-indigo-600 dark:text-indigo-400">
+                      {directTaskScore} / 100
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={directTaskScore}
+                    onChange={(e) => setDirectTaskScore(Number(e.target.value))}
+                    className="w-full accent-indigo-600 cursor-pointer"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Button variant="secondary" size="sm" onClick={() => setIsDirectTaskModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                type="submit"
+                size="sm"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                disabled={submittingDirectTask}
+              >
+                {submittingDirectTask ? 'Creating...' : 'Create & Assign Task'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* MODAL: CHRO Direct Task Weight Modification */}
+      {editingWeightTask && (
+        <Modal
+          isOpen={true}
+          onClose={() => setEditingWeightTask(null)}
+          title={`Change Task Weight (CHRO): ${editingWeightTask.title || 'Task'}`}
+        >
+          <form onSubmit={handleSaveWeightChange} className="space-y-4 text-xs">
+            <p className="text-slate-600 dark:text-slate-400">
+              As CHRO, you can modify the deliverable weight category and XP yield at any time. This immediately updates the task, verifies the weight, and recalculates the developer&apos;s Weekly KPI if already completed.
+            </p>
+
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-1">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Current Task:</span>
+                <span className="font-semibold text-slate-800 dark:text-slate-200 truncate max-w-[280px]">
+                  {editingWeightTask.title}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Current Weight:</span>
+                <span className="font-bold text-amber-600">
+                  {Number(editingWeightTask.weightPoints || editingWeightTask.proposedWeight || 2)} pts (
+                  {editingWeightTask.weightCategory || editingWeightTask.category || 'MEDIUM'})
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                Weight Preset / Category
+              </label>
+              <div className="grid grid-cols-5 gap-1.5 mb-3">
+                {[
+                  { cat: 'SMALL', pts: 1, label: '1 pt', sub: 'SMALL' },
+                  { cat: 'MEDIUM', pts: 2, label: '2 pts', sub: 'MEDIUM' },
+                  { cat: 'LARGE', pts: 3, label: '3 pts', sub: 'LARGE' },
+                  { cat: 'CRITICAL', pts: 5, label: '5 pts', sub: 'CRITICAL' },
+                  { cat: 'CUSTOM', pts: editWeightPoints, label: 'Custom', sub: 'Any pts' },
+                ].map((item) => {
+                  const isSelected =
+                    item.cat === 'CUSTOM'
+                      ? editWeightCategory === 'CUSTOM' || ![1, 2, 3, 5].includes(editWeightPoints)
+                      : editWeightCategory === item.cat && editWeightPoints === item.pts
+                  return (
+                    <button
+                      key={item.cat}
+                      type="button"
+                      onClick={() => {
+                        setEditWeightCategory(item.cat as any)
+                        if (item.cat !== 'CUSTOM') {
+                          setEditWeightPoints(item.pts)
+                        }
+                      }}
+                      className={`p-2 rounded-xl text-center border transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-amber-500/10 border-amber-500 text-amber-700 dark:text-amber-300 font-bold shadow-xs'
+                          : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="text-xs font-bold">{item.label}</div>
+                      <div className="text-[10px] opacity-75">{item.sub}</div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block font-semibold text-slate-700 dark:text-slate-300">
+                  Custom Weight Points *
+                </label>
+                <span className="text-[11px] font-mono font-bold text-amber-600 dark:text-amber-400">
+                  Yields {Number(editWeightPoints || 0) * 10} XP
+                  {Number(editWeightPoints) >= 20 ? ' (Massive XP)' : ''}
+                </span>
+              </div>
+              <input
+                type="number"
+                min={0.5}
+                max={100}
+                step={0.5}
+                required
+                value={editWeightPoints}
+                onChange={(e) => {
+                  const val = Number(e.target.value)
+                  setEditWeightPoints(val)
+                  if (![1, 2, 3, 5].includes(val)) {
+                    setEditWeightCategory('CUSTOM')
+                  }
+                }}
+                className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                placeholder="Enter custom points (e.g. 7, 10, 15)..."
+              />
+              <p className="text-[11px] text-slate-500 mt-1">
+                Category:{' '}
+                <span className="font-semibold text-slate-700 dark:text-slate-300">
+                  {![1, 2, 3, 5].includes(editWeightPoints) || editWeightCategory === 'CUSTOM'
+                    ? 'CUSTOM'
+                    : editWeightCategory}
+                </span>
+                {' · '}
+                Every point awards 10 XP upon completion and recalculates Weekly KPI proportionally.
+              </p>
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                CHRO Adjustment Reason / Justification
+              </label>
+              <input
+                type="text"
+                value={editWeightReason}
+                onChange={(e) => setEditWeightReason(e.target.value)}
+                placeholder="Reason for weight adjustment (e.g. complexity re-evaluated, sprint priority shift)..."
+                className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs focus:outline-none"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Button variant="secondary" size="sm" onClick={() => setEditingWeightTask(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                type="submit"
+                size="sm"
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+                disabled={submittingWeightChange}
+              >
+                {submittingWeightChange ? 'Saving...' : 'Save Weight Changes'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
       )}
     </div>
   )
