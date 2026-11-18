@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Badge } from '../../components/common/Badge'
 import { Button } from '../../components/common/Button'
 import { Modal } from '../../components/common/Modal'
@@ -6,7 +6,7 @@ import { Avatar } from '../../components/common/Avatar'
 import { useCtoData } from '../../hooks/useCtoData'
 import { useApp } from '../../context/AppContext'
 import { formatDate } from '../../utils/formatters'
-import type { TaskPriority, TaskStatus, EnrichedTask } from '../../types'
+import type { TaskPriority, TaskStatus, EnrichedTask, User } from '../../types'
 import { Plus, Search, CheckCircle2, XCircle, Clock, Users, Send } from 'lucide-react'
 
 interface ColumnDef {
@@ -28,7 +28,10 @@ export function CtoTaskManagementPage() {
   } = useApp()
 
   const allActiveAssignees = useMemo(() => {
-    const list = [...projectManagers, ...ctoEngineeringTasks.map((t) => t.assignee).filter(Boolean)]
+    const list = [
+      ...projectManagers,
+      ...ctoEngineeringTasks.map((t) => t.assignee).filter((u): u is User => u != null),
+    ]
     return Array.from(new Map(list.map((u) => [u.id, u])).values())
   }, [projectManagers, ctoEngineeringTasks])
 

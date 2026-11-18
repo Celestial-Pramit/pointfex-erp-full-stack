@@ -144,6 +144,10 @@ export interface Task {
   tags: string[]
   checklist?: TaskChecklistItem[]
   createdAt: string
+  weightCategory?: string
+  weightPoints?: number
+  weightStatus?: string
+  pmScore?: number | null
 }
 
 export interface TaskComment {
