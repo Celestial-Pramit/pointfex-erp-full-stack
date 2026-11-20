@@ -55,7 +55,7 @@ export function CtoAuditLogPage() {
         }
       }
       if (!userId)
-        return { name: 'System Event', email: 'system@pointfex.internal', role: 'SYSTEM' }
+        return { name: 'System Event', email: 'system', role: 'SYSTEM' }
       const found = data.users.find((u) => u.id === userId)
       if (found) {
         return {
@@ -64,7 +64,7 @@ export function CtoAuditLogPage() {
           role: found.role.toUpperCase(),
         }
       }
-      return { name: userId, email: `${userId}@pointfex.internal`, role: 'USER' }
+      return { name: userId, email: '', role: 'USER' }
     },
     [data.users],
   )

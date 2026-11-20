@@ -99,7 +99,7 @@ export class GovernanceService implements OnModuleInit {
           data: {
             actorId: req.requesterId,
             actorName: req.requester?.name || 'Chief Executive Officer',
-            actorEmail: req.requester?.email || 'ceo@pointfex.com',
+            actorEmail: req.requester?.email || '',
             actorRole: 'CEO',
             action: 'ACCESS_REQUEST_CANCELLED',
             actionCode: 'SUPERSEDED_BY_DIRECT_CEO_ACTION',
@@ -206,7 +206,7 @@ export class GovernanceService implements OnModuleInit {
           ipAddress: getCurrentRequestIp(),
           actorId: actor.id,
           actorName: actor.id,
-          actorEmail: `${actor.id}@pointfex.internal`,
+          actorEmail: actor.email || '',
           actorRole: actor.role.toUpperCase(),
           action: 'EXECUTIVE_DIRECTIVE_ISSUED',
           actionCode: 'EXECUTIVE_DIRECTIVE_DISPATCHED',
@@ -243,7 +243,7 @@ export class GovernanceService implements OnModuleInit {
           ipAddress: getCurrentRequestIp(),
           actorId: actor.id,
           actorName: actor.id,
-          actorEmail: `${actor.id}@pointfex.internal`,
+          actorEmail: actor.email || '',
           actorRole: actor.role.toUpperCase(),
           action: 'CEO_DECISION_RATIFIED',
           actionCode: 'CEO_DECISION_AUTHORIZED',
@@ -265,162 +265,9 @@ export class GovernanceService implements OnModuleInit {
     actor: AuthenticatedUser,
     headers?: Record<string, string>,
   ) {
-    assertNotSelfTarget(actor.id, dto.newCeoEmployeeId, 'transfer the CEO title')
-    await verifyStepUpAuth(this.prisma, actor.id, dto, headers, 'CEO transfer')
-
-    const actorEmployee = await loadEmployeeWithSecurityContext(this.prisma, actor.id)
-
-    if (
-      actorEmployee.email.toLowerCase() === CEO_CANONICAL_EMAIL ||
-      actor.id === 'emp_ceo_01'
-    ) {
-      throw new ForbiddenException(
-        'CEO Identity Lock: The Chief Executive Officer account (noor@seu.edu.bd) is immutable and cannot be transferred or demoted.',
-      )
-    }
-
-    let canTransferCeo = false
-    if (this.authz && this.authz.getAuthzMode() !== 'legacy') {
-      canTransferCeo = (await this.authz.check(actor, 'governance:transfer_ceo')).allowed
-    } else {
-      canTransferCeo = isEmployeeCeo(actorEmployee)
-    }
-    if (!canTransferCeo) {
-      throw new ForbiddenException(
-        'Only the current verified system:root CEO holder can initiate CEO succession transfer',
-      )
-    }
-
-    const successor = await loadEmployeeWithSecurityContext(this.prisma, dto.newCeoEmployeeId)
-    if (successor.isSuspended) {
-      throw new BadRequestException('Cannot transfer CEO authority to a suspended account')
-    }
-
-    const fallbackSlug = (dto.demoteToRoleSlug || 'developer').toLowerCase()
-    if (fallbackSlug === 'ceo') {
-      throw new BadRequestException('Outgoing CEO must transition to a non-CEO standard role')
-    }
-
-    const result = await this.prisma.$transaction(async (tx) => {
-      const [ceoRole, fallbackRole, ceoPosition] = await Promise.all([
-        tx.role.findUnique({ where: { slug: 'ceo' } }),
-        tx.role.findUnique({ where: { slug: fallbackSlug } }),
-        tx.position.findFirst({ where: { roleCategory: 'ceo' } }),
-      ])
-
-      if (!ceoRole) throw new NotFoundException('System CEO role not found')
-      if (!fallbackRole) throw new NotFoundException(`Fallback role "${fallbackSlug}" not found`)
-
-      // 1. Revoke CEO EmployeeRole from acting CEO & attach standard fallback role
-      await tx.employeeRole.updateMany({
-        where: { employeeId: actor.id, roleId: ceoRole.id, isActive: true },
-        data: { isActive: false },
-      })
-
-      await tx.employeeRole.upsert({
-        where: { employeeId_roleId: { employeeId: actor.id, roleId: fallbackRole.id } },
-        update: { isActive: true, assignedById: actor.id, assignedAt: new Date(), expiresAt: null },
-        create: {
-          employeeId: actor.id,
-          roleId: fallbackRole.id,
-          assignedById: actor.id,
-          isActive: true,
-        },
-      })
-
-      // 2. Grant CEO EmployeeRole + GLOBAL UserRoleAssignment to successor
-      await tx.employeeRole.upsert({
-        where: { employeeId_roleId: { employeeId: successor.id, roleId: ceoRole.id } },
-        update: { isActive: true, assignedById: actor.id, assignedAt: new Date(), expiresAt: null },
-        create: {
-          employeeId: successor.id,
-          roleId: ceoRole.id,
-          assignedById: actor.id,
-          isActive: true,
-        },
-      })
-
-      await tx.userRoleAssignment.updateMany({
-        where: { employeeId: actor.id, roleId: ceoRole.id, isActive: true },
-        data: { isActive: false, revokedAt: new Date(), revokedById: actor.id },
-      })
-      await tx.userRoleAssignment.create({
-        data: {
-          employeeId: actor.id,
-          roleId: fallbackRole.id,
-          scope: 'SELF',
-          scopeIds: [],
-          assignedById: actor.id,
-          reason: 'Outgoing CEO fallback after succession transfer',
-          isActive: true,
-        },
-      })
-      await tx.userRoleAssignment.create({
-        data: {
-          employeeId: successor.id,
-          roleId: ceoRole.id,
-          scope: 'GLOBAL',
-          scopeIds: [],
-          assignedById: actor.id,
-          reason: dto.reason?.trim() || 'CEO succession transfer',
-          isActive: true,
-        },
-      })
-
-      // 3. Transfer active CEO PositionAssignment seat atomically (if defined)
-      if (ceoPosition) {
-        const now = new Date()
-        await tx.positionAssignment.updateMany({
-          where: { positionId: ceoPosition.id, isActive: true },
-          data: { isActive: false, endDate: now },
-        })
-        await tx.positionAssignment.create({
-          data: {
-            employeeId: successor.id,
-            positionId: ceoPosition.id,
-            startDate: now,
-            isActive: true,
-          },
-        })
-      }
-
-      // 4. High-severity Audit Log
-      await tx.auditLog.create({
-        data: {
-          ipAddress: getCurrentRequestIp(),
-          actorId: actor.id,
-          actorName: actorEmployee.name,
-          actorEmail: actorEmployee.email,
-          actorRole: 'CEO',
-          action: 'CEO_SUCCESSION_TRANSFERRED',
-          actionCode: 'GOVERNANCE_CEO_TRANSFER',
-          severity: 'CRITICAL',
-          entityType: 'user',
-          entityId: successor.id,
-          entityTitle: successor.name,
-          description: `${actorEmployee.name} transferred CEO executive authority to ${successor.name} and stepped down to ${fallbackRole.name}${dto.reason?.trim() ? ` — Reason: ${dto.reason.trim()}` : ''}`,
-          category: 'governance',
-          badgeColor: 'rose',
-          payload: {
-            previousCeoId: actor.id,
-            newCeoEmployeeId: successor.id,
-            outgoingRoleSlug: fallbackRole.slug,
-            reason: dto.reason?.trim() || null,
-          },
-        },
-      })
-
-      return {
-        transferred: true,
-        previousCeoId: actor.id,
-        previousCeoNewRole: fallbackRole.slug,
-        newCeoEmployeeId: successor.id,
-        newCeoName: successor.name,
-      }
-    })
-
-    await this.cache?.invalidateUsers([actor.id, successor.id])
-    return result
+    throw new ForbiddenException(
+      'CEO Identity Lock: The Chief Executive Officer account is immutable and cannot be transferred, demoted, or duplicated.',
+    )
   }
 
   async listAccessRequests(status?: string, targetEmployeeId?: string, actor?: AuthenticatedUser) {

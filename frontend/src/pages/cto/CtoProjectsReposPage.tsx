@@ -105,7 +105,7 @@ export function CtoProjectsReposPage() {
         repositoryUrl:
           newRepoUrl.trim() || `https://github.com/pointfex/${newCode.toLowerCase()}-core`,
         srsUrl:
-          newSrsUrl.trim() || `https://docs.pointfex.internal/srs/${newCode.toUpperCase()}-SRS.pdf`,
+          newSrsUrl.trim() || `/docs/srs/${newCode.toUpperCase()}-SRS.pdf`,
       })
       setIsCreateModalOpen(false)
       setNewName('')

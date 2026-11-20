@@ -19,7 +19,7 @@ export function ProjectDetailModal({ project, isOpen, onClose }: ProjectDetailMo
 
   const srs = project.srs || {
     documentTitle: `${project.code}-Software-Requirements-Specification.pdf`,
-    documentUrl: `https://docs.pointfex.internal/srs/${project.code}-SRS.pdf`,
+    documentUrl: `/docs/srs/${project.code}-SRS.pdf`,
     version: 'v1.0 (Draft)',
     lastUpdated: project.startDate || '2026-10-12',
     overview:

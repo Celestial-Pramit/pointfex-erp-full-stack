@@ -46,7 +46,6 @@ function MfaConfirmModalBody({
   const { showToast, refreshPermissions, currentUser } = useApp()
 
   const isCeo =
-    currentUser?.email === 'noor@seu.edu.bd' ||
     currentUser?.role === 'ceo' ||
     currentUser?.role === 'system:root' ||
     (currentUser as any)?.roles?.some(

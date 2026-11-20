@@ -5,7 +5,7 @@ import { PrismaService } from './prisma.service'
 
 export const C_LEVEL_ROLE_SLUGS = new Set(['ceo', 'cto', 'cfo', 'chro', 'cpo'])
 export const CORE_ROLE_SLUGS = new Set(['developer', 'pm', 'cto', 'cfo', 'chro', 'ceo'])
-export const CEO_CANONICAL_EMAIL = 'noor@seu.edu.bd'
+export const CEO_CANONICAL_EMAIL = process.env.CEO_EMAIL?.trim().toLowerCase() || ''
 
 export interface EmployeeSecurityContext {
   id: string
@@ -264,7 +264,7 @@ export function assertTargetNotCeoForDestructiveAction(
     targetEmployee.id === 'emp_ceo_01'
   ) {
     throw new ForbiddenException(
-      'Security law: The system:root CEO holder (noor@seu.edu.bd) cannot be removed, edited, demoted, delegated or suspended through the app.',
+      'Security law: The system:root CEO holder cannot be removed, edited, demoted, delegated or suspended through the app.',
     )
   }
 }
@@ -272,11 +272,11 @@ export function assertTargetNotCeoForDestructiveAction(
 export function assertTargetNotSupremeCeo(targetEmployee: EmployeeSecurityContext): void {
   if (
     isEmployeeCeo(targetEmployee) ||
-    targetEmployee.email?.toLowerCase() === CEO_CANONICAL_EMAIL ||
+    (CEO_CANONICAL_EMAIL && targetEmployee.email?.toLowerCase() === CEO_CANONICAL_EMAIL) ||
     targetEmployee.id === 'emp_ceo_01'
   ) {
     throw new ForbiddenException(
-      'The CEO account (noor@seu.edu.bd) holds absolute system authority and cannot be modified or stripped of capabilities.',
+      'The CEO account holds absolute system authority and cannot be modified or stripped of capabilities.',
     )
   }
 }

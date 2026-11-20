@@ -1,6 +1,4 @@
 import {
-  ArrayMaxSize,
-  IsArray,
   IsEmail,
   IsOptional,
   IsString,
@@ -35,23 +33,6 @@ export class CreateEmployeeDto {
   @IsString()
   @MaxLength(64)
   teamId?: string
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(64)
-  timezone?: string
-
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(30)
-  @IsString({ each: true })
-  @MaxLength(50, { each: true })
-  skills?: string[]
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(1000)
-  bio?: string
 
   @IsOptional()
   @IsString()

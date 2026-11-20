@@ -496,7 +496,7 @@ describe('KpiEngineService - Dual-Metric Governance & Mathematical Formulas', ()
 
   describe('11. Governance Overrides: CEO Supreme Authority (Strictly MFA-Only)', () => {
     it('should require 6-digit MFA code for CEO override and reject if missing or malformed', async () => {
-      const ceoActor: any = { id: 'emp_ceo_01', email: 'noor@seu.edu.bd', role: 'ceo' }
+      const ceoActor: any = { id: 'emp_ceo_01', email: 'ceo@company.test', role: 'ceo' }
 
       await expect(
         service.overrideRecord({
@@ -523,7 +523,7 @@ describe('KpiEngineService - Dual-Metric Governance & Mathematical Formulas', ()
       prisma.kpiXpAuditLog.findFirst.mockResolvedValue(null)
       prisma.kpiXpAuditLog.create.mockResolvedValue({ id: 'audit_ceo' })
 
-      const ceoActor: any = { id: 'emp_ceo_01', email: 'noor@seu.edu.bd', role: 'ceo' }
+      const ceoActor: any = { id: 'emp_ceo_01', email: 'ceo@company.test', role: 'ceo' }
       const res = await service.overrideRecord({
         targetEmployeeId: 'emp_dev_01',
         metricType: 'KPI',

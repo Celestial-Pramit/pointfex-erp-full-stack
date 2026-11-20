@@ -46,13 +46,6 @@ model Employee {
   inviteTokenUsedAt     DateTime?
   lastLoginAt           DateTime?
   lastLoginMethod       String?   // 'password' | 'google'
-  skills       String[]
-  timezone     String?  @default("UTC+6 (BST)")
-  github       String?
-  phone        String?
-  location     String?  @default("Dhaka, Bangladesh")
-  bio          String?
-  joinedSprint String?  @default("Sprint 1")
   lifetimeXp   Int      @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

@@ -41,6 +41,12 @@ export class EmployeeAccessService {
     assertNotSelfTarget(actor.id, employeeId, 'modify roles')
 
     const targetEmployee = await loadEmployeeWithSecurityContext(this.prisma, employeeId)
+    if (employeeId === 'emp_ceo_01' || isEmployeeCeo(targetEmployee)) {
+      throw new ForbiddenException(
+        'Security law: The Chief Executive Officer account holds immutable system authority and cannot be modified.',
+      )
+    }
+
     const actorEmployee = await assertHorizontalCLevelGuard(
       this.prisma,
       actor.id,
@@ -60,8 +66,8 @@ export class EmployeeAccessService {
     }
 
     if (role.isRootRole || role.slug === 'ceo') {
-      throw new BadRequestException(
-        'CEO role cannot be assigned directly. Use POST /api/governance/transfer-ceo for CEO succession.',
+      throw new ForbiddenException(
+        'Security law: The system:root CEO role cannot be assigned to another user.',
       )
     }
 
@@ -213,7 +219,7 @@ export class EmployeeAccessService {
       employeeId === 'emp_ceo_01'
     ) {
       throw new ForbiddenException(
-        'Security law: The Chief Executive Officer account (noor@seu.edu.bd) cannot be stripped of roles.',
+        'Security law: The Chief Executive Officer account cannot be stripped of roles.',
       )
     }
 
@@ -314,12 +320,15 @@ export class EmployeeAccessService {
     if (
       perm.isSystemRoot ||
       perm.code === 'system:root' ||
+      perm.code.startsWith('system:') ||
       perm.code === 'login_allowlist:manage' ||
+      perm.code === 'governance:appoint_executive' ||
+      perm.code === 'governance:emergency_override' ||
       perm.isCritical ||
       !perm.isDelegable
     ) {
       throw new ForbiddenException(
-        `Security law: Critical (⚠) or root permission "${perm.code}" cannot be delegated.`,
+        `Security law: Critical (⚠), system:root, or CEO-exclusive permission "${perm.code}" cannot be delegated.`,
       )
     }
 

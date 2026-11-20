@@ -310,6 +310,10 @@ export function Sidebar() {
                     </div>
                   </div>
                 </button>
+                <div className="mt-2 pt-2 border-t border-[var(--border)] flex items-center justify-between text-[11px] text-[var(--muted)] px-1">
+                  <span>Pointfex ERP <span className="text-[10px] opacity-75 font-normal">· Developed by ERP Team</span></span>
+                  <span className="font-mono font-medium">v4.0.0</span>
+                </div>
               </div>
             )}
           </div>

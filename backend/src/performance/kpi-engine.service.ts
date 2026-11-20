@@ -1280,7 +1280,6 @@ export class KpiEngineService {
     const isCeo = isEmployeeCeo(params.actor.email, params.actor.id) || rawRole === 'ceo'
     const isChro =
       rawRole === 'chro' ||
-      params.actor.email?.toLowerCase() === '2023200000066@seu.edu.bd' ||
       (params.actor as any).roles?.includes('chro')
     const isCLevel = isCeo || isChro || ['cto', 'cfo', 'cpo'].includes(rawRole)
     const isPm = rawRole === 'pm'
@@ -1557,12 +1556,11 @@ export class KpiEngineService {
     const isCeo = isEmployeeCeo(actor.email, actor.id) || rawRole === 'ceo'
     const isChro =
       rawRole === 'chro' ||
-      actor.email?.toLowerCase() === '2023200000066@seu.edu.bd' ||
       (actor as any).roles?.includes('chro')
 
     if (!isCeo && !isChro) {
       throw new ForbiddenException(
-        'Unauthorized: Only CHRO (2023200000066@seu.edu.bd) and CEO have authority to edit KPI/XP audit log records.',
+        'Unauthorized: Only CHRO and CEO have authority to edit KPI/XP audit log records.',
       )
     }
 

@@ -126,8 +126,8 @@ export function DynamicDashboardPage() {
 
   // Pointfex KPI & XP Governance Suite State
   const userRole = (currentUser?.role || '').toLowerCase()
-  const isCeo = userRole === 'ceo' || currentUser?.email === 'noor@seu.edu.bd'
-  const isChro = userRole === 'chro' || currentUser?.email === '2023200000066@seu.edu.bd'
+  const isCeo = userRole === 'ceo'
+  const isChro = userRole === 'chro'
   const isCLevel = isCeo || isChro || ['cto', 'cfo', 'cpo'].includes(userRole)
   const isPm = userRole === 'pm' || currentUser?.title?.toLowerCase().includes('project manager')
   const canOverride = isCeo || isChro || isCLevel || isPm

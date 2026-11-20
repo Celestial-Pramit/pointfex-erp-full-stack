@@ -6,7 +6,7 @@ import { Modal } from '../../components/common/Modal'
 import { usePmData } from '../../hooks/usePmData'
 import { useApp } from '../../context/AppContext'
 import type { DeveloperWorkload } from '../../types'
-import { Mail, Globe, ArrowRightLeft, CheckCircle2, Clock } from 'lucide-react'
+import { Mail, ArrowRightLeft, CheckCircle2, Clock } from 'lucide-react'
 
 export function PmTeamManagementPage() {
   const { team, developerWorkloads, teamMembers } = usePmData()
@@ -90,11 +90,6 @@ export function PmTeamManagementPage() {
                   <span className="flex items-center gap-1.5 truncate">
                     <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" /> {member.email}
                   </span>
-                  {member.timezone && (
-                    <span className="flex items-center gap-1.5 shrink-0">
-                      <Globe className="w-3.5 h-3.5 text-slate-400" /> {member.timezone}
-                    </span>
-                  )}
                 </div>
 
                 {/* Workload Stats & Reassign Action */}

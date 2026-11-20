@@ -288,11 +288,12 @@ export class AuthService {
     const fallbackCategory = employee.positionAssignments[0]?.position.roleCategory
     let primaryRole = resolveCanonicalRoleSlug(activeSlugs, fallbackCategory)
 
-    if (employee.email.trim().toLowerCase() === CEO_CANONICAL_EMAIL) {
+    const ceoEnvId = process.env.CEO_EMPLOYEE_ID?.trim() || 'emp_ceo_01'
+    if (CEO_CANONICAL_EMAIL && employee.email.trim().toLowerCase() === CEO_CANONICAL_EMAIL) {
       primaryRole = 'ceo'
-    } else if (primaryRole === 'ceo' && employee.id !== 'emp_ceo') {
+    } else if (primaryRole === 'ceo' && employee.id !== ceoEnvId && employee.id !== 'emp_ceo' && employee.id !== 'emp_ceo_01') {
       throw new ForbiddenException(
-        'CEO authentication lock: Only noor@seu.edu.bd is authorized as Chief Executive Officer.',
+        'CEO authentication lock: Unauthorized Chief Executive Officer credentials.',
       )
     }
 
@@ -700,9 +701,6 @@ export class AuthService {
         mustChangePassword: true,
         mustEnrollMfa: true,
         mfaEnabled: true,
-        timezone: true,
-        skills: true,
-        bio: true,
         employeeRoles: {
           where: { isActive: true, role: { isActive: true } },
           select: {
@@ -751,9 +749,6 @@ export class AuthService {
       mustChangePassword: employee.mustChangePassword,
       mustEnrollMfa: employee.mustEnrollMfa && !employee.mfaEnabled,
       mfaEnabled: employee.mfaEnabled,
-      timezone: employee.timezone,
-      skills: employee.skills,
-      bio: employee.bio,
       role: primaryRole,
       roles: employee.employeeRoles.map((er) => er.role),
       permissions: effectivePermissions,
@@ -833,8 +828,12 @@ export class AuthService {
       }
     }
 
+    const fullEmpForToken = await this.prisma.employee.findUnique({
+      where: { id: employee.id },
+      select: { authVersion: true },
+    })
     const token = this.jwtService.sign(
-      { sub: employee.id, purpose: 'password_reset' },
+      { sub: employee.id, purpose: 'password_reset', authVersion: fullEmpForToken?.authVersion ?? 1 },
       { expiresIn: '15m' },
     )
     const mailResult = await this.mailService?.sendPasswordResetLink({
@@ -977,7 +976,7 @@ export class AuthService {
       return { reset: true, activated: true, inviteUsedAt: usedAt.toISOString() }
     }
 
-    let payload: { sub?: string; purpose?: string }
+    let payload: { sub?: string; purpose?: string; authVersion?: number }
     try {
       payload = this.jwtService.verify(rawToken)
     } catch {
@@ -989,10 +988,13 @@ export class AuthService {
 
     const employee = await this.prisma.employee.findUnique({
       where: { id: payload.sub },
-      select: { id: true, name: true, email: true, isSuspended: true, mfaEnabled: true },
+      select: { id: true, name: true, email: true, isSuspended: true, mfaEnabled: true, authVersion: true },
     })
     if (!employee || employee.isSuspended) {
       throw new ForbiddenException('Account unavailable.')
+    }
+    if (payload.authVersion !== undefined && payload.authVersion !== employee.authVersion) {
+      throw new UnauthorizedException('This setup or reset link is invalid, already used, or expired.')
     }
 
     if (employee.mfaEnabled && this.freshMfa) {
@@ -1121,7 +1123,7 @@ export class AuthService {
   }
 
   private getFrontendUrl(): string {
-    return (this.configService?.get<string>('FRONTEND_URL') || 'http://localhost:5173').replace(
+    return (this.configService?.get<string>('FRONTEND_URL') || 'http://localhost:5174').replace(
       /\/+$/,
       '',
     )
@@ -1167,7 +1169,7 @@ export class AuthService {
     const frontendLogin = `${this.getFrontendUrl()}/login`
     const failRedirect = (errorCode: string, message: string) =>
       response.redirect(
-        `${frontendLogin}?oauthErrorCode=${encodeURIComponent(errorCode)}&oauthError=${encodeURIComponent(message)}`,
+        `${frontendLogin}?error=${encodeURIComponent(errorCode)}&oauthErrorCode=${encodeURIComponent(errorCode)}&oauthError=${encodeURIComponent(message)}`,
       )
 
     if (params.oauthError) {

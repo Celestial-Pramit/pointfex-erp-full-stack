@@ -107,23 +107,23 @@ export function useExecutiveData(): ExecutiveData {
   return useMemo(() => {
     // 1. Current Executive User
     const execUser: User = currentUser || {
-      id: 'user_ceo_01',
-      name: 'Victoria Sterling-Fox',
-      email: 'victoria.fox@pointfex.internal',
+      id: '',
+      name: 'Executive',
+      email: '',
       role: currentRole || 'ceo',
-      title: 'Chief Executive Officer',
-      initials: 'VF',
+      title: 'Executive',
+      initials: 'EX',
       status: 'online',
     }
 
     // 2. Executive Wallet & Personal Transactions
-    const executiveWallet: Wallet = resolvers.getDeveloperWallet(execUser.id) || {
-      userId: execUser.id,
-      balance: 15000,
+    const executiveWallet: Wallet = (execUser.id ? resolvers.getDeveloperWallet(execUser.id) : null) || {
+      userId: execUser.id || '',
+      balance: 0,
       currency: 'BDT',
       currencySymbol: '৳',
-      pendingEscrow: 2500,
-      totalEarnedToDate: 45000,
+      pendingEscrow: 0,
+      totalEarnedToDate: 0,
     }
     const executiveTransactions = data.transactions.filter((tx) => tx.userId === execUser.id)
 

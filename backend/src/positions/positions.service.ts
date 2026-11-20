@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../common/prisma.service'
 import { AssignPositionDto } from './dto/assign-position.dto'
 
@@ -51,6 +51,20 @@ export class PositionsService {
     })
     if (!employee) {
       throw new NotFoundException(`Employee "${dto.employeeId}" not found`)
+    }
+
+    if (position.id === 'pos_ceo' || position.roleCategory?.toLowerCase() === 'ceo') {
+      if (dto.employeeId !== 'emp_ceo_01') {
+        throw new ForbiddenException(
+          'Security law: The Chief Executive Officer position (pos_ceo) is immutable and cannot be assigned to another user.',
+        )
+      }
+    }
+
+    if (dto.employeeId === 'emp_ceo_01' && position.id !== 'pos_ceo') {
+      throw new ForbiddenException(
+        'Security law: The Chief Executive Officer cannot be reassigned to a non-CEO position.',
+      )
     }
 
     const previousAssignments = await this.prisma.positionAssignment.findMany({
@@ -124,6 +138,15 @@ export class PositionsService {
 
     if (active.length === 0) {
       throw new NotFoundException(`No active position assignment found for "${employeeId}"`)
+    }
+
+    if (
+      employeeId === 'emp_ceo_01' ||
+      active.some((a) => a.positionId === 'pos_ceo' || a.position?.code === 'CEO')
+    ) {
+      throw new ForbiddenException(
+        'Security law: The Chief Executive Officer position (pos_ceo) cannot be stripped from the system:root account.',
+      )
     }
 
     const now = new Date()

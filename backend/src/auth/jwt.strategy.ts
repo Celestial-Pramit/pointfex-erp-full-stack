@@ -108,11 +108,12 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     const fallbackCategory = employee.positionAssignments[0]?.position.roleCategory
     let resolvedRole = resolveCanonicalRoleSlug(activeSlugs, fallbackCategory)
 
-    if (employee.email.trim().toLowerCase() === CEO_CANONICAL_EMAIL) {
+    const ceoEnvId = process.env.CEO_EMPLOYEE_ID?.trim() || 'emp_ceo_01'
+    if (CEO_CANONICAL_EMAIL && employee.email.trim().toLowerCase() === CEO_CANONICAL_EMAIL) {
       resolvedRole = 'ceo'
-    } else if (resolvedRole === 'ceo' && employee.id !== 'emp_ceo') {
+    } else if (resolvedRole === 'ceo' && employee.id !== ceoEnvId && employee.id !== 'emp_ceo' && employee.id !== 'emp_ceo_01') {
       throw new ForbiddenException(
-        'CEO authentication lock: Only noor@seu.edu.bd is authorized as Chief Executive Officer.',
+        'CEO authentication lock: Unauthorized Chief Executive Officer credentials.',
       )
     }
 

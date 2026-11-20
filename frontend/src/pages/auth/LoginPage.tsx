@@ -11,7 +11,7 @@ import {
   Mail,
 } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
-import { ApiError, erpApi } from '../../api/client'
+import { API_BASE, ApiError, erpApi } from '../../api/client'
 import { AuthShell } from '../../components/auth/AuthShell'
 
 function mapFriendlyAuthError(rawMessage?: string, oauthErrorCode?: string | null): string {
@@ -86,8 +86,8 @@ export function LoginPage() {
   const [infoMsg, setInfoMsg] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(() => {
     const params = new URLSearchParams(window.location.search)
-    const code = params.get('oauthErrorCode')
-    const raw = params.get('oauthError')
+    const code = params.get('error') || params.get('oauthErrorCode')
+    const raw = params.get('error_description') || params.get('oauthError')
     return code || raw ? mapFriendlyAuthError(raw || undefined, code) : null
   })
 
@@ -127,10 +127,11 @@ export function LoginPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    const oauthErrorCode = params.get('oauthErrorCode')
-    const oauthError = params.get('oauthError')
+    const oauthErrorCode = params.get('error') || params.get('oauthErrorCode')
+    const oauthError = params.get('error_description') || params.get('oauthError')
     const oauthCode = params.get('oauthCode')
     if (oauthErrorCode || oauthError) {
+      setErrorMsg(mapFriendlyAuthError(oauthError || undefined, oauthErrorCode))
       window.history.replaceState(null, '', '/login')
       return
     }
@@ -222,7 +223,11 @@ export function LoginPage() {
   const handleGoogleSignIn = () => {
     setErrorMsg(null)
     setIsSubmitting(true)
-    window.location.assign(`${window.location.origin}/api/auth/google`)
+    const targetUrl =
+      API_BASE.startsWith('http://') || API_BASE.startsWith('https://')
+        ? `${API_BASE}/auth/google`
+        : `${window.location.origin}${API_BASE}/auth/google`
+    window.location.assign(targetUrl)
   }
 
   const handleResetSubmit = async (e: React.FormEvent) => {
@@ -566,8 +571,8 @@ export function LoginPage() {
         </div>
       )}
       <div className="mt-6 pt-4 border-t border-[var(--border)] flex items-center justify-between text-[11px] text-[var(--muted)]">
-        <span>Pointfex ERP</span>
-        <span className="font-mono">v3.13.0</span>
+        <span>Pointfex ERP <span className="opacity-75 font-normal">· Developed by ERP Team</span></span>
+        <span className="font-mono font-medium">v4.0.0</span>
       </div>
     </AuthShell>
   )

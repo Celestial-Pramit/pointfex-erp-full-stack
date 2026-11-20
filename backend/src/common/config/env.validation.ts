@@ -61,7 +61,9 @@ export const envValidationSchema = Joi.object({
   SMTP_USER: Joi.string().allow('').optional(),
   SMTP_PASS: Joi.string().allow('').optional(),
   MAIL_FROM: Joi.string().allow('').optional(),
-  FRONTEND_URL: Joi.string().uri().allow('').optional(),
+  FRONTEND_URL: Joi.string().uri().required().messages({
+    'any.required': 'FRONTEND_URL is required.',
+  }),
   GOOGLE_CLIENT_ID: Joi.string().allow('').optional(),
   GOOGLE_CLIENT_SECRET: Joi.string().allow('').optional(),
   GOOGLE_REDIRECT_URI: Joi.string().uri().allow('').optional(),

@@ -32,11 +32,7 @@ function formatDhakaDateTime(iso?: string | null): string {
 }
 
 export function MyAccountPage() {
-  const { currentUser, showToast, updateUser, refreshData, logout } = useApp()
-
-  const [bio, setBio] = useState(currentUser?.bio || '')
-  const [timezone, setTimezone] = useState(currentUser?.timezone || 'Asia/Dhaka (UTC+6)')
-  const [savingProfile, setSavingProfile] = useState(false)
+  const { currentUser, showToast, refreshData, logout } = useApp()
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -88,21 +84,6 @@ export function MyAccountPage() {
       cancelled = true
     }
   }, [])
-
-  const handleSaveProfile = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!currentUser) return
-    setSavingProfile(true)
-    try {
-      updateUser(currentUser.id, { bio, timezone })
-      await erpApi.updateEmployee(currentUser.id, { bio, timezone })
-      showToast('Profile preferences saved.', 'success')
-    } catch (err: any) {
-      showToast(err?.message || 'Unable to save profile.', 'error')
-    } finally {
-      setSavingProfile(false)
-    }
-  }
 
   const pwdStrength = useMemo(
     () =>
@@ -200,52 +181,26 @@ export function MyAccountPage() {
           </h2>
           <Badge variant="neutral">{currentUser?.title || 'Team Member'}</Badge>
         </div>
-        <form onSubmit={handleSaveProfile} className="space-y-3 text-xs">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Name</label>
-              <input
-                type="text"
-                disabled
-                value={currentUser?.name || ''}
-                className="w-full px-3 py-2 rounded-lg bg-[var(--bg)] border border-[var(--border)] text-[var(--muted)]"
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Email</label>
-              <input
-                type="email"
-                disabled
-                value={currentUser?.email || ''}
-                className="w-full px-3 py-2 rounded-lg bg-[var(--bg)] border border-[var(--border)] text-[var(--muted)]"
-              />
-            </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          <div>
+            <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Name</label>
+            <input
+              type="text"
+              disabled
+              value={currentUser?.name || ''}
+              className="w-full px-3 py-2 rounded-lg bg-[var(--bg)] border border-[var(--border)] text-[var(--muted)]"
+            />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Timezone</label>
-              <input
-                type="text"
-                value={timezone}
-                onChange={(e) => setTimezone(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--text)]"
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Bio</label>
-              <input
-                type="text"
-                value={bio}
-                onChange={(e) => setBio(e.target.value)}
-                placeholder="Short role summary"
-                className="w-full px-3 py-2 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--text)]"
-              />
-            </div>
+          <div>
+            <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Email</label>
+            <input
+              type="email"
+              disabled
+              value={currentUser?.email || ''}
+              className="w-full px-3 py-2 rounded-lg bg-[var(--bg)] border border-[var(--border)] text-[var(--muted)]"
+            />
           </div>
-          <Button type="submit" size="sm" variant="primary" disabled={savingProfile}>
-            {savingProfile ? 'Saving...' : 'Save profile'}
-          </Button>
-        </form>
+        </div>
       </Card>
 
 
@@ -513,6 +468,11 @@ export function MyAccountPage() {
           severity="danger"
         />
       )}
+
+      <div className="pt-4 border-t border-[var(--border)] flex items-center justify-between text-xs text-[var(--muted)]">
+        <span>Pointfex ERP Enterprise Platform <span className="opacity-75 font-normal">· Developed by ERP Team</span></span>
+        <span className="font-mono font-medium">v4.0.0</span>
+      </div>
     </div>
   )
 }

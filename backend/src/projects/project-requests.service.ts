@@ -308,7 +308,7 @@ export class ProjectRequestsService {
       await this.auditLogger.log({
         actorId: actor.id,
         actorName: actor.name || 'Chief Executive Officer',
-        actorEmail: actor.email || 'ceo@pointfex.com',
+        actorEmail: actor.email || '',
         actorRole: 'CEO',
         action: `PROJECT_REQUEST_CEO_${decision}`,
         actionCode: 'CEO_DIRECT_DECISION',
