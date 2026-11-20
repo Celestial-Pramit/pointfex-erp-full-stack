@@ -47,8 +47,10 @@ export class ReportsService {
     if (filters.teamId) where.teamId = filters.teamId
 
     if (!canReadConf) {
-      where.isConfidential = false
-      where.confidentialTo = null
+      where.OR = [
+        { isConfidential: false, confidentialTo: null },
+        { authorId: actor.id },
+      ]
     } else if (filters.isConfidential !== undefined) {
       where.isConfidential = filters.isConfidential
     }
@@ -125,7 +127,7 @@ export class ReportsService {
           ipAddress: getCurrentRequestIp(),
           actorId: actor.id,
           actorName: actor.id,
-          actorEmail: `${actor.id}@pointfex.internal`,
+          actorEmail: actor.email || '',
           actorRole: actor.role.toUpperCase(),
           action: dto.isConfidential ? 'CONFIDENTIAL_GRIEVANCE_SUBMITTED' : 'REPORT_SUBMITTED',
           actionCode: dto.isConfidential ? 'HR_CONFIDENTIAL_GRIEVANCE_LOGGED' : 'REPORT_LOGGED',
@@ -164,7 +166,7 @@ export class ReportsService {
           ipAddress: getCurrentRequestIp(),
           actorId: actor.id,
           actorName: actor.id,
-          actorEmail: `${actor.id}@pointfex.internal`,
+          actorEmail: actor.email || '',
           actorRole: actor.role.toUpperCase(),
           action: 'REPORT_STATUS_UPDATED',
           actionCode: 'REPORT_STATUS_UPDATED',
@@ -203,7 +205,7 @@ export class ReportsService {
           ipAddress: getCurrentRequestIp(),
           actorId: actor.id,
           actorName: actor.id,
-          actorEmail: `${actor.id}@pointfex.internal`,
+          actorEmail: actor.email || '',
           actorRole: actor.role.toUpperCase(),
           action: 'REPORT_FORWARDED_TO_C_LEVEL',
           actionCode: 'REPORT_FORWARDED',
@@ -262,7 +264,7 @@ export class ReportsService {
           ipAddress: getCurrentRequestIp(),
           actorId: actor.id,
           actorName: actor.id,
-          actorEmail: `${actor.id}@pointfex.internal`,
+          actorEmail: actor.email || '',
           actorRole: actor.role.toUpperCase(),
           action: 'CONFIDENTIAL_GRIEVANCE_ADJUDICATED',
           actionCode: 'HR_CONFIDENTIAL_GRIEVANCE_UPDATED',

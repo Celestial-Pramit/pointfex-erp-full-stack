@@ -2,7 +2,7 @@ import { Card } from '../../components/common/Card'
 import { Badge } from '../../components/common/Badge'
 import { useDeveloperData } from '../../hooks/useDeveloperData'
 import { useApp } from '../../context/AppContext'
-import { Mail, Globe, Shield } from 'lucide-react'
+import { Mail, Shield } from 'lucide-react'
 
 export function DeveloperTeamPage() {
   const { team, teamMembers, pm } = useDeveloperData()
@@ -78,12 +78,6 @@ export function DeveloperTeamPage() {
                     <Mail className="w-3 h-3 text-slate-400" />
                     <span className="truncate">{member.email}</span>
                   </div>
-                  {member.timezone && (
-                    <div className="flex items-center gap-1 shrink-0">
-                      <Globe className="w-3 h-3 text-slate-400" />
-                      <span>{member.timezone}</span>
-                    </div>
-                  )}
                 </div>
               </div>
             </Card>

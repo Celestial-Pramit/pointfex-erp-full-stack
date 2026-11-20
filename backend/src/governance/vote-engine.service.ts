@@ -321,7 +321,7 @@ export class VoteEngineService {
     await this.auditLogger.log({
       actorId: decidedById || 'SYSTEM',
       actorName: decidedById ? 'Chief Executive Officer' : 'Vote Engine',
-      actorEmail: decidedById ? 'ceo@pointfex.com' : 'system@pointfex.com',
+      actorEmail: '',
       actorRole: 'GOVERNANCE',
       action: `PROJECT_REQUEST_${status}`,
       actionCode: `PROJECT_REQ_${status}`,

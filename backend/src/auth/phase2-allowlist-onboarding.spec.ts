@@ -36,7 +36,10 @@ describe('Phase 2: CEO-only Allowlist, Delegation Block & Allowlist-Driven Onboa
             positionAssignments: [],
           }
         }),
-        findFirst: jest.fn(async () => ({ id: 'emp_alex' })),
+        findFirst: jest.fn(async () => ({
+          id: 'emp_ceo',
+          email: 'ceo@pointfex.internal',
+        })),
         update: jest.fn(async () => ({})),
         findMany: jest.fn(async () => [{ email: 'ceo@pointfex.internal' }]),
       },
@@ -449,4 +452,3 @@ describe('Phase 2: CEO-only Allowlist, Delegation Block & Allowlist-Driven Onboa
     expect(jwt.signAsync).toHaveBeenCalledWith(expect.objectContaining({ authVersion: 2 }))
   })
 })
-

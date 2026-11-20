@@ -39,7 +39,7 @@ export function CtoReportsPage() {
   >('submit_c_level')
 
   // Submit Complain to C-Level Form State
-  const [complainTo, setComplainTo] = useState('CEO — Victoria Sterling-Fox')
+  const [complainTo, setComplainTo] = useState('Chief Executive Officer')
   const [complainTitle, setComplainTitle] = useState('')
   const [complainDesc, setComplainDesc] = useState('')
 
@@ -88,11 +88,11 @@ export function CtoReportsPage() {
 
     const newComplaint: Report = {
       id: `report_${currentRole || 'cto'}_${Date.now()}`,
-      userId: currentUser?.id || 'user_cto_01',
+      userId: currentUser?.id || '',
       date: new Date().toISOString(),
       submittedAt: new Date().toISOString(),
-      authorId: currentUser?.id || 'user_cto_01',
-      authorName: currentUser?.name || 'Dr. Arthur Sterling',
+      authorId: currentUser?.id || '',
+      authorName: currentUser?.name || 'Chief Technology Officer',
       authorRole: currentRole || 'cto',
       targetUserName: complainTo,
       type: 'complaint',

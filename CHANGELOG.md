@@ -1,6 +1,6 @@
 # Changelog
 
-## 4.0.0 (Production Release — November 2026)
+## 4.0.0 (Production Release — November 2026) · Developed by ERP Team
 
 ### Frontend Governance & View Synchronization
 - **Strict Permission-View Sync (`nav-registry.ts`, `App.tsx`)**:
@@ -15,9 +15,10 @@
 - **Universal Company Leaderboard Access (`chro-governance.controller.ts`, `LeaderboardPage.tsx`)**:
   - Expanded permissions on `GET /api/performance/leaderboard` to `@RequireAnyPermission('leaderboards:read', 'tasks:read_own', 'tasks:read_squad', 'tasks:read_team', 'performance:read_all', 'profile:read')`, allowing every active employee to view standings.
   - Replaced error/`N/A` displays with clean `0.00` and `0 XP` metrics for new or inactive staff.
-- **Enterprise Staff Roster & Real Data Filtering**:
-  - Purged 33 dummy `@pointfex.internal` accounts from active operations (`isSuspended: true`).
-  - Enforced strict institutional domain filtering (`@seu.edu.bd`) across employee directories, team rosters, and leaderboards.
+- **Enterprise Staff Roster & Clean Data Architecture**:
+  - Purged all legacy dummy `@pointfex.internal` demo accounts, mock profiles, and unneeded profile columns from the database.
+  - Bootstrapped exactly 1 verified CEO account with full MFA support and immutable `system:root` protection.
+  - Enforced strict institutional domain filtering across employee directories, team rosters, and leaderboards.
 - **CEO Role Creation MFA Alignment (`FreshMfaService`, `client.ts`)**:
   - Resolved MFA target mismatch (`code is bound to "new", not "global"`) by establishing target equivalence for new entity creation in `FreshMfaService` and setting `X-MFA-Target: global` in `client.ts`.
 - **Design System, UX & Robustness (Stages A–C)**:

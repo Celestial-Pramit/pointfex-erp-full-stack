@@ -58,13 +58,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [currentDevId, setCurrentDevId] = useState<string>(() => {
     const stored = localStorage.getItem('pointfex_dev_id')
     if (stored && !stored.startsWith('user_')) return stored
-    return 'emp_dev_01'
+    return ''
   })
 
   const [currentPmId, setCurrentPmId] = useState<string>(() => {
     const stored = localStorage.getItem('pointfex_pm_id')
     if (stored && !stored.startsWith('user_')) return stored
-    return 'emp_pm_01'
+    return ''
   })
 
   const [currentRoute, setCurrentRouteState] = useState<string>(() => {
@@ -562,7 +562,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         avatar: authUser.avatarUrl || '',
         status: (authUser.status || 'online') as User['status'],
         isSuspended: Boolean(authUser.isSuspended),
-        skills: [],
         activeRoleSlugs: (authUser.roles || []).map((r: any) => r.slug),
       }
     }
@@ -858,12 +857,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         payload.avatarUrl = updatedFields.avatarUrl || updatedFields.avatar
       }
       if (updatedFields.status !== undefined) payload.status = updatedFields.status
-      if (updatedFields.skills !== undefined) payload.skills = updatedFields.skills
-      if (updatedFields.timezone !== undefined) payload.timezone = updatedFields.timezone
-      if (updatedFields.github !== undefined) payload.github = updatedFields.github
-      if (updatedFields.phone !== undefined) payload.phone = updatedFields.phone
-      if (updatedFields.location !== undefined) payload.location = updatedFields.location
-      if (updatedFields.bio !== undefined) payload.bio = updatedFields.bio
 
       void runApiMutation(
         () => erpApi.updateEmployee(targetId, payload),
@@ -1211,9 +1204,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           erpApi.updateEmployee(currentPmId, {
             name: updatedFields.name,
             title: updatedFields.title,
-            skills: updatedFields.skills,
-            bio: updatedFields.bio,
-            timezone: updatedFields.timezone,
             avatarUrl: updatedFields.avatarUrl || updatedFields.avatar,
           }),
         'PM profile updated successfully',
@@ -1240,12 +1230,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       initialStatus?: string
       initialScore?: number
     }): Task => {
-      const creatorId = currentUser?.id || 'emp_cto_01'
+      const creatorId = currentUser?.id || ''
       const assigneeId = taskData.assigneeId || taskData.pmId || ''
       const isCompletedDirectly = taskData.initialStatus === 'completed'
       const initialScore = taskData.initialScore !== undefined ? Number(taskData.initialScore) : 85
       const weightPts = Number(taskData.weightPoints || 2)
-
       const newTask: Task = {
         id: `task_cto_${Date.now()}`,
         title: taskData.title,
@@ -1336,8 +1325,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       tags?: string[]
       projectId?: string
     }): Task => {
-      const actorId = currentUser?.id || 'emp_cto_01'
-      const projId = taskData.projectId || data.projects[0]?.id || 'proj_01'
+      const actorId = currentUser?.id || ''
+      const projId = taskData.projectId || data.projects[0]?.id || ''
       const newTask: Task = {
         id: `task_${currentRole}_${Date.now()}`,
         title: taskData.title,
@@ -1396,8 +1385,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         id: newId,
         name: projectData.name,
         code: projectData.code,
-        teamId: projectData.teamId || 'team_01',
-        pmId: 'emp_pm_01',
+        teamId: projectData.teamId || '',
+        pmId: currentUser?.id || '',
         progress: 0,
         health: 'on_track',
         totalWeeks: 5,
@@ -1478,8 +1467,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (updates.name !== undefined) empUpdates.name = updates.name
         if (updates.title !== undefined) empUpdates.title = updates.title
         if (updates.status !== undefined) empUpdates.status = updates.status
-        if (updates.skills !== undefined) empUpdates.skills = updates.skills
-        if (updates.bio !== undefined) empUpdates.bio = updates.bio
         if (Object.keys(empUpdates).length > 0) {
           await erpApi.updateEmployee(userId, empUpdates)
         }
@@ -1729,15 +1716,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const handleUpdateCtoProfile = useCallback(
     (updatedFields: Partial<User>) => {
       const ctoUser = data.users.find((u) => u.role === 'cto')
-      const ctoId = ctoUser?.id || 'emp_cto_01'
+      const ctoId = ctoUser?.id || currentUser?.id || ''
       void runApiMutation(
         () =>
           erpApi.updateEmployee(ctoId, {
             name: updatedFields.name,
             title: updatedFields.title,
-            skills: updatedFields.skills,
-            bio: updatedFields.bio,
-            timezone: updatedFields.timezone,
             avatarUrl: updatedFields.avatarUrl || updatedFields.avatar,
           }),
         'CTO profile updated successfully',
@@ -1919,9 +1903,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           erpApi.updateEmployee(target.id, {
             name: updatedFields.name,
             title: updatedFields.title,
-            skills: updatedFields.skills,
-            bio: updatedFields.bio,
-            timezone: updatedFields.timezone,
             avatarUrl: updatedFields.avatarUrl || updatedFields.avatar,
           }),
         'Executive profile updated successfully',
@@ -1956,8 +1937,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         priority: directive.priority || 'urgent',
         assigneeId: targetUserId,
         assignedTo: targetUserId,
-        creatorId: currentUser?.id || 'emp_ceo_01',
-        projectId: directive.projectId || data.projects[0]?.id || 'proj_01',
+        creatorId: currentUser?.id || '',
+        projectId: directive.projectId || data.projects[0]?.id || '',
         dueDate: directive.dueDate || '2026-11-30',
         tags: directive.tags || ['Executive Directive', directive.assigneeRole.toUpperCase()],
         estimatedHours: 24,

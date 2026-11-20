@@ -98,13 +98,6 @@ export function mapBackendBundleToSeedData(
             createdAt: pendingReq.createdAt,
           }
         : null,
-      skills: emp.skills || [],
-      timezone: emp.timezone || 'UTC+6 (BST)',
-      github: emp.github || undefined,
-      joinedSprint: emp.joinedSprint || 'Sprint 1',
-      bio: emp.bio || undefined,
-      phone: emp.phone || undefined,
-      location: emp.location || undefined,
     }
   })
 

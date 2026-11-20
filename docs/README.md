@@ -1,6 +1,7 @@
 # Pointfex ERP Documentation Portal
 
 > **Release Version**: `4.0.0` (Production Ready)  
+> **Engineering**: Developed by ERP Team  
 > **Target Deployment**: Vercel (Frontend & Serverless API) + Neon PostgreSQL (Database)  
 > **Core Architecture**: NestJS (TypeScript) + React 19 (Vite + Tailwind) + Prisma ORM  
 
@@ -37,9 +38,9 @@ Pointfex utilizes Permission-Based Access Control (PBAC) with scope resolution, 
 ## 🏛️ Core Governance Invariants
 
 Every change made to this repository must honor the following invariants:
-1. **CEO Sovereignty & Immutable Anchor**: The CEO (`noor@seu.edu.bd`, `emp_ceo_01`) holds permanent `system:root` authority and cannot be suspended, demoted, or deleted via software.
+1. **CEO Sovereignty & Immutable Anchor**: The CEO account holds permanent `system:root` authority and cannot be suspended, demoted, or deleted via software.
 2. **Append-Only Immutability**: The KPI ledger, XP events, and audit logs are append-only. Rows are never mutated or deleted; adjustments and reversals are handled via compensatory entries.
 3. **MFA Guarded Sensitive Actions**: Critical operations (financial transfers, disciplinary deductions, consensus voting, role modifications) strictly enforce 6-digit TOTP verification via `FreshMfaGuard`.
-4. **Institutional Integrity**: All real employee accounts are restricted to the institutional domain (`@seu.edu.bd`). Dummy seed accounts (`@pointfex.internal`) remain suspended from active business operations.
+4. **Institutional Integrity**: All employee accounts belong to verified institutional staff. The production database is completely free of synthetic/demo accounts and hardcoded mock profiles.
 5. **Universal Transparency**: The public leaderboard is accessible to all verified employees with sensitive financial fields stripped, normalizing unrecorded states to `0.00` and `0 XP`.
 

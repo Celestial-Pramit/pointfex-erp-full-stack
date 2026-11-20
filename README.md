@@ -1,5 +1,8 @@
 # Pointfex ERP (`v4.0.0`)
 
+> **Pointfex ERP v4.0.0** — High-Assurance Enterprise Resource Planning & Performance Governance  
+> *Developed by ERP Team*
+
 Production-grade, Zero-Trust Enterprise Resource Planning (ERP) platform built with **NestJS + TypeScript + Prisma + PostgreSQL (Neon)** and **React 19 + TypeScript + Vite + Tailwind CSS**.
 
 Engineered for strict organizational governance, server-enforced role tiers, executive voting consensus, maker-checker segregation of duties (SoD), time-boxed authority delegations, tamper-evident audit logging, hierarchical KPI & XP gamification suite, and resilient serverless deployment on Vercel.
@@ -96,9 +99,10 @@ Engineered for strict organizational governance, server-enforced role tiers, exe
   - Scoped `access-control` strictly to CEO and root administrators (`roles:read`, `roles:create`, `system:root`).
   - Non-root users (including CHRO) cannot access or trigger errors from the CEO Role Capability Matrix.
   - CEO Role Creator MFA aligned with target equivalence (`'new'` and `'global'`) for smooth entity generation.
-- **Real Institutional Staff Roster (`@seu.edu.bd`):**
-  - 33 legacy dummy `@pointfex.internal` accounts suspended (`isSuspended: true`).
-  - Strict institutional domain filtering enforces that only real verified university staff accounts are loaded across directories, squads, and leaderboards.
+- **Lean Production Architecture & Clean Database:**
+  - Zero synthetic accounts or dummy demo data exist in the database.
+  - Exactly one initial CEO account is bootstrapped via one-time CLI variables (`CEO_EMAIL`, `CEO_INITIAL_PASSWORD`), which are deleted from `.env` once initial setup is finished.
+  - Institutional domain filtering enforces that only real verified university staff accounts can be invited and logged into the system.
 
 ### C. Role Authority Tiers & Server-Enforced Ceiling
 - **Four Standard Tiers:** `CEO` (implicit for `system:root`), `EXECUTIVE` (C-level: CTO, CFO, CHRO, COO, CPO, CRO), `MANAGER` (PM, Squad Lead), and `STAFF` (Developers, Designers, Operations).
@@ -108,7 +112,7 @@ Engineered for strict organizational governance, server-enforced role tiers, exe
   - Executives can only submit requests for `MANAGER` and `STAFF` users, routing directly to the CEO.
 
 ### D. Fixed CEO & Zero-Trust Governance
-- **Immutable CEO Anchor:** Exactly one active holder of `system:root` matching `CEO_EMAIL` (`noor@seu.edu.bd`), verified at startup. The `system:root` user cannot be deleted, suspended, demoted, or edited via application endpoints.
+- **Immutable CEO Anchor:** Exactly one active holder of `system:root` exists as the CEO account (`emp_ceo_01`). The `system:root` user cannot be deleted, suspended, demoted, modified, or transferred via application endpoints.
 - **CEO Transfer Disabled:** Governed by `CEO_TRANSFER_ENABLED=false` (default). In-app CEO transfer cards, modals, and succession endpoints return `404 Not Found`.
 - **CEO Direct Authority:** Actions taken by the CEO (role creation, permission edits, user assignments, suspensions, team updates) take effect **immediately**. No approval requests are spawned for the CEO. Mandatory: fresh 6-digit MFA, audit log, and history entry.
 - **CEO Identity Update (`PATCH /api/employees/:id/identity`):** CEO can update any user's legal name and email. Requires fresh MFA; auto-adds email to allowlist, revokes active sessions, unlinks external Google accounts, and notifies both addresses.
@@ -179,7 +183,6 @@ COOKIE_SECURE="true"
 COOKIE_SAME_SITE="strict"
 
 # --- Governance & Security Invariants ---
-CEO_EMAIL="noor@seu.edu.bd"
 CEO_TRANSFER_ENABLED="false"
 CRON_SECRET="<generate-random-32-character-secret>"
 VOTE_DEADLINE_DAYS="7"

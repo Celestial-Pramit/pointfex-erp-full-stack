@@ -406,40 +406,46 @@ export function LoginAccessPage() {
                   >
                     Copy
                   </Button>
-                  {data?.canManage && (
-                    <>
-                      <Button
-                        type="button"
-                        size="xs"
-                        variant="secondary"
-                        onClick={() =>
-                          setPendingAction({
-                            kind: 'toggle',
-                            id: entry.id,
-                            pattern: entry.pattern,
-                            nextActive: !entry.isActive,
-                          })
-                        }
-                      >
-                        {entry.isActive ? 'Disable' : 'Enable'}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="xs"
-                        variant="danger"
-                        icon={Trash2}
-                        onClick={() =>
-                          setPendingAction({
-                            kind: 'remove',
-                            id: entry.id,
-                            pattern: entry.pattern,
-                          })
-                        }
-                      >
-                        Remove
-                      </Button>
-                    </>
-                  )}
+                  {data?.canManage &&
+                    (entry.isSystemRoot ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 border border-purple-300 dark:border-purple-800">
+                        <Shield className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                        Protected • System Root
+                      </span>
+                    ) : (
+                      <>
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="secondary"
+                          onClick={() =>
+                            setPendingAction({
+                              kind: 'toggle',
+                              id: entry.id,
+                              pattern: entry.pattern,
+                              nextActive: !entry.isActive,
+                            })
+                          }
+                        >
+                          {entry.isActive ? 'Disable' : 'Enable'}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="danger"
+                          icon={Trash2}
+                          onClick={() =>
+                            setPendingAction({
+                              kind: 'remove',
+                              id: entry.id,
+                              pattern: entry.pattern,
+                            })
+                          }
+                        >
+                          Remove
+                        </Button>
+                      </>
+                    ))}
                 </div>
               </div>
             ))}

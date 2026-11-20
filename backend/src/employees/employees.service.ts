@@ -143,9 +143,6 @@ export class EmployeesService {
             initials,
             status: 'online',
             isSuspended: false,
-            timezone: dto.timezone?.trim() || 'UTC+6 (BST)',
-            skills: dto.skills && dto.skills.length > 0 ? dto.skills : [],
-            bio: dto.bio?.trim() || `${dto.title.trim()} at Pointfex ERP.`,
           },
         })
 
@@ -580,19 +577,27 @@ export class EmployeesService {
     const existing = await this.findOne(id)
 
     if (
-      existing.email.toLowerCase() === CEO_CANONICAL_EMAIL ||
+      (CEO_CANONICAL_EMAIL && existing.email.toLowerCase() === CEO_CANONICAL_EMAIL) ||
       id === 'emp_ceo_01'
     ) {
       throw new ForbiddenException(
-        'The Chief Executive Officer account (noor@seu.edu.bd) is immutable and cannot be modified.',
+        'The Chief Executive Officer account is immutable and cannot be modified.',
       )
     }
 
     const targetEmail = (dto as any).email
-    if (targetEmail && targetEmail.trim().toLowerCase() === CEO_CANONICAL_EMAIL && id !== 'emp_ceo_01') {
+    if (CEO_CANONICAL_EMAIL && targetEmail && targetEmail.trim().toLowerCase() === CEO_CANONICAL_EMAIL && id !== 'emp_ceo_01') {
       throw new ForbiddenException(
-        'The email noor@seu.edu.bd is exclusively reserved for the Chief Executive Officer.',
+        'This email address is exclusively reserved for the Chief Executive Officer.',
       )
+    }
+
+    if (id === 'emp_ceo_01') {
+      if (dto.status === 'suspended' || dto.status === 'inactive') {
+        throw new ForbiddenException(
+          'Security law: The Chief Executive Officer account cannot be deactivated or suspended.',
+        )
+      }
     }
 
     if (actor?.id && actor.id !== id) {
@@ -656,14 +661,10 @@ export class EmployeesService {
         beforeState: {
           name: existing.name,
           title: existing.title,
-          phone: existing.phone,
-          location: existing.location,
         },
         afterState: {
           name: updated.name,
           title: updated.title,
-          phone: updated.phone,
-          location: updated.location,
         },
         reason: reason?.trim() || 'Profile updated by authorized administrator',
       })
@@ -691,17 +692,18 @@ export class EmployeesService {
     if (!employee) throw new NotFoundException(`Employee "${id}" not found.`)
 
     if (
-      employee.email.toLowerCase() === CEO_CANONICAL_EMAIL ||
-      id === 'emp_ceo_01'
+      (CEO_CANONICAL_EMAIL && employee.email.toLowerCase() === CEO_CANONICAL_EMAIL) ||
+      id === 'emp_ceo_01' ||
+      isEmployeeCeo(employee)
     ) {
       throw new ForbiddenException(
-        'The Chief Executive Officer identity (noor@seu.edu.bd) is immutable and cannot be modified.',
+        'The Chief Executive Officer identity is immutable and cannot be modified.',
       )
     }
 
-    if (body.email && body.email.trim().toLowerCase() === CEO_CANONICAL_EMAIL) {
+    if (CEO_CANONICAL_EMAIL && body.email && body.email.trim().toLowerCase() === CEO_CANONICAL_EMAIL) {
       throw new ForbiddenException(
-        'The email noor@seu.edu.bd is exclusively reserved for the Chief Executive Officer.',
+        'This email address is exclusively reserved for the Chief Executive Officer.',
       )
     }
 
@@ -797,7 +799,7 @@ export class EmployeesService {
           {
             actorId: actor.id,
             actorName: actor.name || 'Chief Executive Officer',
-            actorEmail: actor.email || 'ceo@pointfex.com',
+            actorEmail: actor.email || '',
             actorRole: 'CEO',
             action: 'USER_IDENTITY_UPDATED',
             actionCode: 'IDENTITY_EMAIL_NAME_UPDATED',

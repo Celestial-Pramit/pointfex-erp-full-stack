@@ -55,52 +55,74 @@ export class CeoBootstrapService implements OnModuleInit {
   async ensureSingleRootCeo(): Promise<RootCeoInvariantResult> {
     const targetCeoEmail = CEO_CANONICAL_EMAIL
     let canonicalCeoId = process.env.CEO_EMPLOYEE_ID?.trim() || 'emp_ceo_01'
-    const targetCeoPassword = 'noor@2026erp'
+    const targetCeoPassword = process.env.CEO_INITIAL_PASSWORD
 
-    // 1. Locate or bootstrap the CEO account strictly locked to noor@seu.edu.bd
+    // 1. Locate existing CEO account or bootstrap if credentials configured
     let targetCeo: any = null
     if (this.prisma.employee?.findUnique) {
-      targetCeo =
-        (await this.prisma.employee.findUnique({ where: { email: targetCeoEmail } })) ||
-        (await this.prisma.employee.findUnique({ where: { id: canonicalCeoId } }))
+      if (targetCeoEmail) {
+        targetCeo = await this.prisma.employee.findUnique({ where: { email: targetCeoEmail } })
+      }
+      if (!targetCeo) {
+        targetCeo = await this.prisma.employee.findUnique({ where: { id: canonicalCeoId } })
+      }
+      if (!targetCeo && this.prisma.employee?.findFirst) {
+        targetCeo = await this.prisma.employee.findFirst({
+          where: {
+            OR: [
+              { positionAssignments: { some: { positionId: 'pos_ceo', isActive: true } } },
+              { employeeRoles: { some: { role: { isRootRole: true }, isActive: true } } },
+            ],
+          },
+        })
+      }
     }
 
-    if (!targetCeo && this.prisma.employee?.create) {
-      const initialHash = await bcrypt.hash(targetCeoPassword, 12)
-      targetCeo = await this.prisma.employee.create({
-        data: {
-          id: canonicalCeoId,
-          name: 'Noor',
-          email: targetCeoEmail,
-          passwordHash: initialHash,
-          title: 'Chief Executive Officer',
-          initials: 'NR',
-          avatarUrl: '',
-          status: 'online',
-          isSuspended: false,
-          mustChangePassword: false,
-          mustEnrollMfa: false,
-          mfaEnabled: false,
-          skills: [
-            'Corporate Governance',
-            'Capital Allocation',
-            'Strategic Partnerships',
-            'Academic Leadership',
-          ],
-          timezone: 'UTC+6 (BST)',
-          phone: '+880 1711-000001',
-          location: 'Gulshan-2, Dhaka',
-          bio: 'Chief Executive Officer overseeing corporate governance, strategic roadmap, and executive authority.',
-        },
-      })
-      canonicalCeoId = targetCeo.id
+    if (!targetCeo) {
+      if (!targetCeoEmail || !targetCeoPassword) {
+        this.logger.log(
+          'No CEO credentials configured in environment and zero existing CEO account in DB. Skipping CEO user bootstrap.',
+        )
+        return {
+          healthy: true,
+          recovered: false,
+          deduplicated: false,
+          activeHolderIds: [],
+          canonicalCeoId,
+        }
+      }
+
+      if (this.prisma.employee?.create) {
+        const initialHash = await bcrypt.hash(targetCeoPassword, 12)
+        const ttlHours = Number.parseInt(process.env.TEMP_PASSWORD_TTL_HOURS || '48', 10) || 48
+        const tempPasswordExpiresAt = new Date(Date.now() + ttlHours * 60 * 60 * 1000)
+
+        targetCeo = await this.prisma.employee.create({
+          data: {
+            id: canonicalCeoId,
+            name: 'Chief Executive Officer',
+            email: targetCeoEmail,
+            passwordHash: initialHash,
+            title: 'Chief Executive Officer',
+            initials: 'CEO',
+            avatarUrl: '',
+            status: 'online',
+            isSuspended: false,
+            mustChangePassword: true,
+            tempPasswordExpiresAt,
+            mustEnrollMfa: false,
+            mfaEnabled: false,
+          },
+        })
+        canonicalCeoId = targetCeo.id
+      }
     } else if (targetCeo) {
       canonicalCeoId = targetCeo.id
       const updates: any = {}
-      if (targetCeo.email && targetCeo.email.toLowerCase() !== targetCeoEmail) {
+      if (targetCeoEmail && targetCeo.email && targetCeo.email.toLowerCase() !== targetCeoEmail) {
         updates.email = targetCeoEmail
       }
-      if (!targetCeo.passwordHash) {
+      if (!targetCeo.passwordHash && targetCeoPassword) {
         updates.passwordHash = await bcrypt.hash(targetCeoPassword, 12)
       }
       if (Object.keys(updates).length > 0 && this.prisma.employee?.update) {
@@ -150,7 +172,7 @@ export class CeoBootstrapService implements OnModuleInit {
     }
 
     // Ensure login allowlist entry for CEO email
-    if (this.prisma.loginAllowlistEntry?.upsert) {
+    if (targetCeoEmail && this.prisma.loginAllowlistEntry?.upsert) {
       await this.prisma.loginAllowlistEntry.upsert({
         where: { pattern: targetCeoEmail },
         update: { isActive: true },

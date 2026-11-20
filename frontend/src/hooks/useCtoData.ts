@@ -79,18 +79,17 @@ export function useCtoData(): CtoData {
   // 1. CTO User
   const cto = useMemo<User>(() => {
     return (
-      data.users.find((u) => u.role === 'cto') ||
-      resolvers.getUser('user_cto_01') || {
-        id: 'user_cto_01',
-        name: 'Dr. Arthur Sterling',
-        email: 'arthur.sterling@pointfex.internal',
+      data.users.find((u) => u.role === 'cto') || {
+        id: '',
+        name: 'Chief Technology Officer',
+        email: '',
         role: 'cto',
         title: 'Chief Technology Officer',
-        initials: 'AS',
-        status: 'online',
+        initials: 'CTO',
+        status: 'offline',
       }
     )
-  }, [data.users, resolvers])
+  }, [data.users])
 
   // 2. All 24 Developers and 6 PMs
   const developers = useMemo(() => {

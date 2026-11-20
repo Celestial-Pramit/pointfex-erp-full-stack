@@ -328,10 +328,10 @@ All requests must originate from an authenticated session (`pointfex_access_toke
 
 ## 9. Senior Engineer Verification Runbook (Step-by-Step Test Scenarios)
 
-The test suite can be verified on `http://localhost:5174` (Frontend) and `http://localhost:3001` (Backend).
+The test suite can be verified on your configured frontend and backend URLs.
 
 ### Scenario A: Developer KPI Graph & Inactivity Inspection
-1. **Login Credentials:** `fahim.dev@pointfex.internal` / `Pointfex#Dev2026!`
+1. **Login:** Sign in with an active Developer account.
 2. **Navigate:** Open sidebar item **"My Wallet & XP"** (`/earnings`).
 3. **Observation:**
    - Week 41 shows **93** (Top point).
@@ -342,17 +342,17 @@ The test suite can be verified on `http://localhost:5174` (Frontend) and `http:/
    - Audit table shows sequence blocks `#001` through `#004` with verified SHA-256 hashes.
 
 ### Scenario B: CHRO Task Weight Verification
-1. **Login Credentials:** `naim.chro@pointfex.internal` / `Pointfex#HR2026!`
+1. **Login:** Sign in with an active CHRO account.
 2. **Navigate:** Open **"Performance"** (`/chro/performance`) > **"CHRO Weight Queue"**.
-3. **Execution:** Select `task_02` (3 points pending). Click **"Quick Approve"**.
+3. **Execution:** Select pending task. Click **"Quick Approve"**.
 4. **Result:**
    - Status instantly transitions to `APPROVED`.
-   - Neon PostgreSQL records `approvedWeight = 3`, `chroId = emp_chro_01`.
+   - Neon PostgreSQL records `approvedWeight` and CHRO ID.
    - Developer's pending XP unlocks upon task completion.
 
 ### Scenario C: Massive XP C-Suite Consensus Unfreeze
-1. **Context:** `verif_massive_01` (500 XP) has 1 existing vote from CTO (`emp_cto_01`).
-2. **Execution:** As CHRO, click **"Approve"** on the Massive XP item in the Weight Queue.
+1. **Context:** A massive XP verification request ($\ge 200\text{ XP}$) requires consensus votes from C-Suite executives.
+2. **Execution:** As CHRO or CTO, click **"Approve"** on the Massive XP item in the Weight Queue.
 3. **Result:**
    - Approvals count reaches $2$ ($\text{approvalsCount} \ge 2$).
    - Verification status transitions from `FROZEN` to `UNFROZEN`.

@@ -43,13 +43,6 @@ export interface User {
     reason?: string | null
     createdAt: string
   } | null
-  skills?: string[]
-  timezone?: string
-  github?: string
-  joinedSprint?: string
-  bio?: string
-  phone?: string
-  location?: string
 }
 
 // --- TEAMS ---

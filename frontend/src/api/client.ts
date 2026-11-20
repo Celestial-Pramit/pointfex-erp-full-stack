@@ -1,6 +1,23 @@
 // Pointfex ERP API Client — HttpOnly Cookie JWT Authentication + Single-Flight Refresh Rotation
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || '/api'
+export function normalizeApiBase(raw?: string): string {
+  if (!raw || !raw.trim()) {
+    return '/api'
+  }
+  const trimmed = raw.trim().replace(/\/+$/, '')
+  if (!trimmed || trimmed === '/' || trimmed === '/api') {
+    return '/api'
+  }
+  if (trimmed.endsWith('/api')) {
+    return trimmed
+  }
+  return `${trimmed}/api`
+}
+
+export const API_BASE = normalizeApiBase(
+  (import.meta.env.VITE_API_URL as string | undefined) ||
+  (import.meta.env.VITE_API_BASE_URL as string | undefined),
+)
 
 export interface LeaderboardProfile {
   userId: string
@@ -227,9 +244,6 @@ export const erpApi = {
       title: string
       roleSlug?: string
       teamId?: string
-      skills?: string[]
-      timezone?: string
-      bio?: string
       reason?: string
     },
     mfaCode?: string,
@@ -1143,6 +1157,7 @@ export const erpApi = {
         pattern: string
         isDomain: boolean
         isActive: boolean
+        isSystemRoot?: boolean
         note?: string | null
         createdAt: string
         employeeId?: string | null

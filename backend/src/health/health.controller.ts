@@ -28,7 +28,7 @@ export class HealthController {
   @Public()
   @Get('health')
   health() {
-    return { status: 'ok', service: 'pointfex-erp-backend' }
+    return { status: 'ok', service: 'pointfex-erp-backend', version: '4.0.0' }
   }
 
   @Public()

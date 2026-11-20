@@ -83,9 +83,28 @@ export class LoginAllowlistService {
     return { pattern: cleaned, isDomain: false }
   }
 
+  async isRootCeoPattern(pattern: string): Promise<boolean> {
+    const normalized = pattern.trim().toLowerCase()
+    const ceo = await this.prisma.employee.findFirst({
+      where: {
+        OR: [
+          { id: 'emp_ceo_01' },
+          { employeeRoles: { some: { role: { slug: 'ceo', isRootRole: true }, isActive: true } } },
+          { positionAssignments: { some: { positionId: 'pos_ceo', isActive: true } } },
+        ],
+      },
+      select: { email: true, id: true },
+    })
+    if (ceo?.email && ceo.email.trim().toLowerCase() === normalized) {
+      return true
+    }
+    return Boolean(CEO_CANONICAL_EMAIL && normalized === CEO_CANONICAL_EMAIL)
+  }
+
   async isEmailAllowed(email: string, isSystemRoot = false): Promise<boolean> {
     const normalized = email.trim().toLowerCase()
-    if (isSystemRoot || normalized === CEO_CANONICAL_EMAIL) return true
+    if (isSystemRoot || (CEO_CANONICAL_EMAIL && normalized === CEO_CANONICAL_EMAIL)) return true
+    if (await this.isRootCeoPattern(normalized)) return true
     if (!this.isAllowlistRequired()) return true
     const domainPart = normalized.includes('@') ? `@${normalized.split('@')[1]}` : ''
     const patterns = domainPart && this.isDomainRulesAllowed() ? [normalized, domainPart] : [normalized]
@@ -192,10 +211,18 @@ export class LoginAllowlistService {
       ])
 
     const empByEmail = new Map(employees.map((e) => [e.email.trim().toLowerCase(), e]))
+    const ceoEmp = employees.find((e) => e.id === 'emp_ceo_01')
+    const ceoEmail = ceoEmp?.email.trim().toLowerCase() || ''
+
     const enrichedEntries = entries.map((entry) => {
       const emp = empByEmail.get(entry.pattern.toLowerCase()) || null
+      const isSystemRoot =
+        emp?.id === 'emp_ceo_01' ||
+        (ceoEmail && entry.pattern.toLowerCase() === ceoEmail) ||
+        Boolean(CEO_CANONICAL_EMAIL && entry.pattern.toLowerCase() === CEO_CANONICAL_EMAIL)
       return {
         ...entry,
+        isSystemRoot: Boolean(isSystemRoot),
         note: isCeo ? entry.note : null,
         employeeId: emp?.id || null,
         employeeName: emp?.name || null,
@@ -357,12 +384,11 @@ export class LoginAllowlistService {
     if (!existing) {
       throw new NotFoundException('Allowlist entry not found.')
     }
-    if (
-      !isActive &&
-      (existing.pattern.toLowerCase() === ceo.email.trim().toLowerCase() ||
-        existing.pattern.toLowerCase() === CEO_CANONICAL_EMAIL)
-    ) {
-      throw new ForbiddenException('The CEO email cannot be disabled.')
+    const isRootEntry = await this.isRootCeoPattern(existing.pattern)
+    if (isRootEntry) {
+      throw new ForbiddenException(
+        'Security law: The system:root CEO login allowlist entry is immutable and cannot be modified or disabled.',
+      )
     }
 
     const updated = await this.prisma.loginAllowlistEntry.update({
@@ -400,11 +426,11 @@ export class LoginAllowlistService {
     if (!existing) {
       throw new NotFoundException('Allowlist entry not found.')
     }
-    if (
-      existing.pattern.toLowerCase() === ceo.email.trim().toLowerCase() ||
-      existing.pattern.toLowerCase() === CEO_CANONICAL_EMAIL
-    ) {
-      throw new ForbiddenException('The CEO email cannot be removed.')
+    const isRootEntry = await this.isRootCeoPattern(existing.pattern)
+    if (isRootEntry) {
+      throw new ForbiddenException(
+        'Security law: The system:root CEO login allowlist entry is immutable and cannot be removed.',
+      )
     }
 
     await this.prisma.loginAllowlistEntry.delete({ where: { id } })

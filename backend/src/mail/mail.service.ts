@@ -112,7 +112,7 @@ export class MailService {
     }
 
     const apiKey = this.configService.get<string>('RESEND_API_KEY')?.trim()
-    const from = configuredFrom || 'Pointfex ERP <no-reply@pointfex.internal>'
+    const from = configuredFrom || 'Pointfex ERP <no-reply@pointfex.com>'
 
     if (!apiKey) {
       this.logger.log(`Mail queued (noop/test mode): to=${input.to} subject="${input.subject}"`)

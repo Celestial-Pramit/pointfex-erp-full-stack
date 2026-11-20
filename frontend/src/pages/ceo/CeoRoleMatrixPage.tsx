@@ -488,6 +488,10 @@ export function CeoRoleMatrixPage() {
     employeeName: string,
     roleName: string,
   ) => {
+    if (employeeId === 'emp_ceo_01' || roleName.toLowerCase().includes('ceo')) {
+      showToast('Security law: The system:root CEO role cannot be revoked.', 'warning')
+      return
+    }
     setMatrixConfirm({
       kind: 'revoke_role',
       employeeId,
@@ -631,7 +635,7 @@ export function CeoRoleMatrixPage() {
               </span>
             </div>
             <h2 className="text-xl font-bold tracking-tight text-white font-display">
-              Chief Executive Officer: Noor (noor@seu.edu.bd)
+              Chief Executive Officer: {currentUser?.name || 'Chief Executive Officer'}
             </h2>
             <p className="text-xs text-slate-300 max-w-3xl leading-relaxed">
               Holds supreme root authority with all 606 active system capabilities enabled by default. Authorized to design custom roles, direct employee assignments, grant instant temporary authority escalations, and manage corporate security policies with streamlined 6-digit MFA verification.
@@ -885,7 +889,7 @@ export function CeoRoleMatrixPage() {
                 icon={Plus}
                 onClick={() => {
                   setDelegationTargetEmployeeId(
-                    allUsers.filter((u) => u.email !== 'noor@seu.edu.bd')[0]?.id || '',
+                    allUsers.filter((u) => u.role !== 'ceo')[0]?.id || '',
                   )
                   setDelegationSelectedPerms([])
                   setDelegationSearchQuery('')
@@ -916,7 +920,7 @@ export function CeoRoleMatrixPage() {
                     icon={Plus}
                     onClick={() => {
                       setDelegationTargetEmployeeId(
-                        allUsers.filter((u) => u.email !== 'noor@seu.edu.bd')[0]?.id || '',
+                        allUsers.filter((u) => u.role !== 'ceo')[0]?.id || '',
                       )
                       setDelegationSelectedPerms([])
                       setDelegationSearchQuery('')
@@ -1193,7 +1197,7 @@ export function CeoRoleMatrixPage() {
                           </span>
                         </div>
                         <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
-                          The Chief Executive Officer (<span className="font-semibold text-slate-900 dark:text-white">noor@seu.edu.bd</span>) holds immutable supreme root authority (<code className="font-mono text-[11px] bg-indigo-100/60 dark:bg-indigo-900/60 px-1 py-0.5 rounded">system:root</code>) with all 606 corporate capabilities enabled by default across all departments. Capability checkboxes on this role are locked and cannot be demoted or stripped.
+                          The Chief Executive Officer holds immutable supreme root authority (<code className="font-mono text-[11px] bg-indigo-100/60 dark:bg-indigo-900/60 px-1 py-0.5 rounded">system:root</code>) with all 606 corporate capabilities enabled by default across all departments. Capability checkboxes on this role are locked and cannot be demoted or stripped.
                         </p>
                       </div>
                     </div>
@@ -1426,16 +1430,22 @@ export function CeoRoleMatrixPage() {
                               }`}
                             >
                               <span>{r.name}</span>
-                              <button
-                                type="button"
-                                title={`Remove ${r.name}`}
-                                onClick={() =>
-                                  void handleRevokeRole(emp.id, r.roleId, emp.name, r.name)
-                                }
-                                className="hover:text-rose-500 transition-colors cursor-pointer"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
+                              {emp.id === 'emp_ceo_01' || r.name.toLowerCase().includes('ceo') ? (
+                                <span title="System Root (Locked)" className="text-amber-500">
+                                  <Shield className="w-3 h-3 inline ml-0.5" />
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  title={`Remove ${r.name}`}
+                                  onClick={() =>
+                                    void handleRevokeRole(emp.id, r.roleId, emp.name, r.name)
+                                  }
+                                  className="hover:text-rose-500 transition-colors cursor-pointer"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              )}
                             </span>
                           ))}
                           {assigned.length === 0 && (
@@ -1446,17 +1456,21 @@ export function CeoRoleMatrixPage() {
                         </div>
                       </td>
                       <td className="py-4 px-6 text-right">
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          icon={UserPlus}
-                          onClick={() => {
-                            setAssignTargetUser({ id: emp.id, name: emp.name, title: emp.title })
-                            setAssignRoleId(roles[0]?.id || '')
-                          }}
-                        >
-                          Assign Role
-                        </Button>
+                        {emp.id === 'emp_ceo_01' ? (
+                          <Badge variant="purple">System Root (Locked)</Badge>
+                        ) : (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            icon={UserPlus}
+                            onClick={() => {
+                              setAssignTargetUser({ id: emp.id, name: emp.name, title: emp.title })
+                              setAssignRoleId(roles.filter((r) => r.isActive && r.slug !== 'ceo')[0]?.id || '')
+                            }}
+                          >
+                            Assign Role
+                          </Button>
+                        )}
                       </td>
                     </tr>
                   )
@@ -1667,7 +1681,7 @@ export function CeoRoleMatrixPage() {
               >
                 <option value="">Select staff member...</option>
                 {allUsers
-                  .filter((u) => u.email !== 'noor@seu.edu.bd')
+                  .filter((u) => u.role !== 'ceo')
                   .map((u) => (
                     <option key={u.id} value={u.id}>
                       {u.name} — {u.title} ({u.email})

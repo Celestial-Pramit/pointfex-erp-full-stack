@@ -881,9 +881,8 @@ const ROLE_DEFINITIONS: Array<{
 
 export async function seedRbac(
   prisma: PrismaClient,
-  options?: { mode?: 'production' | 'demo'; ceoEmployeeId?: string },
+  options?: { ceoEmployeeId?: string },
 ) {
-  const mode = options?.mode ?? 'demo'
   const ceoEmployeeId = options?.ceoEmployeeId?.trim() || 'emp_ceo_01'
 
   console.log('  -> Seeding Master Permission Catalog (docs/permissions_master.md)...')
@@ -997,7 +996,7 @@ export async function seedRbac(
 
   console.log('  -> Backfilling EmployeeRole Assignments from Active PositionAssignments...')
   const employees = await prisma.employee.findMany({
-    where: mode === 'production' ? { id: ceoEmployeeId } : undefined,
+    where: { id: ceoEmployeeId },
     include: {
       positionAssignments: {
         where: { isActive: true },
@@ -1045,33 +1044,7 @@ export async function seedRbac(
     `     Dynamic roles ready: ${phase2Result.templatesSeeded} templates, ${phase2Result.rolesUpgraded} roles upgraded, ${phase2Result.scopedAssignmentsTotal} scoped assignments active, ${sodResult.sodRulesSeeded} SoD rules, ${sodResult.approvalPoliciesSeeded} approval policies.`,
   )
 
-  if (mode === 'production') {
-    console.log(
-      `  ✅ Production PBAC bootstrap complete: ${permissionIdByCode.size} permissions, ${roleIdBySlug.size} roles, CEO system:root holder "${ceoEmployeeId}" ready (forced password change & MFA required at first login).`,
-    )
-    return
-  }
-
-  console.log('  -> Seeding default bcrypt password hashes for uninitialized accounts...')
-  const defaultPassword = process.env.SEED_DEFAULT_PASSWORD
-  if (!defaultPassword || defaultPassword.trim().length < 8) {
-    throw new Error(
-      'SEED_DEFAULT_PASSWORD must be configured in environment variables (min 8 chars) before running seed.',
-    )
-  }
-  const defaultPasswordHash = await bcrypt.hash(defaultPassword, 10)
-  const passwordResult = await prisma.employee.updateMany({
-    where: { passwordHash: '' },
-    data: { passwordHash: defaultPasswordHash },
-  })
-
-  const ceoPasswordHash = await bcrypt.hash('noor@2026erp', 12)
-  await prisma.employee.updateMany({
-    where: { OR: [{ id: ceoEmployeeId }, { email: 'noor@seu.edu.bd' }], passwordHash: '' },
-    data: { passwordHash: ceoPasswordHash, isSuspended: false },
-  })
-
   console.log(
-    `  ✅ PBAC seed complete: ${permissionIdByCode.size} permissions, ${roleIdBySlug.size} roles, ${backfillRows.length} employee-role links verified, ${passwordResult.count} accounts initialized with password hash.`,
+    `  ✅ PBAC bootstrap complete: ${permissionIdByCode.size} permissions, ${roleIdBySlug.size} roles, CEO system:root holder "${ceoEmployeeId}" ready.`,
   )
 }

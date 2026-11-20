@@ -37,10 +37,8 @@ import {
   UserMinus,
   Unlock,
   Mail,
-  Info,
-  ChevronDown,
-  ChevronUp,
   UserPlus,
+  Shield,
 } from 'lucide-react'
 
 const isCeoTargetUser = (user: Pick<User, 'role' | 'activeRoleSlugs'> & { title?: string }) =>
@@ -170,7 +168,6 @@ type LifecycleConfirmState =
       nextRole: UserRole
       teamId?: string
       title: string
-      skills: string[]
       roleChanged: boolean
     }
 
@@ -224,7 +221,6 @@ export function CtoPeoplePage() {
   const [createTitle, setCreateTitle] = useState('')
   const [createRoleSlug, setCreateRoleSlug] = useState('developer')
   const [createTeamId, setCreateTeamId] = useState('')
-  const [createSkills, setCreateSkills] = useState('')
   const [isCreatingEmployee, setIsCreatingEmployee] = useState(false)
   const [createdCredentials, setCreatedCredentials] = useState<{
     name: string
@@ -306,7 +302,6 @@ export function CtoPeoplePage() {
     title: string
     roleSlug: string
     teamId?: string
-    skills: string[]
   } | null>(null)
   const [isMfaActionSubmitting, setIsMfaActionSubmitting] = useState(false)
   const [pendingResendUser, setPendingResendUser] = useState<User | null>(null)
@@ -486,7 +481,6 @@ export function CtoPeoplePage() {
         updateUser(targetUser.id, {
           teamId: pendingConfirm.teamId,
           title: pendingConfirm.title,
-          skills: pendingConfirm.skills,
         })
         if (pendingConfirm.roleChanged) {
           const targetSlug =
@@ -569,7 +563,6 @@ export function CtoPeoplePage() {
   const [editRole, setEditRole] = useState<UserRole>('developer')
   const [editTeamId, setEditTeamId] = useState('')
   const [editTitle, setEditTitle] = useState('')
-  const [editSkills, setEditSkills] = useState('')
 
   const allUsers = data.users
   const canInspectFullRoster = hasAnyPermission(
@@ -591,8 +584,6 @@ export function CtoPeoplePage() {
     )
   }, [allUsers, canInspectFullRoster])
 
-  const [showBioDetails, setShowBioDetails] = useState(false)
-
   const inspectedUser = useMemo(
     () => (selectedUser ? allUsers.find((u) => u.id === selectedUser.id) || selectedUser : null),
     [allUsers, selectedUser],
@@ -611,8 +602,7 @@ export function CtoPeoplePage() {
         const nameMatch = u.name.toLowerCase().includes(q)
         const titleMatch = u.title.toLowerCase().includes(q)
         const emailMatch = u.email.toLowerCase().includes(q)
-        const skillMatch = u.skills?.some((s) => s.toLowerCase().includes(q))
-        if (!nameMatch && !titleMatch && !emailMatch && !skillMatch) return false
+        if (!nameMatch && !titleMatch && !emailMatch) return false
       }
       return true
     })
@@ -632,17 +622,11 @@ export function CtoPeoplePage() {
     setEditRole(user.role)
     setEditTeamId(user.teamId || '')
     setEditTitle(user.title)
-    setEditSkills(user.skills?.join(', ') || '')
   }
 
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!editingUser) return
-
-    const skillsArray = editSkills
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
 
     setPendingConfirm({
       kind: 'save_edit',
@@ -650,7 +634,6 @@ export function CtoPeoplePage() {
       nextRole: editRole,
       teamId: editTeamId || undefined,
       title: editTitle.trim() || editingUser.title,
-      skills: skillsArray,
       roleChanged: editRole !== editingUser.role,
     })
   }
@@ -681,7 +664,6 @@ export function CtoPeoplePage() {
               setCreateTitle('')
               setCreateRoleSlug('developer')
               setCreateTeamId('')
-              setCreateSkills('')
               setIsCreateModalOpen(true)
             }}
           >
@@ -759,12 +741,13 @@ export function CtoPeoplePage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {filteredUsers.map((user) => {
           const team = getUserTeam(user.teamId)
-          const activeTasks = getUserTasks(user.id)
+          const userTasks = getUserTasks(user.id)
+          const activeTasks = userTasks.filter((task) => task.status !== 'completed')
           const badgeInfo = resolveUserBadge(user)
           const isTargetCeo = badgeInfo.variant === 'ceo'
           const isTargetCLevel = badgeInfo.variant === 'clevel'
-          const showGrantOnCard = canGrantAccess
-          const showEditOnCard = canEditProfiles
+          const showGrantOnCard = canGrantAccess && !isTargetCeo
+          const showEditOnCard = canEditProfiles && !isTargetCeo
           const roleDisplayBadge = badgeInfo.label
 
           return (
@@ -860,7 +843,6 @@ export function CtoPeoplePage() {
                 <div className="min-w-0">
                   <h4
                     onClick={() => {
-                      setShowBioDetails(false)
                       setSelectedUser(user)
                     }}
                     className="font-semibold text-sm text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors cursor-pointer truncate"
@@ -903,10 +885,10 @@ export function CtoPeoplePage() {
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-50/90 dark:bg-slate-900/60 border border-slate-200/70 dark:border-slate-800 text-center">
                     <div className="text-lg font-bold tabular-nums text-slate-900 dark:text-white leading-tight">
-                      {user.skills?.length || 0}
+                      {userTasks.length}
                     </div>
                     <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mt-0.5">
-                      Core Skills
+                      Total Tasks
                     </div>
                   </div>
                 </div>
@@ -914,34 +896,41 @@ export function CtoPeoplePage() {
 
               {/* Footer Actions */}
               <div className="pt-3 border-t border-slate-200/70 dark:border-slate-800 flex items-center justify-end gap-1.5">
-                {showGrantOnCard && (
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    icon={KeyRound}
-                    title="Grant temporary capability"
-                    onClick={() => {
-                      setShowBioDetails(false)
-                      setSelectedUser(user)
-                    }}
-                  >
-                    Access
-                  </Button>
-                )}
-                {showEditOnCard && (
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    icon={Edit2}
-                    title="Edit employee profile"
-                    onClick={() => handleOpenEdit(user)}
-                  />
+                {isTargetCeo ? (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 border border-purple-300 dark:border-purple-800">
+                    <Shield className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                    System Root (Locked)
+                  </span>
+                ) : (
+                  <>
+                    {showGrantOnCard && (
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        icon={KeyRound}
+                        title="Grant temporary capability"
+                        onClick={() => {
+                          setSelectedUser(user)
+                        }}
+                      >
+                        Access
+                      </Button>
+                    )}
+                    {showEditOnCard && (
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        icon={Edit2}
+                        title="Edit employee profile"
+                        onClick={() => handleOpenEdit(user)}
+                      />
+                    )}
+                  </>
                 )}
                 <Button
                   variant={isTargetCeo ? 'brand' : 'secondary'}
                   size="xs"
                   onClick={() => {
-                    setShowBioDetails(false)
                     setSelectedUser(user)
                   }}
                 >
@@ -988,7 +977,6 @@ export function CtoPeoplePage() {
                   <option value="developer">Developer</option>
                   <option value="pm">Project Manager (PM)</option>
                   <option value="cto">CTO</option>
-                  <option value="ceo">CEO</option>
                   <option value="cfo">CFO</option>
                   <option value="cpo">CPO</option>
                 </select>
@@ -1027,18 +1015,7 @@ export function CtoPeoplePage() {
               />
             </div>
 
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                Skills / Competencies (comma separated)
-              </label>
-              <input
-                type="text"
-                value={editSkills}
-                onChange={(e) => setEditSkills(e.target.value)}
-                placeholder="e.g. React, TypeScript, Rust, Docker"
-                className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-slate-400"
-              />
-            </div>
+
 
             <div className="flex items-center justify-end gap-2 pt-3">
               <Button
@@ -1147,48 +1124,7 @@ export function CtoPeoplePage() {
               </div>
             </div>
 
-            {/* Progressive Disclosure Toggle for Bio & Full Skill Stack */}
-            {(inspectedUser.bio || (inspectedUser.skills && inspectedUser.skills.length > 0)) && (
-              <div>
-                <button
-                  type="button"
-                  onClick={() => setShowBioDetails((prev) => !prev)}
-                  className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
-                >
-                  <Info className="w-3.5 h-3.5" />
-                  <span>
-                    {showBioDetails ? 'Hide Bio & Skill Stack' : 'View Bio & Skill Stack'}
-                  </span>
-                  {showBioDetails ? (
-                    <ChevronUp className="w-3.5 h-3.5" />
-                  ) : (
-                    <ChevronDown className="w-3.5 h-3.5" />
-                  )}
-                </button>
 
-                {showBioDetails && (
-                  <div className="mt-2.5 space-y-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-700/60">
-                    {inspectedUser.bio && (
-                      <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                        {inspectedUser.bio}
-                      </p>
-                    )}
-                    {inspectedUser.skills && inspectedUser.skills.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {inspectedUser.skills.map((skill) => (
-                          <span
-                            key={skill}
-                            className="text-[11px] px-2.5 py-0.5 rounded-full bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
-                          >
-                            {skill}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
 
             {/* Assigned Tasks */}
             <div>
@@ -1536,54 +1472,56 @@ export function CtoPeoplePage() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  {canSuspendAccount &&
-                    (inspectedUser.isSuspended ? (
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="xs"
-                        icon={ShieldCheck}
-                        disabled={
-                          isCeoTargetUser(inspectedUser) ||
-                          inspectedUser.id === currentUser?.id
-                        }
-                        onClick={() =>
-                          setPendingConfirm({ kind: 'unsuspend', user: inspectedUser })
-                        }
-                        className="border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300"
-                      >
-                        Reactivate Account
-                      </Button>
-                    ) : (
-                      <Button
-                        type="button"
-                        variant="danger"
-                        size="xs"
-                        icon={Ban}
-                        disabled={
-                          isCeoTargetUser(inspectedUser) ||
-                          inspectedUser.id === currentUser?.id
-                        }
-                        onClick={() => setPendingConfirm({ kind: 'suspend', user: inspectedUser })}
-                      >
-                        Suspend Account
-                      </Button>
-                    ))}
+                  {isCeoTargetUser(inspectedUser) ? (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 border border-purple-300 dark:border-purple-800">
+                      <Shield className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                      System Root (Locked)
+                    </span>
+                  ) : (
+                    <>
+                      {canSuspendAccount &&
+                        (inspectedUser.isSuspended ? (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="xs"
+                            icon={ShieldCheck}
+                            disabled={inspectedUser.id === currentUser?.id}
+                            onClick={() =>
+                              setPendingConfirm({ kind: 'unsuspend', user: inspectedUser })
+                            }
+                            className="border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300"
+                          >
+                            Reactivate Account
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="danger"
+                            size="xs"
+                            icon={Ban}
+                            disabled={inspectedUser.id === currentUser?.id}
+                            onClick={() =>
+                              setPendingConfirm({ kind: 'suspend', user: inspectedUser })
+                            }
+                          >
+                            Suspend Account
+                          </Button>
+                        ))}
 
-                  {canResetAccess && (
-                    <Button
-                      type="button"
-                      variant="danger"
-                      size="xs"
-                      icon={RotateCcw}
-                      disabled={
-                        isCeoTargetUser(inspectedUser) ||
-                        inspectedUser.id === currentUser?.id
-                      }
-                      onClick={() => setPendingConfirm({ kind: 'demote', user: inspectedUser })}
-                    >
-                      Reset to Base Access
-                    </Button>
+                      {canResetAccess && (
+                        <Button
+                          type="button"
+                          variant="danger"
+                          size="xs"
+                          icon={RotateCcw}
+                          disabled={inspectedUser.id === currentUser?.id}
+                          onClick={() => setPendingConfirm({ kind: 'demote', user: inspectedUser })}
+                        >
+                          Reset to Base Access
+                        </Button>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -1795,7 +1733,7 @@ export function CtoPeoplePage() {
                             ? `Decline the pending role change request (${pendingConfirm.roleName}) for ${pendingConfirm.user.name}.`
                             : pendingConfirm.roleChanged
                               ? `Save personnel updates for ${pendingConfirm.user.name} and submit a Maker-Checker approval request for role change to ${String(pendingConfirm.nextRole).toUpperCase()}.`
-                              : `Update personnel details (title, squad, skills) for ${pendingConfirm.user.name}.`
+                              : `Update personnel details (title, squad) for ${pendingConfirm.user.name}.`
           }
           confirmLabel={
             pendingConfirm.kind === 'suspend'
@@ -2060,18 +1998,12 @@ export function CtoPeoplePage() {
                 showToast('Job title must be 2–120 characters and include letters.', 'warning')
                 return
               }
-              const skillsArray = createSkills
-                .split(',')
-                .map((s) => s.trim())
-                .filter(Boolean)
-                .slice(0, 30)
               setPendingCreatePayload({
                 name: createName.trim(),
                 email: createEmail.trim(),
                 title: createTitle.trim(),
                 roleSlug: createRoleSlug,
                 teamId: createTeamId || undefined,
-                skills: skillsArray,
               })
             }}
             className="space-y-4"
@@ -2243,37 +2175,22 @@ export function CtoPeoplePage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-              <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Initial Squad (Optional)
-                </label>
-                <select
-                  value={createTeamId}
-                  onChange={(e) => setCreateTeamId(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
-                >
-                  <option value="">Unassigned</option>
-                  {teams.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Skills (Comma-separated)
-                </label>
-                <input
-                  type="text"
-                  value={createSkills}
-                  onChange={(e) => setCreateSkills(e.target.value)}
-                  placeholder="TypeScript, NestJS, Postgres"
-                  className="w-full px-3 py-2 text-xs rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Initial Squad (Optional)
+              </label>
+              <select
+                value={createTeamId}
+                onChange={(e) => setCreateTeamId(e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+              >
+                <option value="">Unassigned</option>
+                {teams.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
