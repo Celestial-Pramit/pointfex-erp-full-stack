@@ -319,25 +319,21 @@ export function WeeklyKpiTrendGraph({
               </p>
             ) : (
               <div className="space-y-1 font-mono text-[11px]">
-                <div className="flex justify-between">
-                  <span className="text-[var(--muted)]">Base Delivered:</span>
-                  <span className="text-[var(--text)]">100.00</span>
-                </div>
-                {activeHoverPoint.pmScore !== null && (
+                {activeHoverPoint.pmScore != null && (
                   <div className="flex justify-between">
                     <span className="text-[var(--muted)]">PM Satisfaction (50%):</span>
-                    <span className="text-[var(--text)]">{activeHoverPoint.pmScore ?? 85}</span>
+                    <span className="text-[var(--text)]">{activeHoverPoint.pmScore}</span>
                   </div>
                 )}
-                {activeHoverPoint.ctoScore !== null && (
+                {activeHoverPoint.ctoScore != null && (
                   <div className="flex justify-between">
-                    <span className="text-[var(--muted)]">CTO Multiplier:</span>
+                    <span className="text-[var(--muted)]">CTO Score:</span>
                     <span className="text-[var(--text)]">{activeHoverPoint.ctoScore}</span>
                   </div>
                 )}
-                {activeHoverPoint.cpoScore !== null && (
+                {activeHoverPoint.cpoScore != null && (
                   <div className="flex justify-between">
-                    <span className="text-[var(--muted)]">CPO Multiplier:</span>
+                    <span className="text-[var(--muted)]">CPO Score:</span>
                     <span className="text-[var(--text)]">{activeHoverPoint.cpoScore}</span>
                   </div>
                 )}

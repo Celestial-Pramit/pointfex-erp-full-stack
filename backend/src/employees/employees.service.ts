@@ -369,7 +369,6 @@ export class EmployeesService {
   async findAll(roleCategory?: string, teamId?: string, actor?: AuthenticatedUser) {
     const where: Prisma.EmployeeWhereInput = {
       isSuspended: false,
-      email: { endsWith: '@seu.edu.bd' },
     }
 
     if (teamId) {

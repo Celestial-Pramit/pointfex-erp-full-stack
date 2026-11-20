@@ -1,3 +1,4 @@
+import { isProjectManager } from '../common/employee-role.util'
 import {
   Injectable,
   BadRequestException,
@@ -97,6 +98,7 @@ export class KpiEngineService {
     const employee = await this.prisma.employee.findUnique({
       where: { id: employeeId },
       include: {
+        employeeRoles: { where: { isActive: true }, include: { role: true } },
         assignedTasks: {
           where: {
             status: 'completed',
@@ -118,6 +120,10 @@ export class KpiEngineService {
     })
 
     if (!employee) throw new NotFoundException(`Employee ${employeeId} not found`)
+
+    if (isProjectManager(employee)) {
+      throw new BadRequestException('PM KPI must be calculated from C-level weekly evaluations')
+    }
 
     // Check if 0 tasks completed -> Inactivity N/A Red Flag
     const completedTasks = employee.assignedTasks
@@ -305,6 +311,10 @@ export class KpiEngineService {
     },
     actor?: AuthenticatedUser,
   ) {
+    if (actor && !['ceo', 'cto', 'cpo', 'cfo', 'chro'].includes((actor.role || '').toLowerCase())) {
+      throw new ForbiddenException('Only C-level executives may score PM weekly KPI')
+    }
+
     const cto = ratings?.ctoScore ?? 88
     const cpo = ratings?.cpoScore ?? 88
     const cfo = ratings?.cfoScore ?? 85
@@ -707,6 +717,20 @@ export class KpiEngineService {
         massiveXpFrozen: isMassiveXp,
       },
     })
+
+    // ponytail: Ensure task table reflects verified weight and category
+    if (verification.taskId) {
+      const cat = ({ 1: 'SMALL', 2: 'MEDIUM', 3: 'LARGE', 5: 'CRITICAL' } as const)[Number(approvedWeight)] || 'CUSTOM'
+      await this.prisma.task.update({
+        where: { id: verification.taskId },
+        data: {
+          weightPoints: new Prisma.Decimal(approvedWeight),
+          weightCategory: cat as any,
+          weightStatus: 'VERIFIED',
+          verifiedById: chroActor.id,
+        },
+      })
+    }
 
     // If task was already completed and weight was pending, disburse XP now
     if (verification.task && verification.task.status === 'completed' && !isMassiveXp && verification.status === 'PENDING_CHRO') {
@@ -1356,16 +1380,19 @@ export class KpiEngineService {
     // Resolve Target Employee safely by ID, email, or alias
     let targetEmp = await this.prisma.employee.findUnique({
       where: { id: params.targetEmployeeId },
+      include: { employeeRoles: { where: { isActive: true }, include: { role: true } } },
     })
     if (!targetEmp) {
       targetEmp = await this.prisma.employee.findUnique({
         where: { email: params.targetEmployeeId },
+        include: { employeeRoles: { where: { isActive: true }, include: { role: true } } },
       })
     }
     if (!targetEmp && params.targetEmployeeId.startsWith('usr_')) {
       const mappedId = params.targetEmployeeId.replace('usr_', 'emp_')
       targetEmp = await this.prisma.employee.findUnique({
         where: { id: mappedId },
+        include: { employeeRoles: { where: { isActive: true }, include: { role: true } } },
       })
     }
     if (!targetEmp) {
@@ -1374,6 +1401,10 @@ export class KpiEngineService {
       } else {
         throw new NotFoundException(`Target employee "${params.targetEmployeeId}" not found in system`)
       }
+    }
+
+    if (params.metricType === 'KPI' && isProjectManager(targetEmp) && !isCLevel) {
+      throw new ForbiddenException('Only C-level executives may override PM weekly KPI')
     }
 
     // Role display label

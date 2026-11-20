@@ -55,6 +55,7 @@ Thumbs.db
 # Local agent artifacts, skills, subagents & frameworks (Never commit to remote)
 .agents/
 .claude/
+.codex/
 CLAUDE.md
 CLAUDE.local.md
 *.claude*

@@ -104,7 +104,8 @@ export function mapBackendBundleToSeedData(
   // Also ensure PMs have teamId resolved from managedTeam if not in teamMemberships
   const pmTeamByEmployeeId = new Map<string, string>()
   for (const t of bundle.teams || []) {
-    if (t.pm?.id) pmTeamByEmployeeId.set(t.pm.id, t.id)
+    const pmId = t.pm?.id || t.pmPosition?.assignments?.[0]?.employee?.id
+    if (pmId) pmTeamByEmployeeId.set(pmId, t.id)
   }
   for (const u of users) {
     if (!u.teamId && pmTeamByEmployeeId.has(u.id)) {
@@ -113,21 +114,31 @@ export function mapBackendBundleToSeedData(
   }
 
   // 2. Teams
-  const teams: Team[] = (bundle.teams || []).map((t) => ({
-    id: t.id,
-    name: t.name,
-    code: t.code,
-    focus: t.focus,
-    pmId: t.pm?.id || '',
-    leadDevId: t.leadDev?.id || '',
-    memberIds: (t.members || []).map((m: any) => m.id),
-    projectIds: (t.projects || []).map((p: any) => p.id),
-    color: t.color || '#38bdf8',
-    currentSprintWeek: t.currentSprintWeek ?? 3,
-    totalSprintWeeks: t.totalSprintWeeks ?? 5,
-    health: t.health || 'on_track',
-    weeklyVelocity: t.weeklyVelocity ?? 40,
-  }))
+  const teams: Team[] = (bundle.teams || []).map((t) => {
+    const pmId = t.pm?.id || t.pmPosition?.assignments?.[0]?.employee?.id || ''
+    const memberIds = (t.memberships || t.members || [])
+      .map((m: any) => m.employeeId || m.employee?.id || m.id)
+      .filter(Boolean)
+    const projectIds = (t.teamProjects || t.projects || [])
+      .map((p: any) => p.projectId || p.project?.id || p.id)
+      .filter(Boolean)
+
+    return {
+      id: t.id,
+      name: t.name,
+      code: t.code,
+      focus: t.focus,
+      pmId,
+      leadDevId: t.leadDev?.id || '',
+      memberIds,
+      projectIds,
+      color: t.color || '#38bdf8',
+      currentSprintWeek: t.currentSprintWeek ?? 3,
+      totalSprintWeeks: t.totalSprintWeeks ?? 5,
+      health: t.health || 'on_track',
+      weeklyVelocity: t.weeklyVelocity ?? 40,
+    }
+  })
 
   // 3. Projects, Milestones & Repositories
   const milestones: Milestone[] = []
@@ -181,12 +192,18 @@ export function mapBackendBundleToSeedData(
       openIssues: 0,
     })
 
+    const resolvedTeamId = p.teamId || p.teamProjects?.[0]?.teamId || ''
+    const resolvedPmId =
+      p.pm?.id ||
+      p.teamProjects?.[0]?.team?.pmPosition?.assignments?.[0]?.employee?.id ||
+      ''
+
     return {
       id: p.id,
       name: p.name,
       code: p.code,
-      teamId: p.teamId || '',
-      pmId: p.pm?.id || '',
+      teamId: resolvedTeamId,
+      pmId: resolvedPmId,
       leadDevId: p.assignedDevs?.[0]?.id,
       repoId,
       description: p.description,

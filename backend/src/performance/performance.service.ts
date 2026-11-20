@@ -65,7 +65,6 @@ export class PerformanceService {
 
     where.employee = {
       isSuspended: false,
-      email: { endsWith: '@seu.edu.bd' },
     }
 
     return this.prisma.performanceRecord.findMany({

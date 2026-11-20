@@ -1,3 +1,4 @@
+import { isProjectManager } from '../common/employee-role.util'
 import {
   Injectable,
   Logger,
@@ -227,10 +228,10 @@ export class ExecScoresService {
   async recalculateWeeklyKpiForTask(tx: Prisma.TransactionClient, taskId: string) {
     const task = await tx.task.findUnique({
       where: { id: taskId },
-      include: { execScores: true },
+      include: { execScores: true, assignee: { include: { employeeRoles: { where: { isActive: true }, include: { role: true } } } } },
     })
 
-    if (!task) return
+    if (!task || isProjectManager(task.assignee)) return
 
     const pmScore = Number(task.pmScore || 85)
     const ctoScoreRecord = task.execScores.find((s) => s.execRole === 'CTO')

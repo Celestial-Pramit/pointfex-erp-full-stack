@@ -155,10 +155,19 @@ export function useCtoData(): CtoData {
     )
   }, [tasks, currentUser?.id, cto.id, data.users])
 
-  // 6. CTO Engineering Tasks (created by CTO and assigned to PMs)
+  // 6. CTO / C-Level Directives & Tasks (created by C-level and assigned to anyone)
   const ctoEngineeringTasks = useMemo(() => {
-    return tasks.filter((t) => t.creatorId === cto.id && t.assigneeId !== cto.id)
-  }, [tasks, cto.id])
+    return tasks.filter(
+      (t) =>
+        (t.creatorId === cto.id ||
+          t.creatorId === currentUser?.id ||
+          t.tags?.includes('Engineering Task') ||
+          t.tags?.includes('Executive Directive') ||
+          t.tags?.includes('CTO Mandate')) &&
+        t.assigneeId !== cto.id &&
+        t.assigneeId !== currentUser?.id,
+    )
+  }, [tasks, cto.id, currentUser?.id])
 
   // 7. Enriched Teams (all 6 squads)
   const teams = useMemo<TeamWithDetails[]>(() => {

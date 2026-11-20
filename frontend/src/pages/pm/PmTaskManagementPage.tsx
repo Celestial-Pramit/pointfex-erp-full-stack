@@ -33,8 +33,15 @@ const BACKFILL_DEADLINE_MS = new Date('2026-11-19T17:59:59.999Z').getTime()
 
 export function PmTaskManagementPage() {
   const { teamTasks, teamProjects, teamMembers, team } = usePmData()
-  const { createTask, approveTask, rejectTask, updateTaskStatus, setSelectedTaskModal, showToast } =
-    useApp()
+  const {
+    createTask,
+    approveTask,
+    rejectTask,
+    updateTaskStatus,
+    setSelectedTaskModal,
+    setSelectedProfileUser,
+    showToast,
+  } = useApp()
 
   // Filters (Left Column Project Selection + Right Column Dev & Search Filter)
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all')
@@ -87,6 +94,19 @@ export function PmTaskManagementPage() {
     const timer = setInterval(() => setNowMs(Date.now()), 10000)
     return () => clearInterval(timer)
   }, [])
+
+  // ponytail: Auto-populate default selection once async team data resolves
+  useEffect(() => {
+    if (!newTaskDev && teamMembers.length > 0) {
+      setNewTaskDev(teamMembers[0].id)
+    }
+  }, [teamMembers, newTaskDev])
+
+  useEffect(() => {
+    if (!newTaskProject && teamProjects.length > 0) {
+      setNewTaskProject(teamProjects[0].id)
+    }
+  }, [teamProjects, newTaskProject])
 
   const backfillMsRemaining = BACKFILL_DEADLINE_MS - nowMs
   const isBackfillWindowOpen = backfillMsRemaining > 0
@@ -221,9 +241,11 @@ export function PmTaskManagementPage() {
       return
     }
 
+    // ponytail: Pass pmScore to approveTask so it updates backend task and developer KPI
     approveTask(
       completingTask.id,
       pmScoreFeedback.trim() || `Approved with PM Satisfaction Score ${pmScore}/100`,
+      pmScore,
     )
     showToast(`Task approved with PM Satisfaction Score: ${pmScore}/100`, 'success')
     setCompletingTask(null)
@@ -526,19 +548,98 @@ export function PmTaskManagementPage() {
 
                               {/* Assignee & Due Date */}
                               <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-400">
-                                <span className="flex items-center gap-1 truncate font-medium text-slate-700 dark:text-slate-300">
-                                  <span className="w-4 h-4 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[9px] font-bold">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    if (assignee) setSelectedProfileUser(assignee)
+                                  }}
+                                  className="flex items-center gap-1 truncate font-medium text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer group"
+                                  title="View assignee performance profile & deliverables"
+                                >
+                                  <span className="w-4 h-4 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[9px] font-bold group-hover:ring-1 group-hover:ring-indigo-500">
                                     {assignee?.initials || 'D'}
                                   </span>
-                                  <span className="truncate">
+                                  <span className="truncate group-hover:underline">
                                     {assignee?.name?.split(' ')[0] || 'Dev'}
                                   </span>
-                                </span>
+                                </button>
                                 <span className="flex items-center gap-1 shrink-0">
                                   <Clock className="w-3 h-3 text-slate-400" />
                                   {formatDate(task.dueDate, 'short')}
                                 </span>
                               </div>
+
+                              {/* Todo quick action */}
+                              {col.id === 'todo' && (
+                                <div
+                                  className="flex items-center gap-1.5 pt-1.5 border-t border-slate-100 dark:border-slate-800"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => updateTaskStatus(task.id, 'in_progress')}
+                                    className="flex-1 py-1 px-2 rounded-lg bg-sky-50 dark:bg-sky-950/40 hover:bg-sky-100 text-sky-600 dark:text-sky-400 border border-sky-200/60 dark:border-sky-900/40 text-[10px] font-semibold flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                                  >
+                                    Start Work
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setCompletingTask(task)
+                                      setPmScore(85)
+                                      setPmScoreFeedback('')
+                                    }}
+                                    className="py-1 px-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-semibold flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                                  >
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    Complete &amp; Score
+                                  </button>
+                                </div>
+                              )}
+
+                              {/* In-Progress quick action */}
+                              {col.id === 'in_progress' && (
+                                <div
+                                  className="flex items-center gap-1.5 pt-1.5 border-t border-slate-100 dark:border-slate-800"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => updateTaskStatus(task.id, 'in_review')}
+                                    className="flex-1 py-1 px-2 rounded-lg bg-purple-50 dark:bg-purple-950/40 hover:bg-purple-100 text-purple-600 dark:text-purple-400 border border-purple-200/60 dark:border-purple-900/40 text-[10px] font-semibold flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                                  >
+                                    Ready for Review
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setCompletingTask(task)
+                                      setPmScore(85)
+                                      setPmScoreFeedback('')
+                                    }}
+                                    className="py-1 px-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-semibold flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                                  >
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    Complete &amp; Score
+                                  </button>
+                                </div>
+                              )}
+
+                              {/* Completed Badge & Score info */}
+                              {col.id === 'completed' && (
+                                <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800 text-[10px]">
+                                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    Completed
+                                  </span>
+                                  {Boolean((task as any).pmScore || (task as any).score) && (
+                                    <span className="font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                                      PM Score: {Number((task as any).pmScore || (task as any).score)}/100
+                                    </span>
+                                  )}
+                                </div>
+                              )}
 
                               {/* In-Review PM Action Buttons */}
                               {col.id === 'in_review' && (

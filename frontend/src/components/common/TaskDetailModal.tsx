@@ -16,7 +16,14 @@ export interface TaskDetailModalProps {
 }
 
 export function TaskDetailModal({ task, isOpen, onClose }: TaskDetailModalProps) {
-  const { data, updateTaskStatus, addTaskComment, resolvers, showToast } = useApp()
+  const {
+    data,
+    updateTaskStatus,
+    addTaskComment,
+    resolvers,
+    setSelectedProfileUser,
+    showToast,
+  } = useApp()
   const { hasPermission } = usePermissions()
   const canApproveTasks = hasPermission('tasks:approve')
   const [newComment, setNewComment] = useState('')
@@ -27,6 +34,7 @@ export function TaskDetailModal({ task, isOpen, onClose }: TaskDetailModalProps)
   const currentTask = data.tasks.find((t) => t.id === task.id) || task
 
   const project = resolvers.getProject(currentTask.projectId)
+  const assignee = resolvers.getUser(currentTask.assigneeId)
   const comments = data.comments.filter((c) => c.taskId === currentTask.id)
 
   const handleStatusChange = (newStatus: string) => {
@@ -156,7 +164,26 @@ export function TaskDetailModal({ task, isOpen, onClose }: TaskDetailModalProps)
         </div>
 
         {/* Metadata info grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-3 rounded-2xl bg-slate-50 dark:bg-[#131a2b] border border-slate-100 dark:border-slate-800 text-[11px]">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 rounded-2xl bg-slate-50 dark:bg-[#131a2b] border border-slate-100 dark:border-slate-800 text-[11px]">
+          <div>
+            <span className="text-slate-400 dark:text-slate-500 block">Assignee</span>
+            {assignee ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedProfileUser(assignee)
+                  onClose()
+                }}
+                className="font-medium text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 mt-0.5 cursor-pointer truncate"
+                title="View performance profile and deliverables"
+              >
+                <span className="truncate">{assignee.name}</span>
+              </button>
+            ) : (
+              <span className="text-slate-400 italic">Unassigned</span>
+            )}
+          </div>
+
           <div>
             <span className="text-slate-400 dark:text-slate-500 block">Due Date</span>
             <span className="font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1 mt-0.5">

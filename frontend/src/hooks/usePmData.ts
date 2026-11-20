@@ -71,9 +71,16 @@ export function usePmData(): PmData {
       data.teams.find((t) => t.pmId === pm.id || t.id === pm.teamId) || data.teams[0]
 
     // 3. Squad Developers (4 Members)
-    const teamMembers: User[] = team
+    let teamMembers: User[] = team
       ? (team.memberIds.map((devId) => resolvers.getUser(devId)).filter(Boolean) as User[])
       : []
+
+    // ponytail: Fallback to active squad developers from users list if team.memberIds mapping is sparse
+    if (teamMembers.length === 0 && team) {
+      teamMembers = data.users.filter(
+        (u) => (u.teamId === team.id || u.role === 'developer') && u.role !== 'pm' && u.id !== pm.id,
+      )
+    }
 
     // 4. Team Projects (2 Projects per team)
     const teamProjects: EnrichedProject[] = data.projects

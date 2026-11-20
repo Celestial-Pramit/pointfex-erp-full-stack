@@ -137,6 +137,10 @@ export interface Task {
   tags: string[]
   checklist?: TaskChecklistItem[]
   createdAt: string
+  weightCategory?: string
+  weightPoints?: number
+  weightStatus?: string
+  pmScore?: number | null
 }
 
 export interface TaskComment {
@@ -661,6 +665,7 @@ export interface AppContextType {
   isSearchOpen: boolean
   selectedTaskModal: Task | EnrichedTask | null
   selectedProjectModal: Project | EnrichedProject | null
+  selectedProfileUser: User | any | null
   toastMessage: ToastMessage | null
   currentUser: User | null
   currentTeam: Team | null
@@ -700,6 +705,7 @@ export interface AppContextType {
   setIsSearchOpen: React.Dispatch<React.SetStateAction<boolean>>
   setSelectedTaskModal: React.Dispatch<React.SetStateAction<Task | EnrichedTask | null>>
   setSelectedProjectModal: React.Dispatch<React.SetStateAction<Project | EnrichedProject | null>>
+  setSelectedProfileUser: React.Dispatch<React.SetStateAction<User | any | null>>
   updateTaskStatus: (taskId: string, newStatus: TaskStatus) => boolean
   addTaskComment: (taskId: string, content: string) => void
   updateUserProfile: (updatedFields: Partial<User>) => void
@@ -725,7 +731,7 @@ export interface AppContextType {
     proposedWeight?: number
     effectiveAt?: string
   }) => Task
-  approveTask: (taskId: string, feedback?: string) => void
+  approveTask: (taskId: string, feedback?: string, pmScore?: number) => void
   rejectTask: (taskId: string, feedback: string) => void
   reassignTask: (taskId: string, newAssigneeId: string) => void
   allocateBudget: (allocation: {
@@ -775,11 +781,16 @@ export interface AppContextType {
     title: string
     description?: string
     projectId: string
-    pmId: string
+    pmId?: string
+    assigneeId?: string
     priority?: TaskPriority
     dueDate?: string
     estimatedHours?: number | string
     tags?: string[]
+    weightCategory?: string
+    weightPoints?: number
+    initialStatus?: string
+    initialScore?: number
   }) => Task
   reviewCtoTaskSubmission: (taskId: string, approved: boolean, feedback?: string) => void
   updateCtoPersonalTaskStatus: (taskId: string, newStatus: TaskStatus) => void

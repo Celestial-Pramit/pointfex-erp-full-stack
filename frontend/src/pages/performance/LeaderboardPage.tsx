@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Pin } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
-import { erpApi } from '../../api/client'
+import { erpApi, type LeaderboardProfile } from '../../api/client'
+import { WeeklyKpiTrendGraph } from '../../components/performance/KpiXpWidgets'
 import {
   PageHeader,
   Card,
@@ -12,6 +13,8 @@ import {
   DataTable,
   type DataTableColumn,
   ErrorState,
+  Modal,
+  Skeleton,
 } from '../../components/common'
 
 export function LeaderboardPage() {
@@ -23,6 +26,7 @@ export function LeaderboardPage() {
   const [loading, setLoading] = useState<boolean>(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [leaderboard, setLeaderboard] = useState<any[]>([])
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
 
   const fetchLeaderboard = useCallback(async () => {
     setLoading(true)
@@ -112,7 +116,14 @@ export function LeaderboardPage() {
             </div>
             <div>
               <div className="font-bold text-xs text-[var(--text)] flex items-center gap-1.5">
-                <span>{r.name}</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedUserId(r.userId)}
+                  className="text-[var(--primary)] underline underline-offset-4 hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-4"
+                  aria-label={`View ${r.name}'s performance profile`}
+                >
+                  {r.name}
+                </button>
                 {isMe && <Badge variant="info">You</Badge>}
               </div>
               <div className="text-[11px] text-[var(--muted)]">
@@ -136,10 +147,10 @@ export function LeaderboardPage() {
           )
         }
 
-        const scoreVal = r.kpiScore !== null && r.kpiScore !== undefined ? Number(r.kpiScore) : 0
+        const scoreVal = r.kpiScore === null || r.kpiScore === undefined || r.isInactive ? null : Number(r.kpiScore)
         return (
           <div className="text-right font-mono font-bold text-xs text-indigo-600 dark:text-indigo-400">
-            {scoreVal.toFixed(2)}
+            {scoreVal === null ? 'N/A' : scoreVal.toFixed(2)}
             {r.isInactive && (
               <span className="ml-1 text-[10px] text-slate-400 dark:text-slate-500 font-normal">
                 (Inactive)
@@ -162,6 +173,14 @@ export function LeaderboardPage() {
         title="Pointfex Company Leaderboard"
         subtitle="Public engineering standings: Lifetime XP, Latest Weekly KPI, and 4-Week Moving Average."
       />
+
+      {selectedUserId && (
+        <LeaderboardProfileDialog
+          key={selectedUserId}
+          userId={selectedUserId}
+          onClose={() => setSelectedUserId(null)}
+        />
+      )}
 
       {/* Tabs */}
       <Tabs
@@ -194,6 +213,7 @@ export function LeaderboardPage() {
               { value: 'cpo', label: 'CPO' },
               { value: 'cfo', label: 'CFO' },
               { value: 'chro', label: 'CHRO' },
+              { value: 'ceo', label: 'CEO' },
             ]}
           />
 
@@ -255,5 +275,89 @@ export function LeaderboardPage() {
         />
       )}
     </div>
+  )
+}
+
+function ReviewScores({ evaluations }: { evaluations: { role: string; score: number; status: string }[] }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {evaluations.map((evaluation) => (
+        <Badge key={evaluation.role} variant={evaluation.status === 'UNREAD' ? 'warning' : 'info'}>
+          {evaluation.role}: {evaluation.score.toFixed(2)} / 100
+          {evaluation.status === 'UNREAD' ? ' (Provisional)' : ` (${evaluation.status.toLowerCase()})`}
+        </Badge>
+      ))}
+    </div>
+  )
+}
+
+function LeaderboardProfileDialog({ userId, onClose }: { userId: string; onClose: () => void }) {
+  const [profile, setProfile] = useState<LeaderboardProfile | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+    setError(null)
+    setProfile(null)
+    erpApi.getLeaderboardProfile(userId).then(
+      (data) => { if (!cancelled) setProfile(data) },
+      (err) => { if (!cancelled) setError(err?.message || 'Unable to load performance profile.') },
+    )
+    return () => { cancelled = true }
+  }, [userId, attempt])
+
+  const weeklyReviews = profile?.kpiSeries.filter((week) => week.evaluations.length > 0) || []
+
+  return (
+    <Modal isOpen onClose={onClose} title={profile ? `${profile.name} — Performance` : 'Performance profile'}
+      subtitle={profile?.role} maxWidth="max-w-4xl">
+      {error ? (
+        <ErrorState title="Unable to load profile" error={error} onRetry={() => setAttempt((n) => n + 1)} />
+      ) : !profile ? (
+        <div role="status" aria-label="Loading performance profile"><Skeleton className="h-64 w-full" /></div>
+      ) : (
+        <div className="space-y-6">
+          <section aria-label="Weekly KPI history">
+            <h4 className="font-semibold mb-3">Weekly KPI history</h4>
+            <WeeklyKpiTrendGraph data={profile.kpiSeries} />
+          </section>
+          {weeklyReviews.length > 0 && (
+            <section aria-label="C-level weekly evaluations">
+              <h4 className="font-semibold mb-2">C-level weekly evaluations</h4>
+              <p className="text-sm text-[var(--muted)] mb-3">Weekly C-level review scores. Unread scores are provisional.</p>
+              <ul className="divide-y divide-[var(--border)]">
+                {[...weeklyReviews].reverse().map((week) => (
+                  <li key={`${week.year}-${week.weekNumber}`} className="py-3 space-y-2">
+                    <p className="text-sm font-medium">{week.year}, week {week.weekNumber} · {week.score === null || week.isInactive ? 'N/A' : `${week.score.toFixed(2)} / 100`}</p>
+                    <ReviewScores evaluations={week.evaluations} />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          <section aria-label="Completed tasks and satisfaction scores">
+            <h4 className="font-semibold mb-2">Completed tasks and satisfaction scores</h4>
+            <p className="text-sm text-[var(--muted)] mb-3">PM approval and C-level task reviews. Unread reviews show provisional scores.</p>
+            {profile.tasks.length === 0 ? (
+              <p className="text-sm text-[var(--muted)]">No completed tasks recorded yet.</p>
+            ) : (
+              <ul className="divide-y divide-[var(--border)]">
+                {profile.tasks.map((task) => (
+                  <li key={task.id} className="py-3 space-y-2">
+                    <p className="font-medium break-words">{task.title}</p>
+                    <p className="text-sm text-[var(--muted)]">
+                      PM / approving reviewer satisfaction: {task.pmScore === null ? 'Not scored' : `${task.pmScore.toFixed(2)} / 100`}
+                      {task.completedAt && ` · Completed ${new Date(task.completedAt).toLocaleDateString()}`}
+                    </p>
+                    <ReviewScores evaluations={task.evaluations} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      )}
+    </Modal>
   )
 }
