@@ -38,6 +38,7 @@ import {
   Unlock,
   Mail,
   UserPlus,
+  Shield,
 } from 'lucide-react'
 
 const isCeoTargetUser = (user: Pick<User, 'role' | 'activeRoleSlugs'> & { title?: string }) =>
@@ -663,7 +664,6 @@ export function CtoPeoplePage() {
               setCreateTitle('')
               setCreateRoleSlug('developer')
               setCreateTeamId('')
-              setCreateSkills('')
               setIsCreateModalOpen(true)
             }}
           >
@@ -741,7 +741,8 @@ export function CtoPeoplePage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {filteredUsers.map((user) => {
           const team = getUserTeam(user.teamId)
-          const activeTasks = getUserTasks(user.id)
+          const userTasks = getUserTasks(user.id)
+          const activeTasks = userTasks.filter((task) => task.status !== 'completed')
           const badgeInfo = resolveUserBadge(user)
           const isTargetCeo = badgeInfo.variant === 'ceo'
           const isTargetCLevel = badgeInfo.variant === 'clevel'
