@@ -95,7 +95,7 @@ export class LoginAllowlistService {
       },
       select: { email: true, id: true },
     })
-    if (ceo && ceo.email.trim().toLowerCase() === normalized) {
+    if (ceo?.email && ceo.email.trim().toLowerCase() === normalized) {
       return true
     }
     return Boolean(CEO_CANONICAL_EMAIL && normalized === CEO_CANONICAL_EMAIL)

@@ -38,7 +38,9 @@ describe('ReportsService - Whistleblower Confidentiality & Cross-Role Escalation
       expect(prisma.report.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            isConfidential: false, // Explicitly gated out
+            OR: expect.arrayContaining([
+              expect.objectContaining({ isConfidential: false, confidentialTo: null }),
+            ]),
           }),
         }),
       )
@@ -49,7 +51,9 @@ describe('ReportsService - Whistleblower Confidentiality & Cross-Role Escalation
       expect(prisma.report.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            isConfidential: false, // Explicitly gated out
+            OR: expect.arrayContaining([
+              expect.objectContaining({ isConfidential: false, confidentialTo: null }),
+            ]),
           }),
         }),
       )

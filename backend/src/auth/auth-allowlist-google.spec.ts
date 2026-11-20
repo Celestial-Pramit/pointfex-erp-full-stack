@@ -32,6 +32,7 @@ describe('LoginAllowlistService, MailService, Recovery Codes & Google OAuth', ()
             positionAssignments: [],
           }
         }),
+        findFirst: jest.fn(async () => null),
       },
       loginAllowlistEntry: {
         findMany: jest.fn(async () => entries),
@@ -259,4 +260,3 @@ describe('LoginAllowlistService, MailService, Recovery Codes & Google OAuth', ()
     expect(sent).toEqual({ sent: false, provider: 'noop' })
   })
 })
-

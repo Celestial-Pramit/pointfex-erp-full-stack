@@ -20,6 +20,7 @@ describe('Neon Cloud Readiness, Env Validation & First-Login Onboarding Lock', (
     PORT: 3000,
     DATABASE_URL: 'postgresql://user:pass@localhost:5432/pointfex_erp?schema=public',
     CORS_ORIGIN: 'http://localhost:5173',
+    FRONTEND_URL: 'http://localhost:5173',
     JWT_SECRET: 'dev-secret-at-least-32-chars-long-value',
   }
 

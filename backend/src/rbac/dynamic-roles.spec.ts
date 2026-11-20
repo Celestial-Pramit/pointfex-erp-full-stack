@@ -177,6 +177,13 @@ describe('Phase 2: Dynamic Roles, Wildcards, Templates, Versioning & CEO Bootstr
     it('enforces strictly one active holder by revoking duplicate root assignments', async () => {
       const updates: any[] = []
       const prismaMock: any = {
+        employee: {
+          findUnique: jest.fn(async ({ where }) =>
+            where.id === 'emp_ceo_01'
+              ? { id: 'emp_ceo_01', name: 'CEO', email: 'ceo@pointfex.com', isSuspended: false }
+              : null,
+          ),
+        },
         permission: { findUnique: jest.fn(async () => ({ id: 'perm_root', code: 'system:root' })) },
         role: {
           findFirst: jest.fn(async () => ({
@@ -342,4 +349,3 @@ describe('Phase 2: Dynamic Roles, Wildcards, Templates, Versioning & CEO Bootstr
     })
   })
 })
-

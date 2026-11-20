@@ -175,7 +175,6 @@ describe('Phase 8: Enforce Mode Security, Direct Endpoint Bypass & Privilege Esc
         { roleSlug: 'ceo' },
         { id: 'emp_ceo_01', role: 'ceo' } as any,
       ),
-    ).rejects.toThrow(/CEO role cannot be assigned directly/i)
+    ).rejects.toThrow(/system:root CEO role cannot be assigned to another user/i)
   })
 })
-
