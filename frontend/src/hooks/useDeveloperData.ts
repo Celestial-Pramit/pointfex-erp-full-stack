@@ -65,16 +65,19 @@ export interface DeveloperData {
 }
 
 export function useDeveloperData(): DeveloperData {
-  const { data, currentDevId, resolvers } = useApp()
+  const { data, currentDevId, currentUser, resolvers } = useApp()
 
   return useMemo(() => {
     // Current developer
-    const dev = resolvers.getUser(currentDevId)
-    const team = dev?.teamId ? resolvers.getTeam(dev.teamId) : null
+    const devId = currentUser?.id || currentDevId
+    const dev = devId ? resolvers.getUser(devId) : null
+    const team = dev?.teamId
+      ? resolvers.getTeam(dev.teamId)
+      : (devId ? data.teams.find((t) => t.memberIds.includes(devId)) : null) || null
     const pm = team ? resolvers.getUser(team.pmId) : null
 
     // Developer tasks
-    const allDevTasks = resolvers.getDeveloperTasks(currentDevId)
+    const allDevTasks = devId ? resolvers.getDeveloperTasks(devId) : []
 
     // Task counts by status
     const pendingTasks = allDevTasks.filter((t) => t.status === 'todo')
@@ -84,9 +87,8 @@ export function useDeveloperData(): DeveloperData {
     const blockedTasks = allDevTasks.filter((t) => t.status === 'blocked')
 
     // Projects assigned to dev/team
-    const devProjects: DeveloperProject[] = resolvers
-      .getDeveloperProjects(currentDevId)
-      .map((proj) => {
+    const devProjects: DeveloperProject[] = (devId ? resolvers.getDeveloperProjects(devId) : []).map(
+      (proj) => {
         const projRepo = proj.repoId ? resolvers.getRepo(proj.repoId) : null
         const projPM = resolvers.getUser(proj.pmId)
         const projTasks = data.tasks.filter((t) => t.projectId === proj.id)
@@ -98,21 +100,22 @@ export function useDeveloperData(): DeveloperData {
           totalTasksCount: projTasks.length,
           completedTasksCount: projCompletedTasks.length,
         }
-      })
+      },
+    )
 
     // Virtual wallet & transactions
-    const wallet: Wallet = resolvers.getDeveloperWallet(currentDevId) || {
-      userId: currentDevId,
+    const wallet: Wallet = (devId ? resolvers.getDeveloperWallet(devId) : null) || {
+      userId: devId,
       balance: 0,
       currency: 'BDT',
       pendingEscrow: 0,
       totalEarnedToDate: 0,
     }
-    const transactions = resolvers.getDeveloperTransactions(currentDevId)
+    const transactions = devId ? resolvers.getDeveloperTransactions(devId) : []
 
     // Performance record
-    const performance: PerformanceRecord = resolvers.getDeveloperPerformance(currentDevId) || {
-      userId: currentDevId,
+    const performance: PerformanceRecord = (devId ? resolvers.getDeveloperPerformance(devId) : null) || {
+      userId: devId,
       overallScore: 0,
       completionRate: 0,
       onTimeDeliveryRate: 0,
@@ -156,9 +159,23 @@ export function useDeveloperData(): DeveloperData {
       .slice(0, 5)
 
     // Team members
-    const teamMembers: User[] = team
+    let teamMembers: User[] = team
       ? (team.memberIds.map((memberId) => resolvers.getUser(memberId)).filter(Boolean) as User[])
       : []
+
+    if (team) {
+      const additional = data.users.filter(
+        (u) =>
+          u.teamId === team.id &&
+          !teamMembers.some((m) => m.id === u.id) &&
+          u.id !== pm?.id &&
+          u.role !== 'pm',
+      )
+      teamMembers = [...teamMembers, ...additional]
+      if (dev && !teamMembers.some((m) => m.id === dev.id)) {
+        teamMembers = [dev, ...teamMembers]
+      }
+    }
 
     // Recent activities (filtered for relevance to developer & team)
     const recentActivities = data.activityLogs.slice(0, 6)

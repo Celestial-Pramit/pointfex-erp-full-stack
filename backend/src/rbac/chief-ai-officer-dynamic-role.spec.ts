@@ -474,13 +474,13 @@ describe('Verification Suite: Dynamic "Chief AI Officer" Role, Effective Profile
       scopeIds: [],
       isActive: true,
       expiresAt: null,
-      permission: { code: 'reports:triage' },
+      permission: { code: 'consultancy:read' },
     })
     await authz.invalidateUserCache('emp_dev_05')
 
     const profileWithDelegationAndDenial = await rbacService.getEmployeeAccessProfile('emp_dev_05')
     expect(profileWithDelegationAndDenial.permissions).toContain('governance:read')
-    expect(profileWithDelegationAndDenial.permissions).not.toContain('reports:triage')
+    expect(profileWithDelegationAndDenial.permissions).not.toContain('consultancy:read')
 
     // 7. Load real frontend resolveVisibleNavigation() from nav-registry.ts and verify sidebar updates dynamically with no frontend code change
     const navPath = path.resolve(__dirname, '../../../frontend/src/config/nav-registry.ts')
@@ -504,7 +504,7 @@ describe('Verification Suite: Dynamic "Chief AI Officer" Role, Effective Profile
 
     const sidebarBefore = resolveVisibleNavigation(profileBefore.permissions)
     expect(sidebarBefore.visibleItems.map((i: any) => i.id)).toEqual(
-      expect.arrayContaining(['dashboard', 'inbox', 'tasks', 'earnings', 'report', 'settings']),
+      expect.arrayContaining(['dashboard', 'tasks', 'earnings', 'report', 'settings']),
     )
 
     const sidebarAfter = resolveVisibleNavigation(profileAfter.permissions)
@@ -532,7 +532,7 @@ describe('Verification Suite: Dynamic "Chief AI Officer" Role, Effective Profile
     // With active delegated `governance:read`, Governance & Access immediately appears in sidebar
     const sidebarDelegated = resolveVisibleNavigation(profileWithDelegationAndDenial.permissions)
     expect(sidebarDelegated.visibleItems.map((i: any) => i.id)).toContain('access-control')
-    expect(sidebarDelegated.visibleItems.map((i: any) => i.id)).not.toContain('reports') // denied reports:triage!
+    expect(sidebarDelegated.visibleItems.map((i: any) => i.id)).not.toContain('consultancy') // denied consultancy:read!
   })
 
   it('enforces permission decorators on operational routes across Approvals, Delegations & SecurityControls controllers', () => {

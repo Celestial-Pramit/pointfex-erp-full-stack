@@ -53,6 +53,7 @@ export interface CtoData {
   announcements: Announcement[]
   developers: User[]
   projectManagers: User[]
+  pmEligibleUsers: User[]
   companyStats: {
     totalTeams: number
     totalDevelopers: number
@@ -97,7 +98,28 @@ export function useCtoData(): CtoData {
   }, [data.users])
 
   const projectManagers = useMemo(() => {
-    return data.users.filter((u) => u.role === 'pm')
+    return data.users.filter(
+      (u) => (u.role === 'pm' || u.activeRoleSlugs?.includes('pm')) && !u.isSuspended,
+    )
+  }, [data.users])
+
+  const pmEligibleUsers = useMemo(() => {
+    return data.users.filter((u) => {
+      if (u.isSuspended) return false
+      const role = (u.role || '').toLowerCase()
+      const title = (u.title || '').toLowerCase()
+      const isPm =
+        role === 'pm' ||
+        Boolean(u.activeRoleSlugs?.includes('pm')) ||
+        title.includes('project manager')
+      const isExecutive =
+        ['ceo', 'cto', 'cfo', 'chro', 'cpo', 'coo', 'cmo', 'cro'].includes(role) ||
+        Boolean(u.activeRoleSlugs?.some((r) =>
+          ['ceo', 'cto', 'cfo', 'chro', 'cpo', 'coo', 'cmo', 'cro'].includes(r.toLowerCase()),
+        )) ||
+        title.includes('chief')
+      return isPm || isExecutive
+    })
   }, [data.users])
 
   // 3. Enriched Projects (all 12 company projects)
@@ -174,10 +196,20 @@ export function useCtoData(): CtoData {
     return data.teams.map((t) => {
       const pm = data.users.find((u) => u.id === t.pmId) || null
       const leadDev = t.leadDevId ? data.users.find((u) => u.id === t.leadDevId) || null : null
-      const members = (t.memberIds || [])
+      const membersFromIds = (t.memberIds || [])
         .map((id) => data.users.find((u) => u.id === id))
         .filter((u): u is User => Boolean(u))
-      const teamProjects = projects.filter((p) => p.teamId === t.id)
+      const membersFromTeamId = data.users.filter(
+        (u) =>
+          u.teamId === t.id &&
+          !membersFromIds.some((m) => m.id === u.id) &&
+          u.id !== pm?.id &&
+          u.role !== 'pm',
+      )
+      const members = [...membersFromIds, ...membersFromTeamId]
+      const teamProjects = projects.filter(
+        (p) => p.teamId === t.id || (t.projectIds && t.projectIds.includes(p.id)),
+      )
       const teamTasks = tasks.filter((task) => members.some((m) => m.id === task.assigneeId))
 
       return {
@@ -327,6 +359,7 @@ export function useCtoData(): CtoData {
     announcements: data.announcements,
     developers,
     projectManagers,
+    pmEligibleUsers,
     companyStats,
   }
 }

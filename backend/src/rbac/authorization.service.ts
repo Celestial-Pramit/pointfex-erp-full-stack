@@ -312,6 +312,52 @@ export class AuthorizationService {
       grants.push(delGrant)
     }
 
+    const managedTeam =
+      this.prisma.team && typeof this.prisma.team.findFirst === 'function'
+        ? await this.prisma.team
+            .findFirst({
+              where: {
+                pmPosition: {
+                  assignments: {
+                    some: {
+                      employeeId,
+                      isActive: true,
+                    },
+                  },
+                },
+              },
+              select: { id: true },
+            })
+            .catch(() => null)
+        : null
+
+    if (managedTeam) {
+      roleSlugs.add('pm')
+      const pmCodes = [
+        'tasks:create_assign',
+        'tasks:approve',
+        'tasks:reject',
+        'tasks:reassign',
+        'tasks:propose_weight',
+        'tasks:read_team',
+        'projects:read_team',
+        'teams:read_own',
+        'performance:evaluate',
+        'kpis:score_exec',
+      ]
+      for (const code of pmCodes) {
+        grants.push({
+          code,
+          scope: 'ORG',
+          scopeIds: [managedTeam.id],
+          sourceType: 'role',
+          sourceId: managedTeam.id,
+          roleSlug: 'pm',
+          expiresAt: null,
+        })
+      }
+    }
+
     const denials: ScopedDenialEntry[] = activeDenials.map((d) => ({
       code: d.permission.code,
       scope: d.scope,

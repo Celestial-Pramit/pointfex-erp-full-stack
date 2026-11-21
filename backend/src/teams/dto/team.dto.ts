@@ -4,6 +4,7 @@ import {
   IsString,
   IsInt,
   IsBoolean,
+  IsArray,
   Matches,
   Max,
   MaxLength,
@@ -47,6 +48,24 @@ export class CreateTeamDto {
 
   @IsOptional()
   @IsString()
+  pmId?: string
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  memberIds?: string[]
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  projectIds?: string[]
+
+  @IsOptional()
+  @IsString()
+  leadDevId?: string
+
+  @IsOptional()
+  @IsString()
   color?: string
 
   @IsOptional()
@@ -63,6 +82,10 @@ export class UpdateTeamDto {
 
   @IsOptional()
   @IsString()
+  code?: string
+
+  @IsOptional()
+  @IsString()
   focus?: string
 
   @IsOptional()
@@ -72,6 +95,24 @@ export class UpdateTeamDto {
   @IsOptional()
   @IsString()
   pmEmployeeId?: string | null
+
+  @IsOptional()
+  @IsString()
+  pmId?: string | null
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  memberIds?: string[]
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  projectIds?: string[]
+
+  @IsOptional()
+  @IsString()
+  leadDevId?: string | null
 
   @IsOptional()
   @IsString()

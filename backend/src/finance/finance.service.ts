@@ -55,7 +55,7 @@ export class FinanceService {
       throw new ForbiddenException('Access denied: You can only view your own compensation wallet.')
     }
 
-    const wallet = await this.prisma.employeeWallet.findUnique({
+    let wallet = await this.prisma.employeeWallet.findUnique({
       where: { employeeId },
       include: {
         employee: true,
@@ -66,7 +66,22 @@ export class FinanceService {
       },
     })
     if (!wallet) {
-      throw new NotFoundException(`Wallet for employee "${employeeId}" not found`)
+      const emp = await this.prisma.employee.findUnique({ where: { id: employeeId } })
+      if (!emp) {
+        throw new NotFoundException(`Wallet for employee "${employeeId}" not found`)
+      }
+      wallet = await this.prisma.employeeWallet.create({
+        data: {
+          employeeId,
+          balance: 0,
+          currency: 'BDT',
+          currencySymbol: '৳',
+        },
+        include: {
+          employee: true,
+          transactions: true,
+        },
+      })
     }
     return wallet
   }

@@ -14,7 +14,6 @@ import {
   ScrollText,
   GitPullRequest,
   ShieldCheck,
-  Briefcase,
   FileText,
   KeyRound,
   Share2,
@@ -22,16 +21,26 @@ import {
   Package,
   Inbox,
   History,
-  Vote,
-  Lightbulb,
   ListFilter,
   Award,
+  Handshake,
+  Calendar,
+  Lightbulb,
+  MessageSquarePlus,
 } from 'lucide-react'
 import type { NavItem } from '../types'
 import { WORKSPACES, type WorkspaceId, type WorkspaceMeta } from './workspaces'
 
 export type NavGroupId =
+  | 'dashboard'
+  | 'organization'
+  | 'my_workspace'
+  | 'engineering_security'
+  | 'consultancy_advisory'
+  | 'admin_governance'
+  // Legacy aliases for backward compatibility
   | 'home'
+  | 'work_ops'
   | 'my_work'
   | 'people'
   | 'projects'
@@ -47,7 +56,15 @@ export interface NavGroupMeta {
 }
 
 export const NAV_GROUPS: readonly NavGroupMeta[] = [
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'organization', label: 'Organization' },
+  { id: 'my_workspace', label: 'My Work' },
+  { id: 'engineering_security', label: 'Engineering' },
+  { id: 'consultancy_advisory', label: 'Advisory' },
+  { id: 'admin_governance', label: 'Governance' },
+  // Aliases for legacy groups
   { id: 'home', label: 'Home' },
+  { id: 'work_ops', label: 'Work & Operations' },
   { id: 'my_work', label: 'My Work' },
   { id: 'people', label: 'People' },
   { id: 'projects', label: 'Projects & Delivery' },
@@ -75,13 +92,15 @@ export interface NavRegistryItem extends NavItem {
 }
 
 export const NAV_REGISTRY: readonly NavRegistryItem[] = [
-  // Home
+  // ==========================================
+  // Workspace 1: Dashboard
+  // ==========================================
   {
     id: 'dashboard',
     route: 'dashboard',
     label: 'My Day',
-    group: 'home',
-    workspace: 'home',
+    group: 'dashboard',
+    workspace: 'dashboard',
     sectionHeading: 'Overview',
     built: true,
     icon: LayoutDashboard,
@@ -90,12 +109,18 @@ export const NAV_REGISTRY: readonly NavRegistryItem[] = [
     mobilePriority: 1,
     description: 'Daily focus, attendance, priorities, and role-aware widgets',
   },
+
+  // ==========================================
+  // Workspace 2: Organization (Clean, inspect-first org directory)
+  // OVERVIEW: Leaderboard, Projects
+  // DIRECTORY: People, Squads
+  // ==========================================
   {
     id: 'leaderboard',
     route: 'leaderboard',
     label: 'Leaderboard',
-    group: 'home',
-    workspace: 'home',
+    group: 'organization',
+    workspace: 'organization',
     sectionHeading: 'Overview',
     built: true,
     icon: Award,
@@ -104,28 +129,57 @@ export const NAV_REGISTRY: readonly NavRegistryItem[] = [
     mobilePriority: 2,
     description: 'Company-wide XP and KPI rankings with squad filters and 4-week trends',
   },
-  // My Work — visible to every employee regardless of role
   {
-    id: 'inbox',
-    route: 'inbox',
-    label: 'Needs My Action',
-    group: 'my_work',
-    workspace: 'my_work',
-    sectionHeading: 'Daily Work',
+    id: 'projects',
+    route: 'projects',
+    label: 'Projects',
+    group: 'organization',
+    workspace: 'organization',
+    sectionHeading: 'Overview',
     built: true,
-    icon: Inbox,
+    icon: FolderGit2,
     isImplemented: true,
     alwaysVisible: true,
-    badgeSource: 'pendingApprovals',
-    mobilePriority: 3,
-    description: 'Unified inbox of approvals, task reviews, mentions, and expiring delegations',
+    description: 'Active client and internal projects, milestones, repositories, and squad assignments',
   },
+  {
+    id: 'people',
+    route: 'people',
+    label: 'People',
+    group: 'organization',
+    workspace: 'organization',
+    sectionHeading: 'Directory',
+    built: true,
+    icon: Users,
+    isImplemented: true,
+    alwaysVisible: true,
+    description: 'Company-wide directory, roles, and profiles',
+  },
+  {
+    id: 'teams',
+    route: 'teams',
+    label: 'Squads',
+    group: 'organization',
+    workspace: 'organization',
+    sectionHeading: 'Directory',
+    built: true,
+    icon: FolderGit2,
+    isImplemented: true,
+    alwaysVisible: true,
+    description: 'Squad engineering roster, assigned PMs, and managed projects',
+  },
+
+  // ==========================================
+  // Workspace 3: My Work (Personal & Squad Hub)
+  // DAILY WORK: My Tasks, My Squads
+  // GROWTH & PAY: Wallet & XP
+  // ==========================================
   {
     id: 'tasks',
     route: 'tasks',
     label: 'My Tasks',
-    group: 'my_work',
-    workspace: 'my_work',
+    group: 'my_workspace',
+    workspace: 'my_workspace',
     sectionHeading: 'Daily Work',
     built: true,
     icon: CheckSquare,
@@ -135,59 +189,351 @@ export const NAV_REGISTRY: readonly NavRegistryItem[] = [
     description: 'Assigned sprint work, status updates, and deliverables',
   },
   {
+    id: 'my-squads',
+    route: 'my-squads',
+    label: 'My Squads',
+    group: 'my_workspace',
+    workspace: 'my_workspace',
+    sectionHeading: 'Daily Work',
+    built: true,
+    icon: UserCheck,
+    isImplemented: true,
+    alwaysVisible: true,
+    description: 'Active squad memberships, scoped tasks, and squad PM task management',
+  },
+  {
     id: 'earnings',
     route: 'earnings',
-    label: 'My Wallet & XP',
-    group: 'my_work',
-    workspace: 'my_work',
-    sectionHeading: 'Compensation',
+    label: 'Wallet & XP',
+    group: 'my_workspace',
+    workspace: 'my_workspace',
+    sectionHeading: 'Growth & Pay',
     built: true,
     icon: Wallet,
     isImplemented: true,
     alwaysVisible: true,
     mobilePriority: 4,
-    description: 'BDT wallet balance, transactions, and XP/KPI standing',
+    description: 'Compensation payouts, live XP/KPI, and itemized deliverable ledger',
+  },
+
+  // ==========================================
+  // Workspace 4: Engineering (Engineering & Security)
+  // Code Quality, Security Testing, Submissions & Leave, Idea Submissions, Company Suggestions, Reports
+  // ==========================================
+  {
+    id: 'code-quality',
+    route: 'code-quality',
+    label: 'Code Quality',
+    group: 'engineering_security',
+    workspace: 'engineering_security',
+    sectionHeading: 'Engineering',
+    built: true,
+    icon: GitBranch,
+    isImplemented: true,
+    requiredPermissions: {
+      any: ['quality_gates:read', 'code_quality:view_gates', 'system:root'],
+    },
+    description: 'Static analysis, test coverage, and automated code quality gates',
   },
   {
-    id: 'my-performance',
-    route: 'my-performance',
-    label: 'My Performance',
-    group: 'my_work',
-    workspace: 'my_work',
-    sectionHeading: 'Growth & Standing',
+    id: 'security-testing',
+    route: 'security-testing',
+    label: 'Security Testing',
+    group: 'engineering_security',
+    workspace: 'engineering_security',
+    sectionHeading: 'Engineering',
+    built: true,
+    icon: ShieldCheck,
+    isImplemented: true,
+    requiredPermissions: {
+      any: ['security_alerts:read', 'security:view_alerts', 'security_alerts:create', 'test_runs:read', 'system:root'],
+    },
+    description: 'Security vulnerability scans, dependency audits, and automated test runs',
+  },
+  {
+    id: 'submissions-leave',
+    route: 'submissions-leave',
+    label: 'Submissions & Leave',
+    group: 'engineering_security',
+    workspace: 'engineering_security',
+    sectionHeading: 'Submissions & Ideas',
+    built: true,
+    icon: Calendar,
+    isImplemented: true,
+    alwaysVisible: true,
+    description: 'Personal deliverable submissions, time-off requests, and leave approvals (CEO/CHRO)',
+  },
+  {
+    id: 'idea-submissions',
+    route: 'idea-submissions',
+    label: 'Idea Submissions',
+    group: 'engineering_security',
+    workspace: 'engineering_security',
+    sectionHeading: 'Submissions & Ideas',
+    built: true,
+    icon: Lightbulb,
+    isImplemented: true,
+    alwaysVisible: true,
+    description: 'Project proposals, architecture ideas, and engineering initiatives',
+  },
+  {
+    id: 'company-suggestions',
+    route: 'company-suggestions',
+    label: 'Company Suggestions',
+    group: 'engineering_security',
+    workspace: 'engineering_security',
+    sectionHeading: 'Submissions & Ideas',
+    built: true,
+    icon: MessageSquarePlus,
+    isImplemented: true,
+    alwaysVisible: true,
+    description: 'Workplace suggestions, company improvements, and feedback',
+  },
+  {
+    id: 'reports',
+    route: 'reports',
+    label: 'Reports',
+    group: 'engineering_security',
+    workspace: 'engineering_security',
+    sectionHeading: 'Engineering',
+    built: true,
+    icon: FileText,
+    isImplemented: true,
+    alwaysVisible: true,
+    description: 'Universal grievance, issue, and misconduct reporting with authority routing',
+  },
+
+  // ==========================================
+  // Workspace 5: Advisory (Technical Advisory & Consultancy)
+  // Client Advisory, Project Requests, Client Proposals
+  // ==========================================
+  {
+    id: 'consultancy',
+    route: 'consultancy',
+    label: 'Consultations & Advisory',
+    group: 'consultancy_advisory',
+    workspace: 'consultancy_advisory',
+    sectionHeading: 'Advisory',
+    built: true,
+    icon: Handshake,
+    isImplemented: true,
+    requiredPermissions: {
+      any: ['consultancy:read', 'consultancy:manage', 'consultancy:create', 'consultancy:view_all', 'system:root'],
+    },
+    description: 'Peer-to-peer technical consultation network and executive learning notes',
+  },
+  {
+    id: 'project-requests',
+    route: 'project-requests',
+    label: 'Project Requests',
+    group: 'consultancy_advisory',
+    workspace: 'consultancy_advisory',
+    sectionHeading: 'Advisory',
+    built: true,
+    icon: GitPullRequest,
+    isImplemented: true,
+    requiredPermissions: {
+      any: ['projects:request', 'projects:create', 'projects:create_assign', 'votes:cast', 'sales:create', 'system:root'],
+    },
+    description: 'Incoming client project intake, scope review, and scoping approvals',
+  },
+  {
+    id: 'proposals',
+    route: 'proposals',
+    label: 'Client Proposals',
+    group: 'consultancy_advisory',
+    workspace: 'consultancy_advisory',
+    sectionHeading: 'Advisory',
+    built: true,
+    icon: ScrollText,
+    isImplemented: true,
+    requiredPermissions: {
+      any: ['sales:create', 'sales:read_all', 'consultancy:read', 'consultancy:manage', 'system:root'],
+    },
+    description: 'Client proposals, engagement terms, and statement of work drafts',
+  },
+
+  // ==========================================
+  // Workspace 6: Governance (Admin, Reviews & Executive Control)
+  // OPERATIONS: Approvals & Inbox, Performance Reviews, Treasury & Finance
+  // ACCESS & AUDIT: Role Matrix, Login Access, Delegations, Audit Trail, Access History, Security & MFA
+  // ==========================================
+  {
+    id: 'inbox',
+    route: 'inbox',
+    label: 'Approvals & Inbox',
+    group: 'admin_governance',
+    workspace: 'admin_governance',
+    sectionHeading: 'Operations',
+    built: true,
+    icon: Inbox,
+    isImplemented: true,
+    badgeSource: 'pendingApprovals',
+    mobilePriority: 3,
+    requiredPermissions: {
+      any: [
+        'approvals:approve',
+        'governance:approve_request',
+        'budgets:approve_request',
+        'payroll:approve_batch',
+        'system:root',
+      ],
+    },
+    description: 'Executive pending role requests, budget requests, and task deliverable approvals',
+  },
+  {
+    id: 'performance',
+    route: 'performance',
+    label: 'Performance Reviews',
+    group: 'admin_governance',
+    workspace: 'admin_governance',
+    sectionHeading: 'Operations',
     built: true,
     icon: BarChart3,
     isImplemented: true,
-    alwaysVisible: true,
-    mobilePriority: 5,
-    description: 'Weekly KPI formula breakdown, provisional status, and XP standing',
+    requiredPermissions: {
+      any: [
+        'performance:read_all',
+        'system:root',
+      ],
+    },
+    description: 'Executive quarterly reviews, 360 evaluations, and KPI calibrations',
   },
   {
-    id: 'performance-ledger',
-    route: 'performance-ledger',
-    label: 'XP Ledger',
-    group: 'my_work',
-    workspace: 'my_work',
-    sectionHeading: 'Growth & Standing',
+    id: 'budget',
+    route: 'budget',
+    label: 'Treasury & Finance',
+    group: 'admin_governance',
+    workspace: 'admin_governance',
+    sectionHeading: 'Operations',
+    built: true,
+    icon: Coins,
+    isImplemented: true,
+    requiredPermissions: {
+      any: [
+        'treasury:read',
+        'wallets:read_all',
+        'transactions:read_all',
+        'budgets:approve_request',
+        'budgets:reject_request',
+        'budgets:allocate_project',
+        'finance:issue_adjustment',
+        'revenue_share:process',
+        'finance:view_budget',
+        'system:root',
+      ],
+    },
+    description: 'Company reserves, project budgets, payroll, and developer payouts in BDT',
+  },
+  {
+    id: 'access-control',
+    route: 'access-control',
+    label: 'Role Matrix',
+    group: 'admin_governance',
+    workspace: 'admin_governance',
+    sectionHeading: 'Access & Audit',
+    built: true,
+    icon: KeyRound,
+    isImplemented: true,
+    requiredPermissions: {
+      any: [
+        'roles:read',
+        'roles:create',
+        'roles:update',
+        'roles:delete',
+        'users:assign_role',
+        'permissions:read',
+        'governance:manage_roles',
+        'system:root',
+      ],
+    },
+    description: 'Permission matrix, dynamic custom roles, and fine-grained access rules',
+  },
+  {
+    id: 'login-access',
+    route: 'login-access',
+    label: 'Login Access',
+    group: 'admin_governance',
+    workspace: 'admin_governance',
+    sectionHeading: 'Access & Audit',
+    built: true,
+    icon: ShieldCheck,
+    isImplemented: true,
+    requiredPermissions: {
+      any: ['login_allowlist:manage', 'login_allowlist:read', 'system:root'],
+    },
+    description: 'CEO-only allowlist of verified emails permitted to sign in or be onboarded',
+  },
+  {
+    id: 'delegations',
+    route: 'delegations',
+    label: 'Delegations',
+    group: 'admin_governance',
+    workspace: 'admin_governance',
+    sectionHeading: 'Access & Audit',
+    built: true,
+    icon: Share2,
+    isImplemented: true,
+    badgeSource: 'activeDelegations',
+    requiredPermissions: {
+      any: [
+        'permissions:delegate',
+        'delegations:manage',
+        'delegations:create',
+        'system:root',
+      ],
+    },
+    description: 'Time-bounded delegated permissions and revocation controls',
+  },
+  {
+    id: 'audit-log',
+    route: 'audit-log',
+    label: 'Audit Trail',
+    group: 'admin_governance',
+    workspace: 'admin_governance',
+    sectionHeading: 'Access & Audit',
+    built: true,
+    icon: ScrollText,
+    isImplemented: true,
+    requiredPermissions: {
+      any: ['audit_logs:read', 'audit_logs:read_confidential', 'audit_logs:verify', 'system:root'],
+    },
+    description: 'Tamper-evident hash-chained governance and security log',
+  },
+  {
+    id: 'access-history',
+    route: 'access-history',
+    label: 'Access History',
+    group: 'admin_governance',
+    workspace: 'admin_governance',
+    sectionHeading: 'Access & Audit',
     built: true,
     icon: History,
     isImplemented: true,
-    alwaysVisible: true,
-    description: 'Append-only audit trail of XP awards, freezes, releases, and reversals',
+    requiredPermissions: {
+      any: ['audit_logs:read_confidential', 'system:root'],
+    },
+    description: 'Immutable ledger of permission grants, role adjustments, and delegations',
   },
   {
-    id: 'report',
-    route: 'report',
-    label: 'Submissions & Leave',
-    group: 'my_work',
-    workspace: 'my_work',
-    sectionHeading: 'Daily Work',
+    id: 'security-overview',
+    route: 'security-overview',
+    label: 'Security & MFA',
+    group: 'admin_governance',
+    workspace: 'admin_governance',
+    sectionHeading: 'Access & Audit',
     built: true,
-    icon: Send,
+    icon: ShieldCheck,
     isImplemented: true,
-    alwaysVisible: true,
-    description: 'Submit leave notices, ideas, or confidential grievances',
+    requiredPermissions: {
+      any: ['mfa:manage', 'system:root'],
+    },
+    description: 'Organization MFA enrollment status, administrative resets, and security posture',
   },
+
+  // ==========================================
+  // Auxiliary & Legacy Routes (Accessible via URL & Search, not duplicated in Workspaces)
+  // ==========================================
   {
     id: 'settings',
     route: 'settings',
@@ -202,80 +548,69 @@ export const NAV_REGISTRY: readonly NavRegistryItem[] = [
     mobilePriority: 5,
     description: 'Profile, MFA status, theme, language, and personal preferences',
   },
-  // People & Culture (04, 05, 16, 17)
   {
-    id: 'people',
-    route: 'people',
-    label: 'People Directory',
-    group: 'people',
-    workspace: 'people',
-    sectionHeading: 'Directory',
-    built: true,
-    icon: UserCheck,
-    isImplemented: true,
-    requiredPermissions: {
-      any: [
-        'employees:read_directory',
-        'employees:create',
-        'employees:update_any',
-        'positions:read',
-        'positions:assign',
-        'users:assign_role',
-      ],
-    },
-    description: 'Employee directory, seats, onboarding, and lifecycle actions',
-  },
-  {
-    id: 'team-management',
-    route: 'team-management',
-    label: 'Squads & Teams',
-    group: 'people',
-    workspace: 'people',
-    sectionHeading: 'Teams',
-    built: true,
-    icon: Users,
-    isImplemented: true,
-    requiredPermissions: {
-      any: ['teams:create', 'teams:update', 'teams:manage_members', 'teams:read_all'],
-    },
-    description: 'Manage cross-functional squads and team rosters',
-  },
-  {
-    id: 'team',
-    route: 'team',
-    label: 'My Squad',
-    group: 'people',
-    workspace: 'people',
-    sectionHeading: 'Teams',
-    built: true,
-    icon: Users,
-    isImplemented: true,
-    requiredPermissions: { all: ['teams:read_own'] },
-    description: 'Collaborate with your assigned engineering squad',
-  },
-  {
-    id: 'performance',
-    route: 'performance',
-    label: 'Performance & Reviews',
-    group: 'people',
-    workspace: 'people',
-    sectionHeading: 'Growth & Reviews',
+    id: 'my-performance',
+    route: 'my-performance',
+    label: 'My Performance & XP',
+    group: 'my_work',
+    workspace: 'my_work',
+    sectionHeading: 'Performance',
     built: true,
     icon: BarChart3,
     isImplemented: true,
+    alwaysVisible: true,
+    description: 'Personal weekly KPI breakdown, XP standing, visual trends, and itemized event ledger',
+  },
+  {
+    id: 'performance-ledger',
+    route: 'performance-ledger',
+    label: 'XP Ledger',
+    group: 'my_work',
+    workspace: 'my_work',
+    sectionHeading: 'Performance',
+    built: true,
+    icon: History,
+    isImplemented: true,
+    alwaysVisible: true,
+    description: 'Append-only audit trail of XP awards, freezes, releases, and reversals',
+  },
+  {
+    id: 'performance-logs',
+    route: 'performance-logs',
+    label: 'Performance & XP Logs',
+    group: 'work_ops',
+    workspace: 'work_ops',
+    sectionHeading: 'Logs',
+    built: true,
+    icon: Award,
+    isImplemented: true,
+    alwaysVisible: true,
+    description: 'Itemized XP ledger, task KPI scores, and performance standing audit log',
+  },
+  {
+    id: 'approvals-control',
+    route: 'approvals-control',
+    label: 'Approvals & Task Control',
+    group: 'work_ops',
+    workspace: 'work_ops',
+    sectionHeading: 'Approvals',
+    built: true,
+    icon: ClipboardCheck,
+    isImplemented: true,
     requiredPermissions: {
       any: [
-        'performance:read_all',
-        'performance:evaluate',
-        'performance:recognize',
-        'performance:discipline',
-        'grievances:read_confidential',
-        'grievances:adjudicate_confidential',
+        'audit_logs:read',
+        'governance:approve_request',
+        'budgets:approve_request',
+        'system:root',
       ],
     },
-    description: 'Evaluations, recognition, morale, and confidential mediation',
+    description: 'Executive task reviews, weight proposals, and final approvals',
   },
-  // Delivery (10, 11)
+
+  // ==========================================
+  // Legacy / Direct Auxiliary Routes
+  // ==========================================
   {
     id: 'projects-repos',
     route: 'projects-repos',
@@ -292,25 +627,12 @@ export const NAV_REGISTRY: readonly NavRegistryItem[] = [
     description: 'All active projects, milestones, and repositories',
   },
   {
-    id: 'projects',
-    route: 'projects',
-    label: 'My Projects',
-    group: 'projects',
-    workspace: 'delivery',
-    sectionHeading: 'Projects',
-    built: true,
-    icon: FolderGit2,
-    isImplemented: true,
-    requiredPermissions: { all: ['projects:read_own'] },
-    description: 'Projects you contribute to or lead',
-  },
-  {
     id: 'task-management',
     route: 'task-management',
     label: 'Task Operations',
     group: 'projects',
     workspace: 'delivery',
-    sectionHeading: 'Execution',
+    sectionHeading: 'Tasks',
     built: true,
     icon: Layers,
     isImplemented: true,
@@ -325,65 +647,13 @@ export const NAV_REGISTRY: readonly NavRegistryItem[] = [
     },
     description: 'Assign work, approve milestones, and track sprint velocity',
   },
-  // Engineering Ops (12, 13, 14, 15)
-  {
-    id: 'code-quality',
-    route: 'code-quality',
-    label: 'Code Quality',
-    group: 'projects',
-    workspace: 'engineering',
-    sectionHeading: 'Quality Gates',
-    built: true,
-    icon: GitPullRequest,
-    isImplemented: true,
-    requiredPermissions: { all: ['quality_gates:read'] },
-    description: 'Static analysis, test coverage, and compliance gates',
-  },
-  {
-    id: 'security-testing',
-    route: 'security-testing',
-    label: 'Security & Testing',
-    group: 'projects',
-    workspace: 'engineering',
-    sectionHeading: 'Security & QA',
-    built: true,
-    icon: ShieldCheck,
-    isImplemented: true,
-    requiredPermissions: { any: ['security_alerts:read', 'security_alerts:create', 'test_runs:read'] },
-    description: 'Security vulnerability backlog and automated test runs',
-  },
-  // Finance (06, 07)
-  {
-    id: 'budget',
-    route: 'budget',
-    label: 'Treasury & Budgets',
-    group: 'finance',
-    workspace: 'finance',
-    sectionHeading: 'Treasury',
-    built: true,
-    icon: Coins,
-    isImplemented: true,
-    requiredPermissions: {
-      any: [
-        'treasury:read',
-        'wallets:read_all',
-        'transactions:read_all',
-        'budgets:approve_request',
-        'budgets:reject_request',
-        'budgets:allocate_project',
-        'finance:issue_adjustment',
-        'revenue_share:process',
-      ],
-    },
-    description: 'Company reserves, project budgets, payroll, and ledgers in BDT',
-  },
   {
     id: 'budget-finance',
     route: 'budget-finance',
     label: 'Budget Requests',
     group: 'finance',
     workspace: 'finance',
-    sectionHeading: 'Allocations',
+    sectionHeading: 'Finance',
     built: true,
     icon: Coins,
     isImplemented: true,
@@ -392,13 +662,12 @@ export const NAV_REGISTRY: readonly NavRegistryItem[] = [
     },
     description: 'Allocate squad funds and submit BDT budget requests',
   },
-  // Operations (08) — hidden until built
   {
     id: 'procurement-ops',
     route: 'procurement-ops',
     label: 'Procurement & Assets',
     group: 'finance',
-    workspace: 'operations',
+    workspace: 'finance',
     sectionHeading: 'Procurement',
     built: false,
     icon: Package,
@@ -406,54 +675,16 @@ export const NAV_REGISTRY: readonly NavRegistryItem[] = [
     requiredPermissions: { any: ['purchase_orders:read', 'vendors:read', 'assets:read'] },
     description: 'Vendors, purchase orders, inventory, and company assets',
   },
-  // Product & Clients (09, 18)
-  {
-    id: 'consultancy',
-    route: 'consultancy',
-    label: 'Clients & Advisory',
-    group: 'sales',
-    workspace: 'product_clients',
-    sectionHeading: 'Client Delivery',
-    built: true,
-    icon: Briefcase,
-    isImplemented: true,
-    requiredPermissions: { any: ['consultancy:read', 'consultancy:manage', 'consultancy:create'] },
-    description: 'Client advisory engagements and consulting requests',
-  },
-  // Company Hub (19 + reports)
-  {
-    id: 'reports',
-    route: 'reports',
-    label: 'Executive Reports',
-    group: 'insights',
-    workspace: 'company_hub',
-    sectionHeading: 'Reports & Triage',
-    built: true,
-    icon: FileText,
-    isImplemented: true,
-    requiredPermissions: {
-      any: [
-        'reports:triage',
-        'reports:forward',
-        'reports:read_standard',
-        'grievances:read_confidential',
-        'grievances:adjudicate_confidential',
-        'directives:dispatch',
-      ],
-    },
-    description: 'Cross-squad proposals, triage queues, and executive directives',
-  },
-  // Admin & Governance (01, 02, 03, 20)
   {
     id: 'approvals',
     route: 'approvals',
     label: 'Inbox & Approvals',
     group: 'governance',
     workspace: 'admin',
-    sectionHeading: 'Action Queue',
-    built: true,
+    sectionHeading: 'Approvals',
+    built: false,
     icon: ClipboardCheck,
-    isImplemented: true,
+    isImplemented: false,
     badgeSource: 'pendingApprovals',
     mobilePriority: 3,
     requiredPermissions: {
@@ -471,118 +702,12 @@ export const NAV_REGISTRY: readonly NavRegistryItem[] = [
     description: 'Pending multi-step approvals and action queue',
   },
   {
-    id: 'access-control',
-    route: 'access-control',
-    label: 'Roles & Permissions',
-    group: 'governance',
-    workspace: 'admin',
-    sectionHeading: 'Access Control',
-    built: true,
-    icon: KeyRound,
-    isImplemented: true,
-    requiredPermissions: {
-      any: [
-        'roles:read',
-        'roles:create',
-        'roles:update',
-        'roles:delete',
-        'users:assign_role',
-        'permissions:read',
-      ],
-    },
-    description: 'Role builder, templates, assignments, and effective access viewer',
-  },
-  {
-    id: 'delegations',
-    route: 'delegations',
-    label: 'Delegations',
-    group: 'governance',
-    workspace: 'admin',
-    sectionHeading: 'Access Control',
-    built: true,
-    icon: Share2,
-    isImplemented: true,
-    badgeSource: 'activeDelegations',
-    requiredPermissions: {
-      any: [
-        'delegations:read_own',
-        'delegations:read_received',
-        'delegations:read_all',
-        'delegations:create',
-        'delegations:approve',
-        'delegations:revoke',
-        'permissions:delegate',
-      ],
-    },
-    description: 'Time-bounded delegated permissions and revocation controls',
-  },
-  {
-    id: 'audit-log',
-    route: 'audit-log',
-    label: 'Audit Trail',
-    group: 'insights',
-    workspace: 'admin',
-    sectionHeading: 'Compliance',
-    built: true,
-    icon: ScrollText,
-    isImplemented: true,
-    requiredPermissions: {
-      any: ['audit_logs:read', 'audit_logs:read_confidential', 'audit_logs:verify'],
-    },
-    description: 'Tamper-evident hash-chained governance and security log',
-  },
-  {
-    id: 'login-access',
-    route: 'login-access',
-    label: 'Login access',
-    group: 'governance',
-    workspace: 'admin',
-    sectionHeading: 'Access Control',
-    built: true,
-    icon: ShieldCheck,
-    isImplemented: true,
-    requiredPermissions: {
-      any: ['login_allowlist:manage', 'login_allowlist:read'],
-    },
-    description: 'CEO-only allowlist of verified emails permitted to sign in or be onboarded',
-  },
-  {
-    id: 'access-history',
-    route: 'access-history',
-    label: 'Access History',
-    group: 'governance',
-    workspace: 'admin',
-    sectionHeading: 'Access Control',
-    built: true,
-    icon: History,
-    isImplemented: true,
-    requiredPermissions: {
-      any: ['access_history:read'],
-    },
-    description: 'Immutable ledger of permission grants, role adjustments, and delegations',
-  },
-  {
-    id: 'project-requests',
-    route: 'project-requests',
-    label: 'Project Votes',
-    group: 'governance',
-    workspace: 'admin',
-    sectionHeading: 'Projects & Governance',
-    built: true,
-    icon: Vote,
-    isImplemented: true,
-    requiredPermissions: {
-      any: ['projects:request', 'projects:create', 'votes:cast'],
-    },
-    description: 'Project proposal stepper and executive voting console',
-  },
-  {
     id: 'my-requests',
     route: 'my-requests',
     label: 'My Requests',
     group: 'my_work',
     workspace: 'my_work',
-    sectionHeading: 'Daily Work',
+    sectionHeading: 'Requests',
     built: true,
     icon: ListFilter,
     isImplemented: true,
@@ -590,34 +715,77 @@ export const NAV_REGISTRY: readonly NavRegistryItem[] = [
     description: 'Live timeline tracking all your access, project, and budget requests',
   },
   {
-    id: 'proposals',
-    route: 'proposals',
-    label: 'Proposals & Ideas',
+    id: 'report',
+    route: 'report',
+    label: 'Submissions & Grievances',
     group: 'my_work',
     workspace: 'my_work',
-    sectionHeading: 'Daily Work',
+    sectionHeading: 'Grievances',
     built: true,
-    icon: Lightbulb,
+    icon: Send,
     isImplemented: true,
     alwaysVisible: true,
-    description: 'Submit technical proposals or confidential workplace reports',
-  },
-  {
-    id: 'security-overview',
-    route: 'security-overview',
-    label: 'Security',
-    group: 'governance',
-    workspace: 'admin',
-    sectionHeading: 'Security',
-    built: true,
-    icon: ShieldCheck,
-    isImplemented: true,
-    requiredPermissions: {
-      any: ['mfa:manage', 'governance:read', 'audit_logs:read'],
-    },
-    description: 'Organization MFA enrollment status, lockouts, and admin MFA/session resets',
+    description: 'Submit leave notices, ideas, or confidential grievances',
   },
 ]
+
+export function canAccessRoute(
+  routeId: string,
+  effectivePermissions: readonly string[] | ReadonlySet<string>,
+): boolean {
+  const item = findNavItemByRoute(routeId)
+  if (!item || !item.built) return false
+  if (item.alwaysVisible) return true
+
+  const permSet =
+    effectivePermissions instanceof Set
+      ? (effectivePermissions as Set<string>)
+      : new Set(effectivePermissions)
+  if (permSet.has('system:root')) return true
+
+  // Governance workspace route guards:
+  // 1. Delegations: strictly C-Suite executives with delegation authority
+  if (item.id === 'delegations') {
+    if (
+      !permSet.has('system:root') &&
+      !permSet.has('permissions:delegate') &&
+      !permSet.has('delegations:manage') &&
+      !permSet.has('delegations:create')
+    ) {
+      return false
+    }
+    if (
+      permSet.has('tasks:read_own') &&
+      !permSet.has('system:root') &&
+      !permSet.has('permissions:delegate')
+    ) {
+      return false
+    }
+  }
+
+  // 2. Security & MFA: administrative oversight strictly for CHRO and CEO
+  if (item.id === 'security-overview') {
+    if (
+      !permSet.has('system:root') &&
+      !(permSet.has('mfa:manage') && !permSet.has('tasks:read_own'))
+    ) {
+      return false
+    }
+  }
+
+  // 3. Performance Reviews: strictly C-Suite executive oversight (CEO, CTO, CFO, CHRO, CPO)
+  if (item.id === 'performance') {
+    if (!permSet.has('system:root') && !permSet.has('performance:read_all')) {
+      return false
+    }
+  }
+
+  const req = item.requiredPermissions
+  if (!req) return true
+  if (req.all && !req.all.every((c) => permSet.has(c))) return false
+  if (req.any && !req.any.some((c) => permSet.has(c))) return false
+  return true
+}
 
 export function checkItemVisibility(
   item: NavRegistryItem,
@@ -625,22 +793,9 @@ export function checkItemVisibility(
   alreadyVisibleIds?: ReadonlySet<string>,
 ): boolean {
   if (!item.built) return false
+  if (item.id === 'performance-ledger') return false
   if (item.id === 'team' && alreadyVisibleIds?.has('team-management')) return false
-  if (item.id === 'projects' && alreadyVisibleIds?.has('projects-repos')) return false
-  if (item.alwaysVisible) return true
-
-  const permSet = new Set(effectivePermissions)
-  if (permSet.has('system:root')) return true
-
-  const req = item.requiredPermissions
-  if (!req) return true
-  if (req.all && req.all.length > 0 && !req.all.every((c) => permSet.has(c))) {
-    return false
-  }
-  if (req.any && req.any.length > 0 && !req.any.some((c) => permSet.has(c))) {
-    return false
-  }
-  return true
+  return canAccessRoute(item.route, effectivePermissions)
 }
 
 export interface VisibleNavGroup {
@@ -657,7 +812,7 @@ export interface WorkspaceSection {
 export interface VisibleWorkspace {
   workspace: WorkspaceMeta
   items: NavRegistryItem[]
-  /** At most 3 short section headings per workspace */
+  /** At most 4 short section headings per workspace */
   sections: WorkspaceSection[]
 }
 
@@ -703,7 +858,18 @@ export function resolveVisibleWorkspaces(effectivePermissions: readonly string[]
   const { visibleItems } = resolveVisibleNavigation(effectivePermissions)
 
   return WORKSPACES.map((ws) => {
-    const items = visibleItems.filter((item) => item.workspace === ws.id)
+    const items = visibleItems.filter((item) => {
+      const itemWs = item.workspace
+      return (
+        itemWs === ws.id ||
+        (ws.id === 'dashboard' && itemWs === 'home') ||
+        (ws.id === 'organization' && (itemWs === 'work_ops' || itemWs === 'people' || itemWs === 'delivery' || itemWs === 'company_hub')) ||
+        (ws.id === 'my_workspace' && itemWs === 'my_work') ||
+        (ws.id === 'engineering_security' && itemWs === 'engineering') ||
+        (ws.id === 'consultancy_advisory' && itemWs === 'product_clients') ||
+        (ws.id === 'admin_governance' && itemWs === 'admin_governance')
+      )
+    })
     if (items.length === 0) return null
 
     const sectionMap = new Map<string, NavRegistryItem[]>()
@@ -715,7 +881,7 @@ export function resolveVisibleWorkspaces(effectivePermissions: readonly string[]
     }
 
     const sections: WorkspaceSection[] = Array.from(sectionMap.entries())
-      .slice(0, 3)
+      .slice(0, 4)
       .map(([heading, sectionItems]) => ({ heading, items: sectionItems }))
 
     return {
@@ -731,18 +897,14 @@ export function findNavItemByRoute(routeId: string): NavRegistryItem | undefined
 }
 
 export function findWorkspaceByRoute(routeId: string): WorkspaceId {
-  return findNavItemByRoute(routeId)?.workspace ?? 'home'
-}
-
-export function canAccessRoute(routeId: string, effectivePermissions: readonly string[]): boolean {
   const item = findNavItemByRoute(routeId)
-  if (!item || !item.built) return false
-  if (item.alwaysVisible) return true
-  const permSet = new Set(effectivePermissions)
-  if (permSet.has('system:root')) return true
-  const req = item.requiredPermissions
-  if (!req) return true
-  if (req.all && !req.all.every((c) => permSet.has(c))) return false
-  if (req.any && !req.any.some((c) => permSet.has(c))) return false
-  return true
+  if (!item) return 'dashboard'
+  const ws = item.workspace
+  if (ws === 'home') return 'dashboard'
+  if (ws === 'work_ops' || ws === 'people' || ws === 'delivery' || ws === 'company_hub') return 'organization'
+  if (ws === 'my_work') return 'my_workspace'
+  if (ws === 'engineering') return 'engineering_security'
+  if (ws === 'product_clients') return 'consultancy_advisory'
+  if (ws === 'admin' || ws === 'finance' || ws === 'operations' || ws === 'admin_governance') return 'admin_governance'
+  return ws
 }

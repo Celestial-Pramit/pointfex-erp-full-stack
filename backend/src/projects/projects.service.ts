@@ -152,7 +152,7 @@ export class ProjectsService {
   async create(dto: CreateProjectDto) {
     const projectId = dto.id || `proj_${Date.now()}`
 
-    return this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx) => {
       const project = await tx.project.create({
         data: {
           id: projectId,
@@ -186,18 +186,40 @@ export class ProjectsService {
 
       return project
     })
+
+    try {
+      return await this.findOne(projectId)
+    } catch {
+      return { id: projectId, ...dto } as any
+    }
   }
 
   async update(id: string, dto: UpdateProjectDto) {
     await this.findOne(id)
+    const { teamId, ...rest } = dto
 
-    return this.prisma.project.update({
-      where: { id },
-      data: {
-        ...dto,
-        deadline: dto.deadline ? new Date(dto.deadline) : undefined,
-      },
-    })
+    if (Object.keys(rest).length > 0) {
+      await this.prisma.project.update({
+        where: { id },
+        data: {
+          ...rest,
+          deadline: rest.deadline ? new Date(rest.deadline) : undefined,
+        },
+      })
+    }
+
+    if (teamId !== undefined) {
+      if (teamId) {
+        await this.assignTeam(id, { teamId })
+      } else {
+        await this.prisma.teamProject.updateMany({
+          where: { projectId: id, isActive: true },
+          data: { isActive: false, unassignedAt: new Date() },
+        })
+      }
+    }
+
+    return this.findOne(id)
   }
 
   async addMilestone(projectId: string, dto: CreateMilestoneDto) {

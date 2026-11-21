@@ -575,7 +575,6 @@ export async function seedAuthorizationPoliciesAndGovernanceGrants(
     'delegations:read_received',
     'sessions:read',
     'sessions:revoke',
-    'mfa:manage',
     'xp:read_own',
   ]
 
@@ -585,8 +584,6 @@ export async function seedAuthorizationPoliciesAndGovernanceGrants(
       ...baseSelfOperationalPerms,
       'approvals:approve',
       'approvals:reject',
-      'delegations:read_own',
-      'delegations:revoke',
     ],
     cto: [
       ...baseSelfOperationalPerms,
@@ -609,6 +606,7 @@ export async function seedAuthorizationPoliciesAndGovernanceGrants(
     ],
     chro: [
       ...baseSelfOperationalPerms,
+      'mfa:manage',
       'approvals:approve',
       'approvals:reject',
       'delegations:read_own',
@@ -620,6 +618,7 @@ export async function seedAuthorizationPoliciesAndGovernanceGrants(
     ],
     ceo: [
       ...baseSelfOperationalPerms,
+      'mfa:manage',
       'approvals:approve',
       'approvals:reject',
       'delegations:read_own',

@@ -35,14 +35,24 @@ function formatCountdown(expiresAt: string): string {
 
 export function DelegationCenterPage() {
   const { data, currentUser, showToast, refreshPermissions } = useApp()
-  const { can, canAny } = usePermissions()
+  const { can, permissions, authzSnapshot } = usePermissions()
 
+  const userRole = (currentUser?.role || '').toLowerCase()
   const isCeo =
-    currentUser?.role === 'system:root' ||
+    userRole === 'ceo' ||
+    userRole === 'system:root' ||
+    can('system:root') ||
     Boolean((currentUser as any)?.roles?.includes('system:root'))
-  const canCreate = isCeo || canAny(['delegations:create', 'permissions:delegate'])
-  const canApprove = can('delegations:approve')
-  const canReadOrg = isCeo || canAny(['delegations:read_all', 'permissions:read', 'audit_logs:read'])
+  const isCLevel = isCeo || ['cto', 'cfo', 'chro', 'cpo'].includes(userRole)
+  const canCreate = isCLevel
+  const canApprove = isCeo || can('delegations:approve')
+  const canReadOrg = isCeo || isCLevel
+
+  const effectivePermissions = useMemo(() => {
+    return authzSnapshot?.effectiveCodes ?? permissions ?? []
+  }, [authzSnapshot?.effectiveCodes, permissions])
+
+  const heldSet = useMemo(() => new Set(effectivePermissions), [effectivePermissions])
 
   const [created, setCreated] = useState<any[]>([])
   const [received, setReceived] = useState<any[]>([])
@@ -117,11 +127,31 @@ export function DelegationCenterPage() {
   const [approveTargetId, setApproveTargetId] = useState<string | null>(null)
   const [isApproving, setIsApproving] = useState(false)
 
+  // C-Level executives can only delegate permissions they actively hold. CEO can delegate any non-critical delegable permission.
+  const availablePermissions = useMemo(() => {
+    if (isCeo) return delegatablePerms
+    return delegatablePerms.filter((p: any) => heldSet.has(p.code))
+  }, [isCeo, delegatablePerms, heldSet])
+
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault()
+    if (!canCreate) {
+      showToast('Only C-Suite executives (CEO, CFO, CTO, CHRO, CPO) have delegation authority.', 'error')
+      return
+    }
     if (!delegateeId || selectedCodes.length === 0 || reason.trim().length < 3) {
       showToast('Select a recipient, at least one permission, and provide a clear reason.', 'error')
       return
+    }
+    if (!isCeo) {
+      const unauthorized = selectedCodes.filter((code) => !heldSet.has(code))
+      if (unauthorized.length > 0) {
+        showToast(
+          `You can only delegate permissions you actively hold. Missing: ${unauthorized.join(', ')}`,
+          'error',
+        )
+        return
+      }
     }
     setPendingCreateOpen(true)
   }
@@ -164,11 +194,22 @@ export function DelegationCenterPage() {
 
   const executeRevoke = async (mfaCode: string, revokeReason?: string) => {
     if (!revokeTarget) return
+    const isDelCreator =
+      revokeTarget.delegatorId === currentUser?.id ||
+      revokeTarget.delegator?.id === currentUser?.id
+    if (!isCeo && !isDelCreator) {
+      showToast(
+        'Executives can only revoke delegations they created. Only the CEO can revoke third-party delegations.',
+        'error',
+      )
+      setRevokeTarget(null)
+      return
+    }
     setIsRevoking(true)
     try {
       await erpApi.revokeDelegation(
         revokeTarget.id,
-        revokeReason || 'Revoked via Delegation Center',
+        revokeReason || (isCeo && !isDelCreator ? 'Revoked by CEO executive authority' : 'Revoked by delegator'),
         mfaCode,
       )
       showToast('Delegation revoked immediately.', 'info')
@@ -205,6 +246,10 @@ export function DelegationCenterPage() {
     const scopeList = (del.scopes || [])
       .map((s: any) => `${s.scope}${s.scopeIds?.length ? ` (${s.scopeIds.join(', ')})` : ''}`)
       .join(', ')
+    const isDelCreator =
+      del.delegatorId === currentUser?.id ||
+      del.delegator?.id === currentUser?.id
+    const canRevokeThis = isCeo || (isCLevel && isDelCreator)
 
     return (
       <div
@@ -264,7 +309,7 @@ export function DelegationCenterPage() {
                 <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Approve
               </Button>
             )}
-            {showRevoke && (del.status === 'ACTIVE' || del.status === 'PENDING_APPROVAL') && (
+            {showRevoke && canRevokeThis && (del.status === 'ACTIVE' || del.status === 'PENDING_APPROVAL') && (
               <Button size="sm" variant="danger" onClick={() => setRevokeTarget(del)}>
                 <XCircle className="w-3.5 h-3.5 mr-1" /> Revoke
               </Button>
@@ -291,7 +336,11 @@ export function DelegationCenterPage() {
       {canCreate && (
         <Card
           title="Grant Scoped Temporary Delegation"
-          subtitle="Maximum 30 days • Limited to non-critical permissions you actively hold"
+          subtitle={
+            isCeo
+              ? 'Maximum 30 days • Critical codes excluded (CEO Org-Wide Delegative Authority)'
+              : 'Maximum 30 days • Strictly limited to non-critical permissions you actively hold'
+          }
         >
           <form onSubmit={handleCreate} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -395,7 +444,7 @@ export function DelegationCenterPage() {
             <div>
               <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
                 <p className="text-[12px] font-medium text-[var(--muted)] flex items-center gap-1.5">
-                  Delegate Authority ({delegatablePerms.length} eligible capabilities)
+                  Delegate Authority ({availablePermissions.length} eligible capabilities{isCeo ? '' : ' you hold'})
                   <span className="text-[11px] text-[var(--warning)] inline-flex items-center gap-1">
                     <ShieldAlert className="w-3 h-3" /> ⚠ Critical codes excluded
                   </span>
@@ -423,8 +472,8 @@ export function DelegationCenterPage() {
               {pickMode === 'packs' ? (
                 <div className="max-h-48 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2 p-2 rounded-[10px] border border-[var(--border)] bg-[var(--bg)]">
                   {PERMISSION_PACKS.filter((pack) => pack.riskLevel !== 'critical').map((pack) => {
-                    const heldSet = new Set(delegatablePerms.map((p: any) => p.code))
-                    const eligibleInPack = pack.codes.filter((c) => heldSet.has(c))
+                    const heldCodes = new Set(availablePermissions.map((p: any) => p.code))
+                    const eligibleInPack = pack.codes.filter((c) => heldCodes.has(c))
                     if (eligibleInPack.length === 0) return null
                     const active = eligibleInPack.every((c) => selectedCodes.includes(c))
                     return (
@@ -456,7 +505,7 @@ export function DelegationCenterPage() {
                 </div>
               ) : (
                 <div className="max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 p-2 rounded-[10px] border border-[var(--border)] bg-[var(--bg)]">
-                  {delegatablePerms.map((p: any) => {
+                  {availablePermissions.map((p: any) => {
                     const checked = selectedCodes.includes(p.code)
                     return (
                       <label

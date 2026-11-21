@@ -437,8 +437,13 @@ export class EmployeesService {
         avatarUrl: emp.avatarUrl || null,
         initials: emp.initials,
         title: emp.title,
+        lifetimeXp: emp.lifetimeXp,
         department: emp.positionAssignments?.[0]?.position?.department || 'General',
         squads: emp.teamMemberships?.map((tm) => tm.team?.name).filter(Boolean) || [],
+        teamMemberships: emp.teamMemberships,
+        positionAssignments: emp.positionAssignments,
+        employeeRoles: emp.employeeRoles,
+        wallet: emp.wallet,
         email: emp.email,
         status: emp.status,
       }))

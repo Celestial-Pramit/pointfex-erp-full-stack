@@ -13,11 +13,6 @@ import { canAccessRoute } from './config/nav-registry'
 const DeveloperTasksPage = lazy(() =>
   import('./pages/developer/DeveloperTasksPage').then((m) => ({ default: m.DeveloperTasksPage })),
 )
-const DeveloperProjectsPage = lazy(() =>
-  import('./pages/developer/DeveloperProjectsPage').then((m) => ({
-    default: m.DeveloperProjectsPage,
-  })),
-)
 const DeveloperTeamPage = lazy(() =>
   import('./pages/developer/DeveloperTeamPage').then((m) => ({ default: m.DeveloperTeamPage })),
 )
@@ -34,9 +29,6 @@ const PmTasksPage = lazy(() =>
 )
 const PmTaskManagementPage = lazy(() =>
   import('./pages/pm/PmTaskManagementPage').then((m) => ({ default: m.PmTaskManagementPage })),
-)
-const PmProjectsPage = lazy(() =>
-  import('./pages/pm/PmProjectsPage').then((m) => ({ default: m.PmProjectsPage })),
 )
 const PmTeamManagementPage = lazy(() =>
   import('./pages/pm/PmTeamManagementPage').then((m) => ({ default: m.PmTeamManagementPage })),
@@ -81,9 +73,6 @@ const CtoConsultancyPage = lazy(() =>
 )
 const CtoEarningsPage = lazy(() =>
   import('./pages/cto/CtoEarningsPage').then((m) => ({ default: m.CtoEarningsPage })),
-)
-const CtoReportsPage = lazy(() =>
-  import('./pages/cto/CtoReportsPage').then((m) => ({ default: m.CtoReportsPage })),
 )
 const MyAccountPage = lazy(() =>
   import('./pages/account/MyAccountPage').then((m) => ({ default: m.MyAccountPage })),
@@ -133,16 +122,34 @@ const UnifiedInboxPage = lazy(() =>
 const MyPerformancePage = lazy(() =>
   import('./pages/performance/MyPerformancePage').then((m) => ({ default: m.MyPerformancePage })),
 )
-const PerformanceLedgerPage = lazy(() =>
-  import('./pages/performance/PerformanceLedgerPage').then((m) => ({
-    default: m.PerformanceLedgerPage,
-  })),
-)
 const LeaderboardPage = lazy(() =>
   import('./pages/performance/LeaderboardPage').then((m) => ({ default: m.LeaderboardPage })),
 )
 const AccessDeniedPage = lazy(() =>
   import('./pages/security/AccessDeniedPage').then((m) => ({ default: m.AccessDeniedPage })),
+)
+const MySquadsPage = lazy(() =>
+  import('./pages/operations/MySquadsPage').then((m) => ({ default: m.MySquadsPage })),
+)
+const PerformanceXpLogsPage = lazy(() =>
+  import('./pages/operations/PerformanceXpLogsPage').then((m) => ({
+    default: m.PerformanceXpLogsPage,
+  })),
+)
+const ApprovalsTaskControlPage = lazy(() =>
+  import('./pages/operations/ApprovalsTaskControlPage').then((m) => ({
+    default: m.ApprovalsTaskControlPage,
+  })),
+)
+const SubmissionsLeavePage = lazy(() =>
+  import('./pages/operations/SubmissionsLeavePage').then((m) => ({
+    default: m.SubmissionsLeavePage,
+  })),
+)
+const EngineeringReportsPage = lazy(() =>
+  import('./pages/engineering/EngineeringReportsPage').then((m) => ({
+    default: m.EngineeringReportsPage,
+  })),
 )
 
 function PageRouteFallback() {
@@ -155,7 +162,7 @@ function PageRouteFallback() {
 }
 
 function MainContentRouter() {
-  const { currentRoute, can, canAny } = useApp()
+  const { currentRoute, can, canAny, isSquadPm, currentUser } = useApp()
   const { permissions, authzSnapshot } = usePermissions()
   const effectivePermissions = authzSnapshot?.effectiveCodes ?? permissions
 
@@ -163,65 +170,78 @@ function MainContentRouter() {
     return <AccessDeniedPage routeId={currentRoute} />
   }
 
-  if (
-    currentRoute === 'delegations' &&
-    canAny([
-      'delegations:read_own',
-      'delegations:read_received',
-      'delegations:read_all',
-      'delegations:create',
-      'delegations:approve',
-      'delegations:revoke',
-      'permissions:delegate',
-    ])
-  ) {
-    return <DelegationCenterPage />
+  if (currentRoute === 'delegations') {
+    const role = (currentUser?.role || '').toLowerCase()
+    const isCLevelOrCeo = ['ceo', 'cto', 'chro', 'cfo', 'cpo'].includes(role) || can('system:root')
+    if (
+      isCLevelOrCeo &&
+      (canAny([
+        'permissions:delegate',
+        'delegations:create',
+        'delegations:manage',
+        'system:root',
+      ]) || isCLevelOrCeo)
+    ) {
+      return <DelegationCenterPage />
+    }
+    return <AccessDeniedPage routeId="delegations" />
   }
-  if (currentRoute === 'inbox') {
-    return <UnifiedInboxPage />
-  }
-  if (
-    currentRoute === 'approvals' &&
-    canAny([
-      'approvals:read',
-      'approvals:create',
-      'approvals:approve',
-      'approvals:reject',
-      'governance:approve_request',
-      'payroll:approve_batch',
-      'budgets:approve_request',
-      'tasks:approve',
-    ])
-  ) {
-    return <UnifiedInboxPage />
+  if (currentRoute === 'inbox' || currentRoute === 'approvals') {
+    const role = (currentUser?.role || '').toLowerCase()
+    const isCLevelOrCeo = ['ceo', 'cto', 'chro', 'cfo', 'cpo'].includes(role) || can('system:root')
+    if (
+      isCLevelOrCeo &&
+      canAny([
+        'approvals:approve',
+        'governance:approve_request',
+        'budgets:approve_request',
+        'payroll:approve_batch',
+        'system:root',
+      ])
+    ) {
+      return <UnifiedInboxPage />
+    }
+    return <AccessDeniedPage routeId="inbox" />
   }
 
-  // Capability-driven module routing (no hardcoded role gate checks)
-  if (
-    currentRoute === 'people' &&
-    canAny([
-      'employees:read_directory',
-      'employees:create',
-      'employees:update_any',
-      'employees:suspend',
-      'users:suspend',
-      'positions:read',
-      'positions:assign',
-      'users:assign_role',
-    ])
-  ) {
+  // Work & Operations Workspace (Unified Organization, Squads, Tasks & Approvals)
+  if (currentRoute === 'people') {
     return <CtoPeoplePage />
+  }
+  if (currentRoute === 'teams' || currentRoute === 'team-management') {
+    return <CtoTeamManagementPage />
+  }
+  if (currentRoute === 'my-squads' || currentRoute === 'team') {
+    return <MySquadsPage />
+  }
+  if (currentRoute === 'performance-logs') {
+    return <PerformanceXpLogsPage />
+  }
+  if (currentRoute === 'approvals-control') {
+    const role = (currentUser?.role || '').toLowerCase()
+    const activeRoles = (currentUser?.activeRoleSlugs || []).map((r) => r.toLowerCase())
+    const title = (currentUser?.title || '').toLowerCase()
+    const isCLevelOrCeo =
+      ['ceo', 'cto', 'chro', 'cfo', 'cpo'].includes(role) ||
+      activeRoles.some((r) => ['ceo', 'cto', 'chro', 'cfo', 'cpo'].includes(r)) ||
+      title.includes('chief') ||
+      can('system:root')
+    if (isCLevelOrCeo) {
+      return <ApprovalsTaskControlPage />
+    }
+    return <AccessDeniedPage routeId="approvals-control" />
   }
   if (
     currentRoute === 'task-management' &&
-    canAny([
-      'tasks:create_assign',
-      'tasks:approve',
-      'tasks:reject',
-      'tasks:reassign',
-      'directives:read',
-      'directives:dispatch',
-    ])
+    (isSquadPm ||
+      canAny([
+        'tasks:create_assign',
+        'tasks:approve',
+        'tasks:reject',
+        'tasks:reassign',
+        'directives:read',
+        'directives:dispatch',
+      ]))
   ) {
     return can('projects:read_all') || can('directives:dispatch') ? (
       <CtoTaskManagementPage />
@@ -264,35 +284,27 @@ function MainContentRouter() {
   ) {
     return <PmBudgetFinancePage />
   }
-  if (
-    currentRoute === 'performance' &&
-    canAny([
-      'performance:read_all',
-      'performance:evaluate',
-      'performance:recognize',
-      'performance:discipline',
-      'grievances:read_confidential',
-      'grievances:adjudicate_confidential',
-    ])
-  ) {
-    return <ChroPerformancePage />
+  if (currentRoute === 'performance') {
+    const role = (currentUser?.role || '').toLowerCase()
+    const isCLevelOrCeo = ['ceo', 'cto', 'chro', 'cfo', 'cpo'].includes(role) || can('system:root')
+    if (
+      isCLevelOrCeo &&
+      (can('system:root') ||
+        canAny([
+          'performance:read_all',
+          'performance:evaluate',
+          'performance:recognize',
+          'performance:discipline',
+          'grievances:read_confidential',
+          'grievances:adjudicate_confidential',
+        ]))
+    ) {
+      return <ChroPerformancePage />
+    }
+    return <AccessDeniedPage routeId="performance" />
   }
-  if (
-    currentRoute === 'reports' &&
-    canAny([
-      'reports:triage',
-      'reports:forward',
-      'reports:read_standard',
-      'grievances:read_confidential',
-      'grievances:adjudicate_confidential',
-      'directives:dispatch',
-    ])
-  ) {
-    return canAny(['directives:dispatch', 'grievances:read_confidential', 'reports:read_all']) ? (
-      <CtoReportsPage />
-    ) : (
-      <PmReportsPage />
-    )
+  if (currentRoute === 'reports') {
+    return <EngineeringReportsPage />
   }
   if (currentRoute === 'code-quality' && can('quality_gates:read')) {
     return <CtoCodeQualityPage />
@@ -308,11 +320,16 @@ function MainContentRouter() {
   ) {
     return <CtoSecurityTestingPage />
   }
-  if (currentRoute === 'consultancy' && canAny(['consultancy:read', 'consultancy:manage'])) {
+  if (currentRoute === 'consultancy') {
     return <CtoConsultancyPage />
   }
-  if (currentRoute === 'audit-log' && canAny(['audit_logs:read', 'audit_logs:read_confidential'])) {
-    return <CtoAuditLogPage />
+  if (currentRoute === 'audit-log') {
+    const role = (currentUser?.role || '').toLowerCase()
+    const isCLevelOrCeo = ['ceo', 'cto', 'chro', 'cfo', 'cpo'].includes(role) || can('system:root')
+    if (isCLevelOrCeo && canAny(['audit_logs:read', 'audit_logs:read_confidential', 'audit_logs:verify', 'system:root'])) {
+      return <CtoAuditLogPage />
+    }
+    return <AccessDeniedPage routeId="audit-log" />
   }
   if (
     currentRoute === 'team-management' &&
@@ -333,8 +350,17 @@ function MainContentRouter() {
   ) {
     return <CtoProjectsReposPage />
   }
-  if (currentRoute === 'projects' && can('projects:read_own')) {
-    return can('tasks:create_assign') ? <PmProjectsPage /> : <DeveloperProjectsPage />
+  if (currentRoute === 'projects' || currentRoute === 'projects-repos') {
+    return <CtoProjectsReposPage />
+  }
+  if (currentRoute === 'submissions-leave') {
+    return <SubmissionsLeavePage initialTab="leave" />
+  }
+  if (currentRoute === 'idea-submissions') {
+    return <SubmissionsLeavePage initialTab="ideas" />
+  }
+  if (currentRoute === 'company-suggestions') {
+    return <SubmissionsLeavePage initialTab="suggestions" />
   }
   if (currentRoute === 'team' && can('teams:read_own')) {
     return <DeveloperTeamPage />
@@ -342,13 +368,17 @@ function MainContentRouter() {
   // My Work routes available to every employee (alwaysVisible)
   if (currentRoute === 'tasks') {
     if (can('projects:read_all')) return <CtoTasksPage />
-    if (can('tasks:read_team')) return <PmTasksPage />
+    if (isSquadPm || can('tasks:read_team')) return <PmTasksPage />
     return <DeveloperTasksPage />
   }
   if (currentRoute === 'earnings') {
-    if (can('treasury:read')) return <CfoBudgetPage />
-    if (can('budgets:allocate_developer')) return <PmEarningsPage />
-    if (can('projects:read_all')) return <CtoEarningsPage />
+    const role = (currentUser?.role || '').toLowerCase()
+    const isExecutive =
+      ['ceo', 'cfo', 'chro', 'cto', 'cpo'].includes(role) ||
+      can('system:root') ||
+      can('projects:read_all')
+    if (isExecutive) return <CtoEarningsPage />
+    if (isSquadPm || can('budgets:allocate_developer')) return <PmEarningsPage />
     return <DeveloperEarningsPage />
   }
   if (currentRoute === 'report') {
@@ -357,11 +387,8 @@ function MainContentRouter() {
   if (currentRoute === 'settings' || currentRoute === 'my-account') {
     return <MyAccountPage />
   }
-  if (currentRoute === 'my-performance') {
+  if (currentRoute === 'my-performance' || currentRoute === 'performance-ledger') {
     return <MyPerformancePage />
-  }
-  if (currentRoute === 'performance-ledger') {
-    return <PerformanceLedgerPage />
   }
   if (currentRoute === 'leaderboard') {
     return <LeaderboardPage />
@@ -370,10 +397,24 @@ function MainContentRouter() {
     return <LoginAccessPage />
   }
   if (currentRoute === 'security-overview') {
-    return <SecurityOverviewPage />
+    const role = (currentUser?.role || '').toLowerCase()
+    const isChroOrCeo =
+      role === 'ceo' ||
+      role === 'chro' ||
+      can('system:root') ||
+      (can('mfa:manage') && !['cto', 'cfo', 'pm', 'developer'].includes(role))
+    if (isChroOrCeo) {
+      return <SecurityOverviewPage />
+    }
+    return <AccessDeniedPage routeId="security-overview" />
   }
   if (currentRoute === 'access-history') {
-    return <AccessHistoryPage />
+    const role = (currentUser?.role || '').toLowerCase()
+    const isCLevelOrCeo = ['ceo', 'cto', 'chro', 'cfo', 'cpo'].includes(role) || can('system:root')
+    if (isCLevelOrCeo && canAny(['audit_logs:read_confidential', 'system:root'])) {
+      return <AccessHistoryPage />
+    }
+    return <AccessDeniedPage routeId="access-history" />
   }
   if (currentRoute === 'project-requests') {
     return <ProjectRequestsPage />

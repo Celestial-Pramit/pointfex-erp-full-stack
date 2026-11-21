@@ -63,18 +63,60 @@ export function mapBackendBundleToSeedData(
 ): SeedData {
   // 1. Employees -> Users
   const users: User[] = (bundle.employees || []).map((emp) => {
-    const posRole = emp.positionAssignments?.[0]?.position?.roleCategory || 'developer'
-    const normalizedRole = posRole === 'chro' ? 'cpo' : posRole
-    const teamId = emp.teamMemberships?.[0]?.teamId
+    const activeAssignments = (emp.positionAssignments || []).filter((pa: any) => pa.isActive !== false)
     const activeRoles = (emp.employeeRoles || []).filter((er: any) => er.isActive && er.role)
+    const activeRoleSlugs = activeRoles.map((er: any) => er.role.slug)
+    const activeRoleNames = activeRoles.map((er: any) => er.role.name)
+
+    // Preserve executive core role first
+    const execRole = activeRoles.find((er: any) =>
+      ['ceo', 'cto', 'cfo', 'chro', 'cpo'].includes(er.role?.slug),
+    )
+    let coreRole: string | undefined = execRole?.role?.slug
+
+    if (!coreRole) {
+      const titleLower = (emp.title || '').toLowerCase()
+      if (titleLower.includes('chief executive officer') || titleLower === 'ceo') coreRole = 'ceo'
+      else if (titleLower.includes('chief technology officer') || titleLower === 'cto') coreRole = 'cto'
+      else if (titleLower.includes('chief financial officer') || titleLower === 'cfo') coreRole = 'cfo'
+      else if (titleLower.includes('chief human resources officer') || titleLower === 'chro') coreRole = 'chro'
+    }
+
+    if (!coreRole) {
+      const isPm =
+        activeRoleSlugs.includes('pm') &&
+        (emp.title || '').toLowerCase().includes('project manager')
+      if (isPm) {
+        coreRole = 'pm'
+      } else {
+        const posRole = activeAssignments[0]?.position?.roleCategory
+        if (posRole && posRole !== 'developer') {
+          coreRole = posRole
+        } else if (activeRoleSlugs.includes('developer')) {
+          coreRole = 'developer'
+        } else if (activeRoleSlugs.includes('pm')) {
+          coreRole = 'pm'
+        } else {
+          coreRole = posRole || 'developer'
+        }
+      }
+    }
+
+    const normalizedRole = coreRole === 'chro' ? 'cpo' : coreRole || 'developer'
+    const rawTeamIds = [
+      ...(emp.teamMemberships?.map((tm: any) => tm.teamId).filter(Boolean) || []),
+    ]
+    const teamId = rawTeamIds[0] || undefined
     const pendingReq = emp.targetedAccessChanges?.[0]
     return {
       id: emp.id,
       name: emp.name,
       email: emp.email,
-      role: normalizedRole,
+      role: normalizedRole as any,
       title: emp.title,
+      lifetimeXp: num(emp.lifetimeXp, 0),
       teamId,
+      teamIds: rawTeamIds,
       avatar: emp.avatarUrl || undefined,
       avatarUrl: emp.avatarUrl || undefined,
       initials: emp.initials,
@@ -84,8 +126,8 @@ export function mapBackendBundleToSeedData(
       inviteDeliveryStatus: emp.inviteDeliveryStatus || 'sent',
       inviteTokenExpiresAt: emp.inviteTokenExpiresAt || null,
       inviteTokenUsedAt: emp.inviteTokenUsedAt || null,
-      activeRoleSlugs: activeRoles.map((er: any) => er.role.slug),
-      activeRoleNames: activeRoles.map((er: any) => er.role.name),
+      activeRoleSlugs,
+      activeRoleNames,
       pendingAccessRequest: pendingReq
         ? {
             id: pendingReq.id,
@@ -101,27 +143,75 @@ export function mapBackendBundleToSeedData(
     }
   })
 
-  // Also ensure PMs have teamId resolved from managedTeam if not in teamMemberships
-  const pmTeamByEmployeeId = new Map<string, string>()
+  // Also ensure PMs and squad members have teamId and teamIds resolved from bundle.teams
+  const memberTeamsByEmployeeId = new Map<string, string[]>()
+  const teamProjectMap = new Map<string, string>()
   for (const t of bundle.teams || []) {
-    const pmId = t.pm?.id || t.pmPosition?.assignments?.[0]?.employee?.id
-    if (pmId) pmTeamByEmployeeId.set(pmId, t.id)
+    const pmId = t.pm?.id || t.pmPosition?.assignments?.[0]?.employee?.id || t.pmId
+    if (pmId) {
+      const list = memberTeamsByEmployeeId.get(pmId) || []
+      list.push(t.id)
+      memberTeamsByEmployeeId.set(pmId, list)
+    }
+    const members = t.memberships || t.members || []
+    for (const m of members) {
+      const mId = m.employeeId || m.employee?.id || m.id || (typeof m === 'string' ? m : null)
+      if (mId) {
+        const list = memberTeamsByEmployeeId.get(mId) || []
+        list.push(t.id)
+        memberTeamsByEmployeeId.set(mId, list)
+      }
+    }
+    if (Array.isArray(t.memberIds)) {
+      for (const mId of t.memberIds) {
+        if (mId) {
+          const list = memberTeamsByEmployeeId.get(mId) || []
+          list.push(t.id)
+          memberTeamsByEmployeeId.set(mId, list)
+        }
+      }
+    }
+    const projs = t.teamProjects || t.projects || []
+    for (const pr of projs) {
+      const prId = pr.projectId || pr.project?.id || pr.id || (typeof pr === 'string' ? pr : null)
+      if (prId) teamProjectMap.set(prId, t.id)
+    }
+    if (Array.isArray(t.projectIds)) {
+      for (const prId of t.projectIds) {
+        if (prId) teamProjectMap.set(prId, t.id)
+      }
+    }
   }
   for (const u of users) {
-    if (!u.teamId && pmTeamByEmployeeId.has(u.id)) {
-      u.teamId = pmTeamByEmployeeId.get(u.id)
+    const fromTeams = memberTeamsByEmployeeId.get(u.id) || []
+    const allSquadIds = Array.from(new Set([...(u.teamIds || []), ...fromTeams])).filter(Boolean)
+    u.teamIds = allSquadIds
+    if (!u.teamId && allSquadIds.length > 0) {
+      u.teamId = allSquadIds[0]
     }
   }
 
   // 2. Teams
   const teams: Team[] = (bundle.teams || []).map((t) => {
-    const pmId = t.pm?.id || t.pmPosition?.assignments?.[0]?.employee?.id || ''
-    const memberIds = (t.memberships || t.members || [])
-      .map((m: any) => m.employeeId || m.employee?.id || m.id)
-      .filter(Boolean)
-    const projectIds = (t.teamProjects || t.projects || [])
-      .map((p: any) => p.projectId || p.project?.id || p.id)
-      .filter(Boolean)
+    const pmId = t.pm?.id || t.pmPosition?.assignments?.[0]?.employee?.id || t.pmId || ''
+    const rawMembers = [
+      ...(t.memberIds || []),
+      ...(t.memberships || t.members || []).map(
+        (m: any) => m.employeeId || m.employee?.id || m.id || (typeof m === 'string' ? m : null),
+      ),
+    ]
+    const memberIds = Array.from(new Set(rawMembers)).filter(Boolean) as string[]
+
+    const rawProjects = [
+      ...(t.projectIds || []),
+      ...(t.teamProjects || t.projects || []).map(
+        (p: any) => p.projectId || p.project?.id || p.id || (typeof p === 'string' ? p : null),
+      ),
+      ...(bundle.projects || [])
+        .filter((p: any) => p.teamId === t.id || p.teamProjects?.[0]?.teamId === t.id)
+        .map((p: any) => p.id),
+    ]
+    const projectIds = Array.from(new Set(rawProjects)).filter(Boolean) as string[]
 
     return {
       id: t.id,
@@ -129,7 +219,7 @@ export function mapBackendBundleToSeedData(
       code: t.code,
       focus: t.focus,
       pmId,
-      leadDevId: t.leadDev?.id || '',
+      leadDevId: t.leadDev?.id || t.leadDevId || '',
       memberIds,
       projectIds,
       color: t.color || '#38bdf8',
@@ -192,7 +282,8 @@ export function mapBackendBundleToSeedData(
       openIssues: 0,
     })
 
-    const resolvedTeamId = p.teamId || p.teamProjects?.[0]?.teamId || ''
+    const resolvedTeamId =
+      p.teamId || p.teamProjects?.[0]?.teamId || teamProjectMap.get(p.id) || ''
     const resolvedPmId =
       p.pm?.id ||
       p.teamProjects?.[0]?.team?.pmPosition?.assignments?.[0]?.employee?.id ||
@@ -271,6 +362,13 @@ export function mapBackendBundleToSeedData(
         completed: Boolean(item.completed),
       })),
       createdAt: isoDate(t.createdAt),
+      weightCategory: t.weightCategory || undefined,
+      weightPoints: t.weightPoints !== undefined && t.weightPoints !== null ? num(t.weightPoints) : undefined,
+      weightStatus: t.weightStatus || undefined,
+      pmScore: t.pmScore !== undefined && t.pmScore !== null ? num(t.pmScore) : undefined,
+      isMainProjectTask: t.isMainProjectTask !== undefined ? Boolean(t.isMainProjectTask) : true,
+      projectPercentage: t.projectPercentage !== undefined && t.projectPercentage !== null ? num(t.projectPercentage) : 0,
+      ceoFinalized: Boolean(t.ceoFinalized),
     }
   })
 
@@ -309,6 +407,8 @@ export function mapBackendBundleToSeedData(
     userId: p.employeeId,
     developerId: p.employeeId,
     overallScore: num(p.overallScore, 90),
+    onTimeDeliveryRate: num(p.onTimeDeliveryRate ?? p.attendanceRate ?? p.reliability, 96),
+    completionRate: num(p.completionRate ?? p.deliverySpeed, 92),
     codeQuality: num(p.codeQuality ?? p.overallScore, 90),
     codeQualityScore: num(p.codeQuality ?? p.overallScore, 90),
     deliverySpeed: num(p.deliverySpeed, 90),

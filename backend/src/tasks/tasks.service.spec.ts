@@ -31,6 +31,11 @@ describe('TasksService - Kanban State Transitions & Approval Gate', () => {
       auditLog: {
         create: jest.fn(),
       },
+      performanceRecord: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({ id: 'perf_01' }),
+        update: jest.fn().mockResolvedValue({ id: 'perf_01' }),
+      },
     }
 
     const module: TestingModule = await Test.createTestingModule({
@@ -155,6 +160,109 @@ describe('TasksService - Kanban State Transitions & Approval Gate', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             content: expect.stringContaining('Fix mobile viewport'),
+          }),
+        }),
+      )
+    })
+  })
+
+  describe('Assigned Squad PM Task Operations & KPI Scoring', () => {
+    it('should allow an assigned squad PM (even with base role developer) to create task with weight and assign to squad member', async () => {
+      prisma.project = { findUnique: jest.fn().mockResolvedValue({ id: 'proj_01' }) }
+      prisma.employee = { findUnique: jest.fn().mockResolvedValue({ id: 'emp_dev_02' }) }
+      prisma.teamMembership = { findFirst: jest.fn().mockResolvedValue({ id: 'tm_1' }) }
+      prisma.task.create = jest.fn().mockResolvedValue({
+        id: 'task_new_01',
+        title: 'Squad Feature',
+        weightCategory: 'LARGE',
+        weightPoints: new Prisma.Decimal(3),
+        assigneeId: 'emp_dev_02',
+      })
+
+      await service.create(
+        {
+          title: 'Squad Feature',
+          projectId: 'proj_01',
+          assigneeId: 'emp_dev_02',
+          weightCategory: 'LARGE',
+          proposedWeight: 3,
+        },
+        { id: 'emp_dev_01', role: 'developer' } as any,
+      )
+
+      expect(prisma.task.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            weightCategory: 'LARGE',
+            weightPoints: new Prisma.Decimal(3),
+            assigneeId: 'emp_dev_02',
+          }),
+        }),
+      )
+    })
+
+    it('should allow an assigned squad PM to approve task deliverable and set pmScore', async () => {
+      prisma.teamMembership = { findFirst: jest.fn().mockResolvedValue({ id: 'tm_1' }) }
+      prisma.task.findUnique.mockResolvedValue({
+        id: 'task_02',
+        title: 'Squad Deliverable',
+        assigneeId: 'emp_dev_02',
+        status: 'in_review',
+        assignee: { id: 'emp_dev_02', title: 'Software Developer' },
+      })
+      prisma.task.update.mockResolvedValue({
+        id: 'task_02',
+        status: 'completed',
+        pmScore: new Prisma.Decimal(88),
+      })
+
+      await service.approve(
+        'task_02',
+        { pmScore: 88, feedback: 'Great work on deliverable' },
+        { id: 'emp_dev_01', role: 'developer' } as any,
+      )
+
+      expect(prisma.task.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'task_02' },
+          data: expect.objectContaining({
+            status: 'completed',
+            pmScore: new Prisma.Decimal(88),
+          }),
+        }),
+      )
+    })
+
+    it('should allow evaluating and updating KPI score on a completed task', async () => {
+      prisma.task.findUnique.mockResolvedValue({
+        id: 'task_02',
+        title: 'Completed Task',
+        assigneeId: 'emp_dev_02',
+        status: 'completed',
+        completedAt: new Date(),
+        assignee: { id: 'emp_dev_02', title: 'Software Developer' },
+      })
+      prisma.task.findMany = jest.fn().mockResolvedValue([])
+      prisma.task.update.mockResolvedValue({
+        id: 'task_02',
+        status: 'completed',
+        pmScore: new Prisma.Decimal(92),
+      })
+      prisma.weeklyKpiRecord = { upsert: jest.fn().mockResolvedValue({}) }
+
+      await service.scoreTaskDirectly(
+        'task_02',
+        92,
+        'Post-completion KPI evaluation',
+        { id: 'emp_dev_01', role: 'developer' } as any,
+      )
+
+      expect(prisma.task.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'task_02' },
+          data: expect.objectContaining({
+            pmScore: new Prisma.Decimal(92),
+            status: 'completed',
           }),
         }),
       )

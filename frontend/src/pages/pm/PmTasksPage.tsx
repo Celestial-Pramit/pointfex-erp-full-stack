@@ -2,31 +2,42 @@ import React, { useState, useMemo } from 'react'
 import { Badge } from '../../components/common/Badge'
 import { usePmData } from '../../hooks/usePmData'
 import { useApp } from '../../context/AppContext'
+import { usePermissions } from '../../hooks/usePermissions'
 import { formatDate } from '../../utils/formatters'
 import type { TaskStatus } from '../../types'
-import { Clock, Layers, Crown, Search, Lock } from 'lucide-react'
+import {
+  Clock,
+  Layers,
+  FolderGit2,
+  Search,
+  Lock,
+} from 'lucide-react'
 
 interface ColumnDef {
   id: TaskStatus
   label: string
   dot: string
-  isLocked?: boolean
-}
-
-interface ExecutiveDef {
-  id: string
-  name: string
-  role: string
-  title: string
+  pmOnly?: boolean
 }
 
 export function PmTasksPage() {
   const { pmPersonalTasks, pm } = usePmData()
-  const { updatePmTaskStatus, setSelectedTaskModal, showToast } = useApp()
+  const { data, currentUser, updatePmTaskStatus, setSelectedTaskModal, showToast } = useApp()
+  const { hasPermission } = usePermissions()
+  const canApproveTasks = hasPermission('tasks:approve')
 
-  // Filters (Executive Filter Sidebar on Left + Search on Right)
-  const [selectedExecutive, setSelectedExecutive] = useState<string>('all')
+  // Scoped strictly to the logged-in user
+  const currentUserId = currentUser?.id || pm?.id
+  const myTasks = useMemo(() => {
+    return pmPersonalTasks.filter(
+      (t) => t.assigneeId === currentUserId || t.assignedTo === currentUserId,
+    )
+  }, [pmPersonalTasks, currentUserId])
+
+  // Filters
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState<string>('')
+  const [priorityFilter, setPriorityFilter] = useState<string>('all')
 
   // Drag and drop state
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null)
@@ -36,46 +47,25 @@ export function PmTasksPage() {
     { id: 'todo', label: 'To Do', dot: 'bg-slate-400 dark:bg-slate-500' },
     { id: 'in_progress', label: 'In Progress', dot: 'bg-sky-500' },
     { id: 'in_review', label: 'In Review', dot: 'bg-purple-500' },
-    { id: 'completed', label: 'Completed', dot: 'bg-emerald-500', isLocked: true },
+    { id: 'completed', label: 'Completed', dot: 'bg-emerald-500', pmOnly: true },
     { id: 'blocked', label: 'Blocked', dot: 'bg-rose-500' },
   ]
 
-  // Executive categories
-  const executives: ExecutiveDef[] = [
-    {
-      id: 'cto',
-      name: 'CTO — Technology Office',
-      role: 'CTO',
-      title: 'Architecture & Engineering Standards',
-    },
-    {
-      id: 'cfo',
-      name: 'CFO — Finance Office',
-      role: 'CFO',
-      title: 'Budgets & Financial Allocations',
-    },
-    { id: 'cpo', name: 'CPO — People Office', role: 'CPO', title: 'Talent, HR & Squad Health' },
-    {
-      id: 'ceo',
-      name: 'CEO — Executive Office',
-      role: 'CEO',
-      title: 'Company Roadmap & Milestones',
-    },
-  ]
+  // Extract all projects where the user has assigned tasks
+  const userProjects = useMemo(() => {
+    const projectIdsWithTasks = new Set(myTasks.map((t) => t.projectId).filter(Boolean))
+    return data.projects.filter((p) => projectIdsWithTasks.has(p.id))
+  }, [data.projects, myTasks])
 
-  // Filter tasks based on executive assignor and search
+  // Filter tasks based on project, priority, and search
   const filteredTasks = useMemo(() => {
-    return pmPersonalTasks.filter((task) => {
-      if (selectedExecutive !== 'all') {
-        const creatorRole = task.creator?.role?.toLowerCase()
-        const creatorTitle = task.creator?.title?.toLowerCase() || ''
-        const creatorName = task.creator?.name?.toLowerCase() || ''
-        const matchesExec =
-          creatorRole === selectedExecutive ||
-          creatorTitle.includes(selectedExecutive) ||
-          creatorName.includes(selectedExecutive) ||
-          task.tags?.some((t) => t.toLowerCase() === selectedExecutive)
-        if (!matchesExec) return false
+    return myTasks.filter((task) => {
+      if (selectedProjectId !== 'all' && task.projectId !== selectedProjectId) {
+        return false
+      }
+
+      if (priorityFilter !== 'all' && task.priority !== priorityFilter) {
+        return false
       }
 
       if (searchQuery.trim()) {
@@ -83,21 +73,22 @@ export function PmTasksPage() {
         const titleMatch = task.title.toLowerCase().includes(q)
         const descMatch = task.description?.toLowerCase().includes(q)
         const tagMatch = task.tags?.some((t) => t.toLowerCase().includes(q))
-        if (!titleMatch && !descMatch && !tagMatch) return false
+        const projectMatch = task.project?.name?.toLowerCase().includes(q)
+        if (!titleMatch && !descMatch && !tagMatch && !projectMatch) return false
       }
 
       return true
     })
-  }, [pmPersonalTasks, selectedExecutive, searchQuery])
+  }, [myTasks, selectedProjectId, priorityFilter, searchQuery])
 
   // Overall stats for left sidebar
-  const totalTasksCount = pmPersonalTasks.length
-  const totalCompletedCount = pmPersonalTasks.filter((t) => t.status === 'completed').length
+  const totalTasksCount = myTasks.length
+  const totalCompletedCount = myTasks.filter((t) => t.status === 'completed').length
   const totalActiveCount = totalTasksCount - totalCompletedCount
   const overallProgress =
     totalTasksCount > 0 ? Math.round((totalCompletedCount / totalTasksCount) * 100) : 0
 
-  // Drag and drop handlers (Exactly like Dev's TasksPage)
+  // Drag and drop handlers
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>, taskId: string) => {
     setDraggedTaskId(taskId)
     e.dataTransfer.setData('text/plain', taskId)
@@ -117,19 +108,25 @@ export function PmTasksPage() {
     }
   }
 
+  const handleDragLeave = (_e: React.DragEvent<HTMLDivElement>, colId: string) => {
+    if (dragOverColId === colId) {
+      setDragOverColId(null)
+    }
+  }
+
   const handleDrop = (e: React.DragEvent<HTMLDivElement>, targetColId: TaskStatus) => {
     e.preventDefault()
     setDragOverColId(null)
     const taskId = e.dataTransfer.getData('text/plain') || draggedTaskId
     if (!taskId) return
 
-    const task = pmPersonalTasks.find((t) => t.id === taskId)
+    const task = myTasks.find((t) => t.id === taskId)
     if (!task || task.status === targetColId) return
 
-    // Permission constraint: PM cannot drag directly to Completed (needs C-Level executive verification)
-    if (targetColId === 'completed') {
+    // Permission constraint: users without tasks:approve cannot mark directly as completed
+    if (targetColId === 'completed' && !canApproveTasks) {
       showToast(
-        'Permission denied: PM operational tasks require C-Level executive verification to be marked as Completed. Please move to "In Review" for sign-off.',
+        'Permission denied: Deliverable completion requires executive sign-off. Please move to "In Review" for review.',
         'error',
       )
       setDraggedTaskId(null)
@@ -141,52 +138,53 @@ export function PmTasksPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-slate-900 dark:text-white font-display">
-            My Operational Tasks
+            My Tasks
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Interactive Kanban board · Personal responsibilities assigned to {pm?.name || 'PM'} by
-            C-Suite Executives
+            Interactive Kanban board · Personal deliverables assigned to {currentUser?.name || pm?.name || 'you'}
           </p>
         </div>
 
-        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/40 text-amber-800 dark:text-amber-300 text-xs font-medium self-start sm:self-auto">
-          <Lock className="w-3.5 h-3.5" />
-          <span>PM Mode: "Completed" status requires C-Level executive verification</span>
-        </div>
+        {!canApproveTasks && (
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/40 text-amber-800 dark:text-amber-300 text-xs font-medium self-start sm:self-auto">
+            <Lock className="w-3.5 h-3.5" />
+            <span>"Completed" status requires C-Level executive verification</span>
+          </div>
+        )}
       </div>
 
-      {/* Main 2-Column Grid: Left Executive Filter Sidebar + Right 5-Column Kanban Board */}
+      {/* Main 2-Column Grid: Left Project Filter Sidebar + Right Kanban Board */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Side (3 cols): Executive Filter Cards */}
+        {/* Left Side (3 cols): Project Filter Cards */}
         <div className="lg:col-span-3 space-y-3">
           <div className="flex items-center justify-between px-1">
             <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <Crown className="w-3.5 h-3.5 text-slate-400" />
-              Executive Filter
+              <FolderGit2 className="w-3.5 h-3.5 text-slate-400" />
+              Filter by Project
             </span>
-            <span className="text-[11px] text-slate-400">{executives.length + 1} views</span>
+            <span className="text-[11px] text-slate-400">{userProjects.length + 1} views</span>
           </div>
 
-          {/* "All Initiatives" Card */}
+          {/* "All Tasks / All Projects" Card */}
           <button
             type="button"
-            onClick={() => setSelectedExecutive('all')}
+            onClick={() => setSelectedProjectId('all')}
             className={`w-full text-left p-3.5 rounded-2xl transition-all cursor-pointer border ${
-              selectedExecutive === 'all'
-                ? 'bg-white dark:bg-slate-900 border-lime-400 dark:border-lime-400/80 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.06)] ring-1 ring-lime-400'
-                : 'bg-white/80 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700'
+              selectedProjectId === 'all'
+                ? 'bg-white dark:bg-[#131a2b] border-lime-400 dark:border-lime-400 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.06)] ring-1 ring-lime-400'
+                : 'bg-white/80 dark:bg-[#0f1422] border-slate-200/80 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700'
             }`}
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <div
                   className={`w-7 h-7 rounded-xl flex items-center justify-center ${
-                    selectedExecutive === 'all'
+                    selectedProjectId === 'all'
                       ? 'bg-lime-400 text-slate-950 font-bold'
                       : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
                   }`}
@@ -195,9 +193,9 @@ export function PmTasksPage() {
                 </div>
                 <div>
                   <span className="font-bold text-xs text-slate-900 dark:text-white block">
-                    All Directives
+                    All Tasks
                   </span>
-                  <span className="text-[10px] text-slate-400">C-Suite Directives</span>
+                  <span className="text-[10px] text-slate-400">All assigned deliverables</span>
                 </div>
               </div>
               <Badge variant="lime" size="xs">
@@ -214,7 +212,7 @@ export function PmTasksPage() {
               </div>
               <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
                 <div
-                  className="bg-lime-500 h-1.5 rounded-full"
+                  className="bg-lime-500 h-1.5 rounded-full transition-all"
                   style={{ width: `${overallProgress}%` }}
                 />
               </div>
@@ -225,64 +223,56 @@ export function PmTasksPage() {
             </div>
           </button>
 
-          {/* Individual Executive Cards */}
-          {executives.map((exec) => {
-            const isSelected = selectedExecutive === exec.id
-            const eTasks = pmPersonalTasks.filter((t) => {
-              const creatorRole = t.creator?.role?.toLowerCase()
-              const creatorTitle = t.creator?.title?.toLowerCase() || ''
-              const creatorName = t.creator?.name?.toLowerCase() || ''
-              return (
-                creatorRole === exec.id ||
-                creatorTitle.includes(exec.id) ||
-                creatorName.includes(exec.id) ||
-                t.tags?.some((tag) => tag.toLowerCase() === exec.id)
-              )
-            })
-            const eTotal = eTasks.length
-            const eCompleted = eTasks.filter((t) => t.status === 'completed').length
-            const eActive = eTotal - eCompleted
-            const eProgress = eTotal > 0 ? Math.round((eCompleted / eTotal) * 100) : 0
+          {/* Individual Project Cards */}
+          {userProjects.map((proj) => {
+            const isSelected = selectedProjectId === proj.id
+            const pTasks = myTasks.filter((t) => t.projectId === proj.id)
+            const pTotal = pTasks.length
+            const pCompleted = pTasks.filter((t) => t.status === 'completed').length
+            const pActive = pTotal - pCompleted
+            const pProgress = pTotal > 0 ? Math.round((pCompleted / pTotal) * 100) : 0
 
             return (
               <button
-                key={exec.id}
+                key={proj.id}
                 type="button"
-                onClick={() => setSelectedExecutive(exec.id)}
+                onClick={() => setSelectedProjectId(proj.id)}
                 className={`w-full text-left p-3.5 rounded-2xl transition-all cursor-pointer border ${
                   isSelected
-                    ? 'bg-white dark:bg-slate-900 border-lime-400 dark:border-lime-400/80 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.06)] ring-1 ring-lime-400'
-                    : 'bg-white/80 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700'
+                    ? 'bg-white dark:bg-[#131a2b] border-lime-400 dark:border-lime-400 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.06)] ring-1 ring-lime-400'
+                    : 'bg-white/80 dark:bg-[#0f1422] border-slate-200/80 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700'
                 }`}
               >
                 <div className="flex items-start justify-between gap-1 mb-1.5">
                   <div className="min-w-0 flex-1">
                     <span className="font-bold text-xs text-slate-900 dark:text-white truncate block">
-                      {exec.name}
+                      {proj.name}
                     </span>
-                    <span className="text-[10px] text-slate-400 truncate block">{exec.title}</span>
+                    <span className="text-[10px] text-slate-400 truncate block">
+                      {proj.description || 'Assigned Project'}
+                    </span>
                   </div>
-                  <Badge variant="purple" size="xs">
-                    {exec.role}
-                  </Badge>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded font-semibold shrink-0 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                    {proj.code}
+                  </span>
                 </div>
 
                 <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="text-slate-500 dark:text-slate-400">Completion</span>
                     <span className="font-bold text-slate-900 dark:text-white font-display">
-                      {eProgress}%
+                      {pProgress}%
                     </span>
                   </div>
                   <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
                     <div
-                      className="bg-purple-500 h-1.5 rounded-full"
-                      style={{ width: `${eProgress}%` }}
+                      className="bg-sky-500 h-1.5 rounded-full transition-all"
+                      style={{ width: `${pProgress}%` }}
                     />
                   </div>
                   <div className="flex items-center justify-between text-[10px] text-slate-400">
-                    <span>{eActive} Active</span>
-                    <span>{eCompleted} Done</span>
+                    <span>{pActive} Active</span>
+                    <span>{pCompleted} Done</span>
                   </div>
                 </div>
               </button>
@@ -290,24 +280,43 @@ export function PmTasksPage() {
           })}
         </div>
 
-        {/* Right Side (9 cols): Search & 5-Column Kanban Board */}
+        {/* Right Side (9 cols): Search, Priority Filter & 5-Column Kanban Board */}
         <div className="lg:col-span-9 space-y-4">
-          {/* Top Bar: Search */}
-          <div className="p-3 rounded-2xl bg-white dark:bg-[#0f1422] border border-slate-200/70 dark:border-slate-800/80 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.03)] flex items-center justify-between gap-3">
-            <div className="relative flex-1">
+          {/* Top Bar: Search & Priority Filters */}
+          <div className="p-3 rounded-2xl bg-white dark:bg-[#0f1422] border border-slate-200/70 dark:border-slate-800/80 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.03)] flex flex-wrap items-center justify-between gap-3">
+            <div className="relative flex-1 min-w-[200px]">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Search directives, tags, or briefs..."
+                placeholder="Search tasks by title, tag, or project..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none"
+                className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-850/60 border border-slate-200/80 dark:border-slate-700/60 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none"
               />
             </div>
 
-            <span className="text-xs text-slate-400">
-              Showing <strong>{filteredTasks.length}</strong> tasks
-            </span>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+                {(['all', 'urgent', 'high', 'medium', 'low'] as const).map((pri) => (
+                  <button
+                    key={pri}
+                    type="button"
+                    onClick={() => setPriorityFilter(pri)}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-semibold capitalize transition-all cursor-pointer ${
+                      priorityFilter === pri
+                        ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
+                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    {pri}
+                  </button>
+                ))}
+              </div>
+
+              <span className="text-xs text-slate-400 shrink-0">
+                Showing <strong>{filteredTasks.length}</strong> tasks
+              </span>
+            </div>
           </div>
 
           {/* 5-Column Kanban Board */}
@@ -320,41 +329,53 @@ export function PmTasksPage() {
                 <div
                   key={col.id}
                   onDragOver={(e) => handleDragOver(e, col.id)}
+                  onDragLeave={(e) => handleDragLeave(e, col.id)}
                   onDrop={(e) => handleDrop(e, col.id)}
                   className={`rounded-2xl p-3 min-h-[500px] flex flex-col transition-colors border ${
                     isDragOver
-                      ? 'bg-lime-50/50 dark:bg-lime-950/20 border-lime-400'
-                      : 'bg-slate-50/80 dark:bg-slate-900/40 border-slate-200/60 dark:border-slate-800/60'
+                      ? 'bg-lime-50/50 dark:bg-lime-950/20 border-lime-400 dark:border-lime-500 ring-2 ring-lime-400/30'
+                      : 'bg-slate-100/70 dark:bg-[#0f1422] border-slate-200/60 dark:border-slate-800/80'
                   }`}
                 >
                   {/* Column Header */}
-                  <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-slate-200/60 dark:border-slate-800/80">
+                  <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-slate-200/60 dark:border-slate-800">
                     <div className="flex items-center gap-2">
                       <span className={`w-2 h-2 rounded-full ${col.dot}`} />
                       <span className="font-bold text-xs text-slate-800 dark:text-slate-200">
                         {col.label}
                       </span>
-                      {col.isLocked && (
-                        <span title="Requires C-Level sign-off">
+                      {col.pmOnly && !canApproveTasks && (
+                        <span title="Requires C-Level verification">
                           <Lock className="w-3 h-3 text-amber-500" />
                         </span>
                       )}
                     </div>
-                    <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-white dark:bg-slate-800 text-slate-500 shadow-2xs">
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 shadow-2xs">
                       {colTasks.length}
                     </span>
                   </div>
 
                   {/* Tasks List */}
-                  <div className="space-y-2.5 flex-1">
+                  <div className="space-y-2.5 flex-1 overflow-y-auto">
                     {colTasks.length === 0 ? (
-                      <div className="py-10 text-center text-[11px] text-slate-400/80">
-                        Drop task here
+                      <div className="h-32 rounded-xl border border-dashed border-slate-200 dark:border-slate-800/80 bg-white/30 dark:bg-[#131a2b]/30 flex flex-col items-center justify-center text-[11px] text-slate-400 dark:text-slate-500 text-center p-3">
+                        {col.pmOnly && !canApproveTasks ? (
+                          <span className="flex items-center gap-1">
+                            <Lock className="w-3 h-3" />
+                            Sign-off required
+                          </span>
+                        ) : (
+                          'Drop task here'
+                        )}
                       </div>
                     ) : (
                       colTasks.map((task) => {
                         const isDragging = draggedTaskId === task.id
                         const creator = task.creator
+                        const projCode =
+                          task.project?.code ||
+                          data.projects.find((p) => p.id === task.projectId)?.code ||
+                          'PROJ'
 
                         return (
                           <div
@@ -363,15 +384,16 @@ export function PmTasksPage() {
                             onDragStart={(e) => handleDragStart(e, task.id)}
                             onDragEnd={handleDragEnd}
                             onClick={() => setSelectedTaskModal(task)}
-                            className={`p-3 rounded-xl bg-white dark:bg-slate-850 border border-slate-200/70 dark:border-slate-750 shadow-2xs hover:shadow-xs transition-all cursor-pointer group space-y-2.5 ${
-                              isDragging ? 'opacity-40 scale-95' : ''
+                            className={`p-3.5 rounded-xl bg-white dark:bg-[#182033] border border-slate-200/80 dark:border-slate-700/70 shadow-2xs hover:shadow-xs transition-all cursor-grab active:cursor-grabbing group space-y-2.5 ${
+                              isDragging
+                                ? 'opacity-40 scale-95 border-lime-400 ring-2 ring-lime-400/30'
+                                : 'hover:border-slate-300 dark:hover:border-slate-600'
                             }`}
                           >
-                            {/* Card Top: Assignor Badge & Priority */}
+                            {/* Card Top: Project Code & Priority Badge */}
                             <div className="flex items-center justify-between gap-1 text-[10px]">
-                              <span className="font-semibold text-purple-600 dark:text-purple-400 flex items-center gap-1">
-                                <Crown className="w-3 h-3" />
-                                {creator?.role?.toUpperCase() || 'C-SUITE'}
+                              <span className="font-mono text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                                {projCode}
                               </span>
                               <Badge
                                 variant={
@@ -379,7 +401,9 @@ export function PmTasksPage() {
                                     ? 'rose'
                                     : task.priority === 'high'
                                       ? 'amber'
-                                      : 'slate'
+                                      : task.priority === 'medium'
+                                        ? 'sky'
+                                        : 'slate'
                                 }
                                 size="xs"
                               >
@@ -388,16 +412,28 @@ export function PmTasksPage() {
                             </div>
 
                             {/* Task Title */}
-                            <div className="font-semibold text-xs text-slate-900 dark:text-white leading-snug line-clamp-2">
+                            <div className="font-semibold text-xs text-slate-900 dark:text-slate-100 group-hover:text-lime-600 dark:group-hover:text-lime-400 leading-snug line-clamp-2 transition-colors">
                               {task.title}
                             </div>
 
-                            {/* Card Footer: Due Date */}
-                            <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-400">
-                              <span className="truncate">
-                                {creator?.name?.split(' ')[0] || 'Executive'}
+                            {/* Task Meta (Weight / Progress if available) */}
+                            {task.projectPercentage != null && (
+                              <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
+                                <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 font-medium">
+                                  Weight: {task.projectPercentage}%
+                                </span>
+                              </div>
+                            )}
+
+                            {/* Card Footer: Assigned by & Due Date */}
+                            <div className="flex items-center justify-between pt-1.5 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-400 dark:text-slate-400">
+                              <span
+                                className="truncate max-w-[110px] text-slate-500 dark:text-slate-400 font-medium"
+                                title={creator ? `${creator.name} (${creator.role.toUpperCase()})` : 'System'}
+                              >
+                                By: {creator?.name || 'Executive'}
                               </span>
-                              <span className="flex items-center gap-1 shrink-0">
+                              <span className="flex items-center gap-1 shrink-0 font-medium">
                                 <Clock className="w-3 h-3 text-slate-400" />
                                 {formatDate(task.dueDate, 'short')}
                               </span>

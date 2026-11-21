@@ -13,11 +13,49 @@ import { Search, Plus, Edit2, GitBranch, ExternalLink, CheckCircle2 } from 'luci
 
 export function CtoProjectsReposPage() {
   const { projects, teams } = useCtoData()
-  const { setSelectedProjectModal, createProject, updateProject, showToast } = useApp()
+  const { currentUser, setSelectedProjectModal, createProject, updateProject, showToast } = useApp()
+
+  const userRole = (currentUser?.role || '').toLowerCase()
+  const userTitle = (currentUser?.title || '').toLowerCase()
+  const userActiveRoles = (currentUser?.activeRoleSlugs || []).map((r) => r.toLowerCase())
+
+  const canEdit = useMemo(() => {
+    const isCeo =
+      userRole === 'ceo' ||
+      userActiveRoles.includes('ceo') ||
+      userTitle.includes('chief executive officer') ||
+      Boolean((currentUser as any)?.isRoot)
+    const isCto =
+      userRole === 'cto' ||
+      userActiveRoles.includes('cto') ||
+      userTitle.includes('chief technology officer')
+    const isChro =
+      userRole === 'chro' ||
+      userRole === 'cpo' ||
+      userActiveRoles.includes('chro') ||
+      userActiveRoles.includes('cpo') ||
+      userTitle.includes('chief human resources officer') ||
+      userTitle.includes('chief people officer')
+    return isCeo || isCto || isChro
+  }, [userRole, userTitle, userActiveRoles, currentUser])
 
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'planning' | 'completed'>(
     'all',
+  )
+
+  const activeCount = useMemo(
+    () =>
+      projects.filter((p) => p.status === 'active' || p.status === 'in_progress').length,
+    [projects],
+  )
+  const planningCount = useMemo(
+    () => projects.filter((p) => p.status === 'planning').length,
+    [projects],
+  )
+  const completedCount = useMemo(
+    () => projects.filter((p) => p.status === 'completed').length,
+    [projects],
   )
 
   // Create Project Modal State
@@ -44,7 +82,12 @@ export function CtoProjectsReposPage() {
 
   const filteredProjects = useMemo(() => {
     return projects.filter((p) => {
-      if (statusFilter !== 'all' && p.status !== statusFilter) return false
+      if (statusFilter === 'active') {
+        const isOngoing = p.status === 'active' || p.status === 'in_progress'
+        if (!isOngoing) return false
+      } else if (statusFilter !== 'all' && p.status !== statusFilter) {
+        return false
+      }
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase()
         const nameMatch = p.name.toLowerCase().includes(q)
@@ -150,15 +193,20 @@ export function CtoProjectsReposPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-slate-900 dark:text-white font-display">
-            Projects & Code Repositories
+            Projects & Directory
           </h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            Overview of all ongoing, active, planning, and completed company projects
+          </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button variant="lime" size="sm" icon={Plus} onClick={() => setIsCreateModalOpen(true)}>
-            Create New Project
-          </Button>
-        </div>
+        {canEdit && (
+          <div className="flex items-center gap-2">
+            <Button variant="lime" size="sm" icon={Plus} onClick={() => setIsCreateModalOpen(true)}>
+              Create New Project
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Filter and Search Bar */}
@@ -196,7 +244,7 @@ export function CtoProjectsReposPage() {
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            Active Sprints
+            Ongoing & Active ({activeCount})
           </button>
           <button
             type="button"
@@ -207,7 +255,7 @@ export function CtoProjectsReposPage() {
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            Planning
+            Planning ({planningCount})
           </button>
           <button
             type="button"
@@ -218,7 +266,7 @@ export function CtoProjectsReposPage() {
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            Completed
+            Completed ({completedCount})
           </button>
         </div>
       </div>
@@ -303,20 +351,22 @@ export function CtoProjectsReposPage() {
                 </div>
 
                 <div className="flex items-center gap-1.5">
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    icon={Edit2}
-                    onClick={() => handleOpenEditModal(project)}
-                  >
-                    Edit
-                  </Button>
+                  {canEdit && (
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      icon={Edit2}
+                      onClick={() => handleOpenEditModal(project)}
+                    >
+                      Edit
+                    </Button>
+                  )}
                   <Button
                     variant="secondary"
                     size="xs"
                     onClick={() => setSelectedProjectModal(project)}
                   >
-                    Inspect
+                    Details
                   </Button>
                 </div>
               </div>
@@ -496,6 +546,7 @@ export function CtoProjectsReposPage() {
                   onChange={(e) => setEditStatus(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-slate-400"
                 >
+                  <option value="in_progress">In Progress / Ongoing</option>
                   <option value="active">Active Sprint</option>
                   <option value="planning">Planning Phase</option>
                   <option value="completed">Completed</option>

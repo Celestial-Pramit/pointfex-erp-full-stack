@@ -63,6 +63,11 @@ export class PermissionsGuard implements CanActivate {
       throw new ForbiddenException('Access denied: Authenticated user identity required')
     }
 
+    const isSquadPm = await this.isEmployeeSquadPm(user.id)
+    if (isSquadPm) {
+      user.roles = Array.from(new Set([...(user.roles || []), 'pm']))
+    }
+
     const mode = this.resolveMode()
 
     // Old / legacy check for comparison and `legacy` / `shadow` modes
@@ -73,6 +78,7 @@ export class PermissionsGuard implements CanActivate {
     const legacyRoleAllowed =
       legacyRoles.length === 0 ||
       legacyRoles.map((r) => r.toLowerCase()).includes(roleNorm) ||
+      (isSquadPm && legacyRoles.map((r) => r.toLowerCase()).includes('pm')) ||
       roleNorm === 'ceo'
 
     const legacyAllAllowed = requiredAll.every((perm) => legacyPermSet.has(perm))
@@ -255,6 +261,24 @@ export class PermissionsGuard implements CanActivate {
       codeSet.add(override.permission.code)
     }
 
+    if (await this.isEmployeeSquadPm(employeeId)) {
+      const pmCodes = [
+        'tasks:create_assign',
+        'tasks:approve',
+        'tasks:reject',
+        'tasks:reassign',
+        'tasks:propose_weight',
+        'tasks:read_team',
+        'projects:read_team',
+        'teams:read_own',
+        'performance:evaluate',
+        'kpis:score_exec',
+      ]
+      for (const code of pmCodes) {
+        codeSet.add(code)
+      }
+    }
+
     const resolved = Array.from(codeSet)
     const ttlOverrideSeconds =
       earliestExpiryMs !== undefined
@@ -263,5 +287,28 @@ export class PermissionsGuard implements CanActivate {
 
     await this.cache.setPermissions(employeeId, resolved, ttlOverrideSeconds)
     return resolved
+  }
+
+  private async isEmployeeSquadPm(employeeId: string): Promise<boolean> {
+    try {
+      if (!this.prisma.team || typeof this.prisma.team.count !== 'function') {
+        return false
+      }
+      const count = await this.prisma.team.count({
+        where: {
+          pmPosition: {
+            assignments: {
+              some: {
+                employeeId,
+                isActive: true,
+              },
+            },
+          },
+        },
+      })
+      return count > 0
+    } catch {
+      return false
+    }
   }
 }

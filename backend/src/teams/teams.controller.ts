@@ -30,7 +30,7 @@ export class TeamsController {
   }
 
   @Patch(':id')
-  @RequirePermissions('teams:update')
+  @RequireAnyPermission('teams:update', 'teams:manage_members')
   update(@Param('id') id: string, @Body() dto: UpdateTeamDto) {
     return this.teamsService.update(id, dto)
   }

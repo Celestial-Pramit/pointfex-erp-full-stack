@@ -28,6 +28,7 @@ export function Sidebar() {
     isMobileSidebarOpen,
     setMobileSidebarOpen,
     currentUser,
+    data,
     pendingApprovalsCount,
     activeDelegationsCount,
     theme,
@@ -37,7 +38,26 @@ export function Sidebar() {
   const [confirmSignOutOpen, setConfirmSignOutOpen] = useState(false)
   const { permissions, authzSnapshot } = usePermissions()
 
-  const effectivePermissions = authzSnapshot?.effectiveCodes ?? permissions
+  const effectivePermissions = useMemo(() => {
+    const base = authzSnapshot?.effectiveCodes ?? permissions
+    const isSquadPm = Boolean(currentUser?.id && data.teams.some((t) => t.pmId === currentUser.id))
+    if (isSquadPm) {
+      const pmCodes = [
+        'tasks:create_assign',
+        'tasks:approve',
+        'tasks:reject',
+        'tasks:reassign',
+        'tasks:propose_weight',
+        'tasks:read_team',
+        'projects:read_team',
+        'teams:read_own',
+        'performance:evaluate',
+        'kpis:score_exec',
+      ]
+      return Array.from(new Set([...base, ...pmCodes]))
+    }
+    return base
+  }, [authzSnapshot?.effectiveCodes, permissions, currentUser?.id, data.teams])
   const visibleWorkspaces = useMemo(
     () => resolveVisibleWorkspaces(effectivePermissions),
     [effectivePermissions],
@@ -112,7 +132,7 @@ export function Sidebar() {
               const Icon = workspace.icon
               const isActive = activeWorkspace?.workspace.id === workspace.id
               const showRailBadge =
-                (workspace.id === 'my_work' || workspace.id === 'admin') && pendingApprovalsCount > 0
+                (workspace.id === 'my_workspace' || workspace.id === 'admin_governance' || workspace.id === 'my_work' || workspace.id === 'admin') && pendingApprovalsCount > 0
 
               return (
                 <button
@@ -312,7 +332,7 @@ export function Sidebar() {
                 </button>
                 <div className="mt-2 pt-2 border-t border-[var(--border)] flex items-center justify-between text-[11px] text-[var(--muted)] px-1">
                   <span>Pointfex ERP <span className="text-[10px] opacity-75 font-normal">· Developed by ERP Team</span></span>
-                  <span className="font-mono font-medium">v4.0.0</span>
+                  <span className="font-mono font-medium">v4.1.0</span>
                 </div>
               </div>
             )}

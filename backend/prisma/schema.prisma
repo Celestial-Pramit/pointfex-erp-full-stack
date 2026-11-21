@@ -297,6 +297,12 @@ model Task {
   proposedById   String?
   verifiedById   String?
   pmScore        Decimal?            @db.Decimal(5, 2)
+  projectPercentage Decimal?         @default(0) @db.Decimal(5, 2)
+  isMainProjectTask Boolean          @default(true)
+  ceoFinalized      Boolean          @default(false)
+  reviewStatus      String?          @default("PENDING_REVIEW")
+  reviewDeadlineAt  DateTime?
+  kpiFinalizedAt    DateTime?
   completedAt    DateTime?
   effectiveAt    DateTime?           @default(now())
   recordedAt     DateTime            @default(now())

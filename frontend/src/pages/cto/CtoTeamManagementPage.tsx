@@ -6,7 +6,6 @@ import { ConfirmDialog } from '../../components/common/ConfirmDialog'
 import { Avatar } from '../../components/common/Avatar'
 import { useCtoData, type TeamWithDetails } from '../../hooks/useCtoData'
 import { useApp } from '../../context/AppContext'
-import { usePermissions } from '../../hooks/usePermissions'
 import {
   Users,
   Search,
@@ -19,15 +18,65 @@ import {
 } from 'lucide-react'
 
 export function CtoTeamManagementPage() {
-  const { teams, developers, projectManagers, projects } = useCtoData()
-  const { createTeam, updateTeam, showToast } = useApp()
-  const { hasPermission, hasAnyPermission } = usePermissions()
+  const { teams, developers, projectManagers, pmEligibleUsers, projects } = useCtoData()
+  const { createTeam, updateTeam, showToast, currentRole, currentUser, data } = useApp()
 
-  const canCreateSquad = hasPermission('teams:create')
-  const canManageSquad = hasAnyPermission('teams:update', 'teams:manage_members')
+  const allCompanyPersonnel = useMemo(() => {
+    return (data.users || []).filter((u) => !u.isSuspended)
+  }, [data.users])
+
+  const userRole = (currentUser?.role || currentRole || '').toLowerCase()
+  const userTitle = (currentUser?.title || '').toLowerCase()
+  const userActiveRoles = (currentUser?.activeRoleSlugs || []).map((r) => r.toLowerCase())
+
+  const canEditSquads = useMemo(() => {
+    const isCeo =
+      userRole === 'ceo' ||
+      userActiveRoles.includes('ceo') ||
+      userTitle.includes('chief executive officer') ||
+      Boolean((currentUser as any)?.isRoot)
+    const isCto =
+      userRole === 'cto' ||
+      userActiveRoles.includes('cto') ||
+      userTitle.includes('chief technology officer')
+    const isChro =
+      userRole === 'chro' ||
+      userRole === 'cpo' ||
+      userActiveRoles.includes('chro') ||
+      userActiveRoles.includes('cpo') ||
+      userTitle.includes('chief human resources officer') ||
+      userTitle.includes('chief people officer')
+    return isCeo || isCto || isChro
+  }, [userRole, userTitle, userActiveRoles, currentUser])
+
+  const canCreateSquad = canEditSquads
+  const canManageSquad = canEditSquads
 
   const [searchQuery, setSearchQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'current' | 'previous'>('all')
   const [selectedSquad, setSelectedSquad] = useState<TeamWithDetails | null>(null)
+
+  const currentCount = useMemo(
+    () =>
+      teams.filter(
+        (t) =>
+          t.health !== 'paused' && t.health !== 'suspended' && t.health !== 'completed',
+      ).length,
+    [teams],
+  )
+  const previousCount = useMemo(
+    () =>
+      teams.filter(
+        (t) =>
+          t.health === 'paused' || t.health === 'suspended' || t.health === 'completed',
+      ).length,
+    [teams],
+  )
+
+  const activeSelectedSquad = useMemo(() => {
+    if (!selectedSquad) return null
+    return teams.find((t) => t.id === selectedSquad.id) || selectedSquad
+  }, [teams, selectedSquad])
 
   // Create Squad Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
@@ -42,11 +91,17 @@ export function CtoTeamManagementPage() {
   const [editSquadName, setEditSquadName] = useState('')
   const [editSquadCode, setEditSquadCode] = useState('')
   const [editPmId, setEditPmId] = useState('')
+  const [editHealth, setEditHealth] = useState('on_track')
   const [editMemberIds, setEditMemberIds] = useState<string[]>([])
   const [editProjectIds, setEditProjectIds] = useState<string[]>([])
 
   const filteredTeams = useMemo(() => {
     return teams.filter((t) => {
+      const isPausedOrSuspended =
+        t.health === 'paused' || t.health === 'suspended' || t.health === 'completed'
+      if (statusFilter === 'current' && isPausedOrSuspended) return false
+      if (statusFilter === 'previous' && !isPausedOrSuspended) return false
+
       if (!searchQuery.trim()) return true
       const q = searchQuery.toLowerCase()
       return (
@@ -55,13 +110,14 @@ export function CtoTeamManagementPage() {
         (t.pm?.name || '').toLowerCase().includes(q)
       )
     })
-  }, [teams, searchQuery])
+  }, [teams, statusFilter, searchQuery])
 
   const handleOpenEdit = (squad: TeamWithDetails) => {
     setEditingSquad(squad)
     setEditSquadName(squad.name)
     setEditSquadCode(squad.code)
     setEditPmId(squad.pmId || '')
+    setEditHealth(squad.health || 'on_track')
     setEditMemberIds(squad.memberIds || [])
     setEditProjectIds(squad.projectIds || [])
   }
@@ -112,7 +168,8 @@ export function CtoTeamManagementPage() {
       updateTeam(editingSquad.id, {
         name: editSquadName.trim(),
         code: editSquadCode.trim().toUpperCase(),
-        pmId: editPmId || undefined,
+        pmId: editPmId || '',
+        health: editHealth,
         memberIds: editMemberIds,
         projectIds: editProjectIds,
       })
@@ -242,9 +299,9 @@ export function CtoTeamManagementPage() {
         </div>
       </div>
 
-      {/* Search Input */}
-      <div className="bg-white dark:bg-slate-900/60 p-3 rounded-2xl border border-slate-200 dark:border-slate-800">
-        <div className="relative">
+      {/* Filter and Search Bar */}
+      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 bg-white dark:bg-slate-900/60 p-3 rounded-2xl border border-slate-200 dark:border-slate-800">
+        <div className="relative flex-1">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
@@ -253,6 +310,43 @@ export function CtoTeamManagementPage() {
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:border-lime-500"
           />
+        </div>
+
+        {/* Squad Status Filters */}
+        <div className="flex items-center gap-1.5 overflow-x-auto text-xs">
+          <button
+            type="button"
+            onClick={() => setStatusFilter('all')}
+            className={`px-3 py-1 rounded-xl font-medium whitespace-nowrap transition-colors cursor-pointer ${
+              statusFilter === 'all'
+                ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            All Squads ({teams.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setStatusFilter('current')}
+            className={`px-3 py-1 rounded-xl font-medium whitespace-nowrap transition-colors cursor-pointer ${
+              statusFilter === 'current'
+                ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            Current Squads ({currentCount})
+          </button>
+          <button
+            type="button"
+            onClick={() => setStatusFilter('previous')}
+            className={`px-3 py-1 rounded-xl font-medium whitespace-nowrap transition-colors cursor-pointer ${
+              statusFilter === 'previous'
+                ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            Previous / Paused ({previousCount})
+          </button>
         </div>
       </div>
 
@@ -270,7 +364,7 @@ export function CtoTeamManagementPage() {
               className="p-5 rounded-3xl bg-white dark:bg-slate-900/70 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 transition-all duration-200 flex flex-col justify-between shadow-2xs group space-y-4"
             >
               <div className="space-y-3">
-                {/* Header Row: Code & Squad Name */}
+                {/* Header Row: Code & Squad Name & Status */}
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
                     <Badge variant="indigo" size="xs">
@@ -280,9 +374,20 @@ export function CtoTeamManagementPage() {
                       {squad.name.split('—')[0]}
                     </span>
                   </div>
-                  <Badge variant="slate" size="xs">
-                    {squad.members.length} Devs
-                  </Badge>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {squad.health === 'paused' && (
+                      <Badge variant="amber" size="xs">PAUSED</Badge>
+                    )}
+                    {squad.health === 'suspended' && (
+                      <Badge variant="rose" size="xs">SUSPENDED</Badge>
+                    )}
+                    {squad.health === 'completed' && (
+                      <Badge variant="slate" size="xs">COMPLETED</Badge>
+                    )}
+                    <Badge variant="slate" size="xs">
+                      {squad.members.length} Devs
+                    </Badge>
+                  </div>
                 </div>
 
                 {/* Assigned PM */}
@@ -431,9 +536,9 @@ export function CtoTeamManagementPage() {
                 className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-slate-400"
               >
                 <option value="">Unassigned</option>
-                {projectManagers.map((pm) => (
+                {pmEligibleUsers.map((pm) => (
                   <option key={pm.id} value={pm.id}>
-                    {pm.name}
+                    {pm.name} ({pm.title || 'Project Manager'})
                   </option>
                 ))}
               </select>
@@ -462,21 +567,23 @@ export function CtoTeamManagementPage() {
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                Assign Dedicated Developers
+                Assign Squad Members (Any Company Personnel or Leadership)
               </label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-32 overflow-y-auto p-2 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
-                {developers.map((dev) => (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-36 overflow-y-auto p-2 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
+                {allCompanyPersonnel.map((person) => (
                   <label
-                    key={dev.id}
-                    className="flex items-center gap-2 text-[11px] cursor-pointer"
+                    key={person.id}
+                    className="flex items-center gap-2 text-[11px] cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/60 p-1 rounded-lg transition-colors"
                   >
                     <input
                       type="checkbox"
-                      checked={newMemberIds.includes(dev.id)}
-                      onChange={() => toggleCreateMember(dev.id)}
+                      checked={newMemberIds.includes(person.id)}
+                      onChange={() => toggleCreateMember(person.id)}
                       className="rounded accent-lime-500"
                     />
-                    <span className="truncate">{dev.name}</span>
+                    <span className="truncate">
+                      {person.name} <span className="text-[10px] text-slate-400">({person.title || person.role?.toUpperCase()})</span>
+                    </span>
                   </label>
                 ))}
               </div>
@@ -535,22 +642,42 @@ export function CtoTeamManagementPage() {
               </div>
             </div>
 
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                Assigned PM
-              </label>
-              <select
-                value={editPmId}
-                onChange={(e) => setEditPmId(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-slate-400"
-              >
-                <option value="">Unassigned</option>
-                {projectManagers.map((pm) => (
-                  <option key={pm.id} value={pm.id}>
-                    {pm.name}
-                  </option>
-                ))}
-              </select>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                  Assigned PM
+                </label>
+                <select
+                  value={editPmId}
+                  onChange={(e) => setEditPmId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-slate-400"
+                >
+                  <option value="">Unassigned</option>
+                  {pmEligibleUsers.map((pm) => (
+                    <option key={pm.id} value={pm.id}>
+                      {pm.name} ({pm.title || 'Project Manager'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                  Squad Lifecycle &amp; State
+                </label>
+                <select
+                  value={editHealth}
+                  onChange={(e) => setEditHealth(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-slate-400"
+                >
+                  <option value="on_track">Active Sprint (On Track)</option>
+                  <option value="needs_attention">Active Sprint (Needs Attention)</option>
+                  <option value="delayed">Active Sprint (Delayed)</option>
+                  <option value="paused">Paused Squad</option>
+                  <option value="suspended">Suspended Squad</option>
+                  <option value="completed">Completed / Previous Squad</option>
+                </select>
+              </div>
             </div>
 
             <div>
@@ -576,21 +703,23 @@ export function CtoTeamManagementPage() {
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                Squad Members
+                Squad Members (Any Company Personnel or Leadership)
               </label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-32 overflow-y-auto p-2 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
-                {developers.map((dev) => (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-36 overflow-y-auto p-2 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
+                {allCompanyPersonnel.map((person) => (
                   <label
-                    key={dev.id}
-                    className="flex items-center gap-2 text-[11px] cursor-pointer"
+                    key={person.id}
+                    className="flex items-center gap-2 text-[11px] cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/60 p-1 rounded-lg transition-colors"
                   >
                     <input
                       type="checkbox"
-                      checked={editMemberIds.includes(dev.id)}
-                      onChange={() => toggleEditMember(dev.id)}
+                      checked={editMemberIds.includes(person.id)}
+                      onChange={() => toggleEditMember(person.id)}
                       className="rounded accent-lime-500"
                     />
-                    <span className="truncate">{dev.name}</span>
+                    <span className="truncate">
+                      {person.name} <span className="text-[10px] text-slate-400">({person.title || person.role?.toUpperCase()})</span>
+                    </span>
                   </label>
                 ))}
               </div>
@@ -614,13 +743,13 @@ export function CtoTeamManagementPage() {
       )}
 
       {/* Squad Inspection Modal */}
-      {selectedSquad && (
+      {activeSelectedSquad && (
         <Modal
-          isOpen={!!selectedSquad}
+          isOpen={!!activeSelectedSquad}
           onClose={() => setSelectedSquad(null)}
           title={
-            selectedSquad
-              ? `${selectedSquad.name} (${selectedSquad.code}) — Squad Overview`
+            activeSelectedSquad
+              ? `${activeSelectedSquad.name} (${activeSelectedSquad.code}) — Squad Overview`
               : 'Squad'
           }
         >
@@ -630,13 +759,13 @@ export function CtoTeamManagementPage() {
               <span className="text-slate-400 font-medium">Assigned Project Manager</span>
               <div className="flex items-center gap-2">
                 <Avatar
-                  src={selectedSquad.pm?.avatarUrl || selectedSquad.pm?.avatar}
-                  name={selectedSquad.pm?.name || 'Project Manager'}
-                  initials={selectedSquad.pm?.initials}
+                  src={activeSelectedSquad.pm?.avatarUrl || activeSelectedSquad.pm?.avatar}
+                  name={activeSelectedSquad.pm?.name || 'Project Manager'}
+                  initials={activeSelectedSquad.pm?.initials}
                   className="w-6 h-6 text-[10px]"
                 />
                 <span className="font-semibold text-slate-800 dark:text-slate-200">
-                  {selectedSquad.pm?.name || 'Unassigned'}
+                  {activeSelectedSquad.pm?.name || 'Unassigned'}
                 </span>
               </div>
             </div>
@@ -644,10 +773,10 @@ export function CtoTeamManagementPage() {
             {/* Members List */}
             <div>
               <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
-                Dedicated Engineers ({selectedSquad.members.length})
+                Dedicated Engineers ({activeSelectedSquad.members.length})
               </h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {selectedSquad.members.map((member) => (
+                {activeSelectedSquad.members.map((member) => (
                   <div
                     key={member.id}
                     className="p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center gap-2"
@@ -672,10 +801,10 @@ export function CtoTeamManagementPage() {
             {/* Active Projects */}
             <div>
               <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
-                Managed Projects ({selectedSquad.projects.length})
+                Managed Projects ({activeSelectedSquad.projects.length})
               </h4>
               <div className="space-y-2">
-                {selectedSquad.projects.map((p) => (
+                {activeSelectedSquad.projects.map((p) => (
                   <div
                     key={p.id}
                     className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs"

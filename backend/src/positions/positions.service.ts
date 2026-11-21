@@ -102,6 +102,33 @@ export class PositionsService {
         },
       })
 
+      // Update employee title to match position title
+      await tx.employee.update({
+        where: { id: dto.employeeId },
+        data: { title: position.title },
+      })
+
+      // Sync role in employeeRole if matching role exists
+      const matchingRole = await tx.role.findFirst({
+        where: { slug: position.roleCategory },
+      })
+      if (matchingRole) {
+        await tx.employeeRole.upsert({
+          where: {
+            employeeId_roleId: {
+              employeeId: dto.employeeId,
+              roleId: matchingRole.id,
+            },
+          },
+          update: { isActive: true },
+          create: {
+            employeeId: dto.employeeId,
+            roleId: matchingRole.id,
+            isActive: true,
+          },
+        })
+      }
+
       if (actorId) {
         await tx.employeeChangeHistory.create({
           data: {
