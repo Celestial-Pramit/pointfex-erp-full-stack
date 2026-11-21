@@ -47,20 +47,37 @@ jobs:
     needs: [backend, frontend]
     runs-on: ubuntu-latest
     environment: production
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: ${{ secrets.VERCEL_SCOPE }}
     steps:
       - uses: actions/checkout@v4
       - run: npm install --global vercel@65.14.0
+      - name: Validate Vercel authentication
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::error::A valid VERCEL_TOKEN repository or environment secret is required."
+            exit 1
+          fi
       - name: Deploy Frontend to Vercel
         working-directory: frontend
         run: |
-          vercel link --yes --project pointfex-frontend --token="${{ secrets.VERCEL_TOKEN }}"
-          vercel pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
-          vercel build --prod --token="${{ secrets.VERCEL_TOKEN }}"
-          vercel deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
+          scope_args=()
+          if [ -n "$VERCEL_SCOPE" ]; then
+            scope_args+=(--scope "$VERCEL_SCOPE")
+          fi
+          vercel link --yes --project pointfex-frontend "${scope_args[@]}" --token="$VERCEL_TOKEN"
+          vercel pull --yes --environment=production "${scope_args[@]}" --token="$VERCEL_TOKEN"
+          vercel build --prod "${scope_args[@]}" --token="$VERCEL_TOKEN"
+          vercel deploy --prebuilt --prod "${scope_args[@]}" --token="$VERCEL_TOKEN"
       - name: Deploy Backend to Vercel
         working-directory: backend
         run: |
-          vercel link --yes --project pointfex-backend --token="${{ secrets.VERCEL_TOKEN }}"
-          vercel pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
-          vercel build --prod --token="${{ secrets.VERCEL_TOKEN }}"
-          vercel deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
+          scope_args=()
+          if [ -n "$VERCEL_SCOPE" ]; then
+            scope_args+=(--scope "$VERCEL_SCOPE")
+          fi
+          vercel link --yes --project pointfex-backend "${scope_args[@]}" --token="$VERCEL_TOKEN"
+          vercel pull --yes --environment=production "${scope_args[@]}" --token="$VERCEL_TOKEN"
+          vercel build --prod "${scope_args[@]}" --token="$VERCEL_TOKEN"
+          vercel deploy --prebuilt --prod "${scope_args[@]}" --token="$VERCEL_TOKEN"

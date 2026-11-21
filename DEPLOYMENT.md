@@ -12,6 +12,11 @@ production projects deploy only after every verification job succeeds. Runtime s
 live in Vercel and GitHub Actions secrets; real `.env` files are ignored and must never
 be committed.
 
+Configure these GitHub Actions secrets for the deployment job:
+
+- `VERCEL_TOKEN`: a valid Vercel account or team access token.
+- `VERCEL_SCOPE` (optional): the Vercel team slug or ID when both projects belong to a team.
+
 ## 1. Local Development
 1. Copy `backend/.env.example` -> `backend/.env` and `frontend/.env.example` -> `frontend/.env`.
 2. Start PostgreSQL, backend, and frontend:
