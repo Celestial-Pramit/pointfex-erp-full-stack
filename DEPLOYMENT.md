@@ -14,7 +14,10 @@ be committed.
 
 Configure these GitHub Actions secrets for the deployment job:
 
-- `VERCEL_TOKEN`: a valid Vercel account or team access token.
+- `VERCEL_TOKEN`: a valid Vercel account or team access token. Create it in Vercel
+  Account Settings -> Tokens, then store the token as a GitHub repository or
+  `production` environment secret. Rotate the token if the deploy job reports that
+  it is invalid or expired.
 - `VERCEL_SCOPE` (optional): the Vercel team slug or ID when both projects belong to a team.
 
 ## 1. Local Development

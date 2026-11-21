@@ -59,6 +59,10 @@ jobs:
             echo "::error::A valid VERCEL_TOKEN repository or environment secret is required."
             exit 1
           fi
+          if ! vercel whoami --token="$VERCEL_TOKEN" >/dev/null 2>&1; then
+            echo "::error::VERCEL_TOKEN is invalid or expired. Create a new Vercel access token and update the GitHub repository or production environment secret."
+            exit 1
+          fi
       - name: Deploy Frontend to Vercel
         working-directory: frontend
         run: |
