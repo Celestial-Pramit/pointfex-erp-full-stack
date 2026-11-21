@@ -1,6 +1,6 @@
-# Pointfex ERP (`v4.0.0`)
+# Pointfex ERP (`v4.1.0`)
 
-> **Pointfex ERP v4.0.0** — High-Assurance Enterprise Resource Planning & Performance Governance  
+> **Pointfex ERP v4.1.0** — High-Assurance Enterprise Resource Planning & Performance Governance  
 > *Developed by ERP Team*
 
 Production-grade, Zero-Trust Enterprise Resource Planning (ERP) platform built with **NestJS + TypeScript + Prisma + PostgreSQL (Neon)** and **React 19 + TypeScript + Vite + Tailwind CSS**.

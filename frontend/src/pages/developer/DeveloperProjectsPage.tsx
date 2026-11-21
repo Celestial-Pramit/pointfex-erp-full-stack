@@ -7,7 +7,7 @@ import { formatCurrency, formatDate } from '../../utils/formatters'
 import { FolderGit2, GitBranch, ExternalLink } from 'lucide-react'
 
 export function DeveloperProjectsPage() {
-  const { devProjects } = useDeveloperData()
+  const { devProjects, team } = useDeveloperData()
   const { setSelectedProjectModal } = useApp()
 
   return (
@@ -18,7 +18,7 @@ export function DeveloperProjectsPage() {
             My Projects
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Active projects assigned to Team 1
+            Active projects assigned to {team?.name || 'your squad'}
           </p>
         </div>
       </div>

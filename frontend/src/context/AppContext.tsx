@@ -687,9 +687,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [showToast])
 
+  const isSquadPm = useMemo(() => {
+    if (!currentUser?.id) return false
+    return data.teams.some((t) => t.pmId === currentUser.id)
+  }, [currentUser?.id, data.teams])
+
   const can = useCallback(
     (code: string, scope?: AuthorizationScope, targetScopeId?: string): boolean => {
       if (!code) return true
+      if (isSquadPm) {
+        const pmSquadCodes = [
+          'tasks:create_assign',
+          'tasks:approve',
+          'tasks:reject',
+          'tasks:reassign',
+          'tasks:propose_weight',
+          'tasks:read_team',
+          'projects:read_team',
+          'teams:read_own',
+          'performance:evaluate',
+          'kpis:score_exec',
+        ]
+        if (pmSquadCodes.includes(code)) return true
+      }
       if (authzSnapshot) {
         if (authzSnapshot.isSuspended) return false
         if (authzSnapshot.isRoot) return true
@@ -951,8 +971,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       weightCategory?: string
       proposedWeight?: number
       effectiveAt?: string
+      projectPercentage?: number
+      isMainProjectTask?: boolean
     }): Task => {
       const creatorId = currentUser?.id || currentPmId
+      const weightPoints = taskData.proposedWeight || (taskData as any).weightPoints || 2
       const newTask: Task = {
         id: `task_${Date.now()}`,
         title: taskData.title,
@@ -969,6 +992,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         tags: taskData.tags || [],
         checklist: taskData.checklist || [],
         createdAt: new Date().toISOString().split('T')[0],
+        weightCategory: (taskData.weightCategory as any) || 'MEDIUM',
+        weightPoints,
+        weightStatus: weightPoints >= 6 ? 'PENDING_CHRO_VERIFICATION' : 'VERIFIED',
+        projectPercentage: taskData.projectPercentage ?? (taskData.isMainProjectTask !== false ? 0 : 0),
+        isMainProjectTask: taskData.isMainProjectTask !== false,
       }
 
       setData((prev) => ({
@@ -991,6 +1019,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             weightCategory: taskData.weightCategory,
             proposedWeight: taskData.proposedWeight,
             effectiveAt: taskData.effectiveAt,
+            projectPercentage: taskData.projectPercentage,
+            isMainProjectTask: taskData.isMainProjectTask,
           }),
         `Task "${newTask.title}" created successfully`,
       )
@@ -1011,6 +1041,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       void runApiMutation(
         () => erpApi.approveTask(taskId, { feedback, pmScore }),
         'Task approved and marked as Completed',
+      )
+    },
+    [runApiMutation],
+  )
+
+  const handleScoreCompletedTask = useCallback(
+    async (taskId: string, score: number, reason?: string) => {
+      setData((prev) => ({
+        ...prev,
+        tasks: prev.tasks.map((t) => (t.id === taskId ? { ...t, pmScore: score } : t)),
+      }))
+      await runApiMutation(
+        () => erpApi.scoreTaskExec(taskId, { score, reason }),
+        `KPI Score ${score}/100 recorded for deliverable`,
       )
     },
     [runApiMutation],
@@ -1413,7 +1457,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             name: projectData.name,
             code: projectData.code,
             description: projectData.description || 'New strategic engineering project',
-            teamId: projectData.teamId || 'team_01',
+            teamId: projectData.teamId || undefined,
             budget: projectData.budget ?? 0,
             deadline: projectData.deadline
               ? new Date(projectData.deadline).toISOString()
@@ -1447,13 +1491,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (updates.demoUrl !== undefined) payload.demoUrl = updates.demoUrl
       if (updates.tags !== undefined) payload.tags = updates.tags
       if (updates.srsUrl !== undefined) payload.srsUrl = updates.srsUrl
+      if (updates.teamId !== undefined) payload.teamId = updates.teamId || null
 
       void runApiMutation(async () => {
         if (Object.keys(payload).length > 0) {
           await erpApi.updateProject(projectId, payload)
         }
         if (updates.teamId) {
-          await erpApi.assignProjectTeam(projectId, updates.teamId)
+          await erpApi.assignProjectTeam(projectId, updates.teamId).catch(() => {})
         }
       }, 'Project updated successfully')
     },
@@ -1462,6 +1507,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const handleUpdateUser = useCallback(
     (userId: string, updates: Partial<User>) => {
+      // Optimistically update users in local data state
+      setData((prev) => ({
+        ...prev,
+        users: prev.users.map((u) => {
+          if (u.id === userId) {
+            const nextSlugs = updates.role
+              ? Array.from(new Set([...(u.activeRoleSlugs || []), updates.role]))
+              : u.activeRoleSlugs
+            return {
+              ...u,
+              ...updates,
+              activeRoleSlugs: nextSlugs,
+            }
+          }
+          return u
+        }),
+      }))
+
+      if (userId === currentUser?.id) {
+        if (updates.role) {
+          setCurrentRole(updates.role)
+          localStorage.setItem('pointfex_role', updates.role)
+          if (updates.role === 'pm') {
+            setCurrentPmId(userId)
+            localStorage.setItem('pointfex_pm_id', userId)
+          } else if (updates.role === 'developer') {
+            setCurrentDevId(userId)
+            localStorage.setItem('pointfex_dev_id', userId)
+          }
+        }
+      }
+
       void runApiMutation(async () => {
         const empUpdates: Record<string, unknown> = {}
         if (updates.name !== undefined) empUpdates.name = updates.name
@@ -1477,18 +1554,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         if (updates.role) {
           const targetRoleCat = updates.role === 'cpo' ? 'chro' : updates.role
-          const freePos = positionsRef.current.find(
+          let freePos = positionsRef.current.find(
             (p) =>
               p.roleCategory === targetRoleCat &&
               (!p.assignments || !p.assignments.some((a: any) => a.isActive)),
           )
+          if (!freePos) {
+            const allPositions = await erpApi.getPositions().catch(() => [])
+            positionsRef.current = allPositions
+            freePos = allPositions.find(
+              (p: any) =>
+                p.roleCategory === targetRoleCat &&
+                (!p.assignments || !p.assignments.some((a: any) => a.isActive)),
+            )
+          }
           if (freePos) {
             await erpApi.assignPosition({ employeeId: userId, positionId: freePos.id })
           }
         }
+        await syncFromBackend()
       }, 'Member profile updated')
     },
-    [runApiMutation],
+    [currentUser?.id, runApiMutation, syncFromBackend],
   )
 
   const handleCreateTeam = useCallback(
@@ -1502,8 +1589,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       projectIds?: string[]
       weeklyVelocity?: number
     }): Team => {
+      const newId = `team_${Date.now()}`
       const optimistic: Team = {
-        id: `team_${Date.now()}`,
+        id: newId,
         name: teamData.name,
         code: teamData.code,
         focus: teamData.focus,
@@ -1512,15 +1600,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
         memberIds: teamData.memberIds || [],
         projectIds: teamData.projectIds || [],
         weeklyVelocity: teamData.weeklyVelocity || 40,
+        currentSprintWeek: 1,
+        totalSprintWeeks: 5,
+        health: 'on_track',
       }
+
+      setData((prev) => ({
+        ...prev,
+        teams: [...prev.teams, optimistic],
+        users: prev.users.map((u) => {
+          if (teamData.memberIds?.includes(u.id) || (teamData.pmId && u.id === teamData.pmId)) {
+            return { ...u, teamId: newId }
+          }
+          return u
+        }),
+        projects: prev.projects.map((p) => {
+          if (teamData.projectIds?.includes(p.id)) {
+            return { ...p, teamId: newId }
+          }
+          return p
+        }),
+      }))
 
       void runApiMutation(
         () =>
           erpApi.createTeam({
+            id: newId,
             name: teamData.name,
             code: teamData.code,
             focus: teamData.focus,
-            ...(teamData.pmId ? { pmEmployeeId: teamData.pmId } : {}),
+            pmId: teamData.pmId || undefined,
+            pmEmployeeId: teamData.pmId || undefined,
+            memberIds: teamData.memberIds || [],
+            projectIds: teamData.projectIds || [],
+            leadDevId: teamData.leadDevId || undefined,
             weeklyVelocity: teamData.weeklyVelocity || 40,
           }),
         `Squad ${teamData.name} created`,
@@ -1533,22 +1646,58 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const handleUpdateTeam = useCallback(
     (teamId: string, updates: Partial<Team>) => {
+      setData((prev) => ({
+        ...prev,
+        teams: prev.teams.map((t) => (t.id === teamId ? { ...t, ...updates } : t)),
+        users: prev.users.map((u) => {
+          if (updates.memberIds && updates.memberIds.includes(u.id)) {
+            return { ...u, teamId }
+          }
+          if (
+            updates.memberIds &&
+            u.teamId === teamId &&
+            !updates.memberIds.includes(u.id) &&
+            u.role === 'developer'
+          ) {
+            return { ...u, teamId: undefined }
+          }
+          if (updates.pmId !== undefined && u.id === updates.pmId) {
+            return { ...u, teamId }
+          }
+          return u
+        }),
+        projects: prev.projects.map((p) => {
+          if (updates.projectIds && updates.projectIds.includes(p.id)) {
+            return { ...p, teamId }
+          }
+          if (updates.projectIds && p.teamId === teamId && !updates.projectIds.includes(p.id)) {
+            return { ...p, teamId: '' }
+          }
+          return p
+        }),
+      }))
+
       void runApiMutation(async () => {
         const teamPayload: Record<string, unknown> = {}
         if (updates.name !== undefined) teamPayload.name = updates.name
+        if (updates.code !== undefined) teamPayload.code = updates.code
         if (updates.focus !== undefined) teamPayload.focus = updates.focus
-        if (updates.pmId !== undefined) teamPayload.pmEmployeeId = updates.pmId || null
+        if (updates.pmId !== undefined) {
+          teamPayload.pmId = updates.pmId || null
+          teamPayload.pmEmployeeId = updates.pmId || null
+        }
+        if (updates.memberIds !== undefined) teamPayload.memberIds = updates.memberIds
+        if (updates.projectIds !== undefined) teamPayload.projectIds = updates.projectIds
+        if (updates.leadDevId !== undefined) teamPayload.leadDevId = updates.leadDevId
         if (updates.color !== undefined) teamPayload.color = updates.color
         if (updates.health !== undefined) teamPayload.health = updates.health
         if (updates.weeklyVelocity !== undefined)
           teamPayload.weeklyVelocity = updates.weeklyVelocity
         if (updates.currentSprintWeek !== undefined)
           teamPayload.currentSprintWeek = updates.currentSprintWeek
+
         if (Object.keys(teamPayload).length > 0) {
           await erpApi.updateTeam(teamId, teamPayload)
-        }
-        if (updates.leadDevId) {
-          await erpApi.addTeamMember(teamId, { employeeId: updates.leadDevId, isLead: true })
         }
       }, 'Squad updated successfully')
     },
@@ -2064,7 +2213,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     createTask: handleCreateTask,
     approveTask: handleApproveTask,
+    scoreCompletedTask: handleScoreCompletedTask,
     rejectTask: handleRejectTask,
+    isSquadPm,
     reassignTask: handleReassignTask,
     allocateBudget: handleAllocateBudget,
     requestBudgetIncrease: handleRequestBudgetIncrease,

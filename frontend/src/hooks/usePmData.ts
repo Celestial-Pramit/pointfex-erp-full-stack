@@ -59,32 +59,51 @@ export interface PmData {
 }
 
 export function usePmData(): PmData {
-  const { data, currentPmId, resolvers } = useApp()
+  const { data, currentPmId, currentUser, resolvers } = useApp()
 
   return useMemo(() => {
-    // 1. Current PM User
+    // 1. Current PM User: Recognize assigned squad PM dynamically
+    const squadWhereUserIsPm = currentUser
+      ? data.teams.find((t) => t.pmId === currentUser.id)
+      : null
     const pm: User =
-      resolvers.getUser(currentPmId) || data.users.find((u) => u.role === 'pm') || data.users[0]
+      (squadWhereUserIsPm && currentUser
+        ? currentUser
+        : resolvers.getUser(currentPmId) ||
+          data.users.find((u) => u.role === 'pm') ||
+          currentUser ||
+          data.users[0]) as User
 
     // 2. PM's Squad / Team
     const team: Team =
-      data.teams.find((t) => t.pmId === pm.id || t.id === pm.teamId) || data.teams[0]
+      squadWhereUserIsPm ||
+      data.teams.find((t) => t.pmId === pm?.id || t.id === pm?.teamId) ||
+      ((data.teams.length > 0 ? data.teams[0] : null) as any)
 
-    // 3. Squad Developers (4 Members)
+    // 3. Squad Developers (Dedicated Members)
     let teamMembers: User[] = team
       ? (team.memberIds.map((devId) => resolvers.getUser(devId)).filter(Boolean) as User[])
       : []
 
-    // ponytail: Fallback to active squad developers from users list if team.memberIds mapping is sparse
-    if (teamMembers.length === 0 && team) {
-      teamMembers = data.users.filter(
-        (u) => (u.teamId === team.id || u.role === 'developer') && u.role !== 'pm' && u.id !== pm.id,
+    if (team) {
+      const additional = data.users.filter(
+        (u) =>
+          (u.teamId === team.id || team.memberIds.includes(u.id)) &&
+          !teamMembers.some((m) => m.id === u.id) &&
+          u.id !== pm?.id &&
+          u.role !== 'pm',
       )
+      teamMembers = [...teamMembers, ...additional]
     }
 
-    // 4. Team Projects (2 Projects per team)
+    // 4. Team Projects
     const teamProjects: EnrichedProject[] = data.projects
-      .filter((proj) => proj.teamId === team?.id || proj.pmId === pm.id)
+      .filter(
+        (proj) =>
+          proj.teamId === team?.id ||
+          team?.projectIds?.includes(proj.id) ||
+          (pm?.id && proj.pmId === pm.id),
+      )
       .map((proj) => {
         const repo = proj.repoId ? resolvers.getRepo(proj.repoId) : null
         const projTasks = data.tasks.filter((t) => t.projectId === proj.id)
@@ -122,9 +141,10 @@ export function usePmData(): PmData {
         }
       })
 
-    // 6. PM Personal Tasks (Tasks assigned directly to PM by CTO/CFO/CPO/CEO)
+    // 6. PM Personal Tasks (Tasks assigned directly to logged-in user / PM)
+    const targetUserId = currentUser?.id || pm.id
     const pmPersonalTasks: EnrichedTask[] = data.tasks
-      .filter((t) => t.assigneeId === pm.id)
+      .filter((t) => t.assigneeId === targetUserId || t.assignedTo === targetUserId)
       .map((task) => {
         const creator = resolvers.getUser(task.creatorId)
         const project = resolvers.getProject(task.projectId)
@@ -272,7 +292,7 @@ export function usePmData(): PmData {
       announcements: data.announcements,
       resolvers,
     }
-  }, [data, currentPmId, resolvers])
+  }, [data, currentPmId, currentUser, resolvers])
 }
 
 export default usePmData

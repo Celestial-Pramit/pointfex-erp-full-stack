@@ -307,6 +307,8 @@ export const erpApi = {
   getTasks: () => apiRequest<any[]>('/tasks'),
   createTask: (body: Record<string, unknown>) =>
     apiRequest<any>('/tasks', { method: 'POST', body: JSON.stringify(body) }),
+  updateTask: (id: string, body: Record<string, unknown>) =>
+    apiRequest<any>(`/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   updateTaskStatus: (id: string, status: string) =>
     apiRequest<any>(`/tasks/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   approveTask: (id: string, body: { feedback?: string; pmScore?: number; payoutAmount?: number }) =>

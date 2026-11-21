@@ -1,5 +1,46 @@
 # Changelog
 
+## 4.1.0 (Production Release — November 2026) · Developed by ERP Team
+
+### 6-Workspace Navigation Architecture & Role Scoping
+- **Restructured Primary Workspaces**:
+  - Consolidated platform into 6 streamlined workspaces:
+    1. **Overview / Home** (`dashboard`): Dynamic KPI, squad delivery metrics, and quick directives.
+    2. **Organization** (`organization`): Company directory, squads, projects, and member rosters.
+    3. **My Work** (`my_workspace`): Interactive Kanban task management, personal squads, deliverable submissions, and leave requests.
+    4. **Engineering** (`engineering_security`): Sprint code reviews, quality gates, test pipelines, deliverable submissions, and reports.
+    5. **Advisory** (`consultancy_advisory`): Enterprise client consulting, proposal authoring, and peer consultation exchanges.
+    6. **Governance** (`admin_governance`): Executive audit trail, access control, and C-Suite delegations.
+- **Strict Role Gating for Governance**:
+  - `Performance Reviews` (`performance`) and `Delegations` (`delegations`) strictly restricted to C-Suite executives (`CEO`, `CFO`, `CTO`, `CHRO`, `CPO` and `system:root`).
+  - Developers and Project Managers cannot see or access Governance audit logs, delegations, or performance calibration consoles; access violations route cleanly to `<AccessDeniedPage />`.
+  - Removed auxiliary duplicate sections (`FINANCE -> Budget Requests` and duplicate `APPROVALS -> Inbox & Approvals`) from the Governance sidebar.
+
+### Time-Bounded Delegations & Hold-What-You-Delegate Policy
+- **Executive Delegation Authority**:
+  - Delegation capability strictly limited to C-Level executives and CEO.
+  - Non-CEO executives (`CTO`, `CFO`, `CHRO`, `CPO`) can **strictly only delegate non-critical permissions they actively hold** in their own permission set (`availablePermissions`).
+  - CEO exception: CEO possesses full company-wide delegative authority across all functional packs.
+- **Revocation Scoping**:
+  - C-Level executives can only revoke delegations that they themselves assigned/created (`delegatorId === currentUser.id`).
+  - CEO possesses universal revocation authority across the entire organization.
+
+### Personal Tasks & Squad Deliverables Workflow
+- **My Tasks Interactive Kanban**:
+  - Filtered strictly to deliverables assigned to the authenticated user (`assigneeId === currentUser.id`).
+  - Drag-and-drop state transitions: `To Do` -> `In Progress` -> `In Review` -> `Completed` -> `Blocked`.
+  - Task Weight & XP scaling: Supports 10, 30, 50, 100 pts and custom weight points mapping to 10x career XP yield.
+- **Submissions & Leave Management**:
+  - Multi-tab portal for leave notices, architecture/tooling ideas, company suggestions, and project deliverables.
+  - Leave requests open to all personnel with custom duration and justification.
+  - Formal approval gated strictly to CEO and CHRO.
+  - **CEO Finalization Rule**: When approved by the CEO, leave requests and task weights are immediately finalized and verified; no further CHRO approval is required.
+
+### Multi-Squad & Cross-Functional Allocation
+- Squad management allows assigning members across all organizational personnel.
+- Project Lead (PM) assignment dynamically reflects all project managers and C-Level executives.
+- Synchronized multi-squad membership and deliverable tracking across backend and frontend models.
+
 ## 4.0.0 (Production Release — November 2026) · Developed by ERP Team
 
 ### Frontend Governance & View Synchronization

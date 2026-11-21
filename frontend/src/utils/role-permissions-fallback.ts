@@ -50,7 +50,6 @@ const ROLE_FALLBACK_PERMISSIONS: Record<string, string[]> = {
     'reports:create',
     'reports:read_standard',
     'reports:triage',
-    'permissions:delegate',
   ],
   cto: [
     'employees:read_directory',

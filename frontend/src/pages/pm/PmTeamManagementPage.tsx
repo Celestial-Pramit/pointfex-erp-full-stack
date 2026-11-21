@@ -57,12 +57,17 @@ export function PmTeamManagementPage() {
         </div>
       </div>
 
-      {/* 4 Developer Squad Cards (Simple, Clean & Relaxing) */}
+      {/* Developer Squad Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {workloads.map((member) => {
-          const activeTasks = member.tasks.filter((t) => t.status !== 'completed')
-          return (
-            <Card key={member.id} noPadding>
+        {workloads.length === 0 ? (
+          <div className="col-span-full p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400">
+            No dedicated engineers currently assigned to your squad.
+          </div>
+        ) : (
+          workloads.map((member) => {
+            const activeTasks = member.tasks.filter((t) => t.status !== 'completed')
+            return (
+              <Card key={member.id} noPadding>
               <div className="p-5 space-y-4 text-xs">
                 {/* Header: Avatar, Name, Title, Online Status */}
                 <div className="flex items-start justify-between gap-3">
@@ -126,7 +131,7 @@ export function PmTeamManagementPage() {
               </div>
             </Card>
           )
-        })}
+        }))}
       </div>
 
       {/* Clean Reassign Task Modal */}

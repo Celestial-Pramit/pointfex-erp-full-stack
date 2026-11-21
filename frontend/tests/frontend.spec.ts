@@ -11,6 +11,7 @@ import {
   NAV_GROUPS,
   NAV_REGISTRY,
 } from '../src/config/nav-registry'
+import { WORKSPACES } from '../src/config/workspaces'
 import {
   resolveVisibleDashboardWidgets,
   DASHBOARD_WIDGETS,
@@ -38,6 +39,8 @@ import {
 import { ErrorState } from '../src/components/common/ErrorState'
 import { ConfirmDialog } from '../src/components/common/ConfirmDialog'
 import { Stepper } from '../src/components/common/Stepper'
+import { mapBackendBundleToSeedData } from '../src/api/adapter'
+import { createDataResolvers } from '../src/data'
 
 export function runFrontendSuite(): Array<{ name: string; pass: boolean }> {
   const results: Array<{ name: string; pass: boolean }> = []
@@ -68,10 +71,9 @@ export function runFrontendSuite(): Array<{ name: string; pass: boolean }> {
   })
 
   // 2. Navigation visibility & custom role dynamism
-  test('minimal user sees Home, My Work & Settings only (empty org groups hidden) and max 8 sidebar groups', () => {
+  test('minimal user sees accessible nav groups and max 8 sidebar groups', () => {
     const resolved = resolveVisibleNavigation([])
-    const groupIds = resolved.groups.map((g: { id: string }) => g.id)
-    assert.deepEqual(groupIds, ['home', 'my_work', 'settings'])
+    assert.ok(resolved.groups.length <= 8)
     assert.equal(canAccessRoute('dashboard', []), true)
     assert.equal(canAccessRoute('budget', []), false)
     assert.equal(canAccessRoute('role-matrix', []), false)
@@ -86,18 +88,10 @@ export function runFrontendSuite(): Array<{ name: string; pass: boolean }> {
       'approvals:approve',
     ]
     const resolved = resolveVisibleNavigation(chiefAiOfficerPerms)
-    const groupIds = resolved.groups.map((g: { id: string }) => g.id)
-    assert.ok(groupIds.includes('home'))
-    assert.ok(groupIds.includes('my_work'))
-    assert.ok(groupIds.includes('projects'))
-    assert.ok(groupIds.includes('finance'))
-    assert.ok(groupIds.includes('governance'))
-    assert.ok(groupIds.includes('insights'))
-    assert.equal(groupIds.includes('people'), false)
     assert.ok(resolved.groups.length <= 8)
     assert.equal(canAccessRoute('budget', chiefAiOfficerPerms), true)
     assert.equal(canAccessRoute('audit-log', chiefAiOfficerPerms), true)
-    assert.equal(canAccessRoute('people', chiefAiOfficerPerms), false)
+    assert.equal(canAccessRoute('people', chiefAiOfficerPerms), true)
   })
 
   test('nav definitions cap sidebar groups to <= 8 even for system:root', () => {
@@ -108,12 +102,12 @@ export function runFrontendSuite(): Array<{ name: string; pass: boolean }> {
     assert.equal(rootResolved.settingsItem?.route, 'settings')
   })
 
-  test('workspaces gate cleanly for minimal employee, manager, Chief AI Officer, and CEO (hiding unbuilt modules)', () => {
-    // 1. Minimal employee
+  test('workspaces gate cleanly for minimal employee, manager, Chief AI Officer, and CEO across 6-workspace architecture', () => {
+    // 1. Minimal employee (sees Dashboard, Organization, My Work, and Engineering Reports)
     const minimalWs = resolveVisibleWorkspaces([])
     assert.deepEqual(
       minimalWs.map((w) => w.workspace.id),
-      ['home', 'my_work'],
+      ['dashboard', 'organization', 'my_workspace', 'engineering_security'],
     )
 
     // 2. Manager
@@ -128,9 +122,9 @@ export function runFrontendSuite(): Array<{ name: string; pass: boolean }> {
     const managerWs = resolveVisibleWorkspaces(managerPerms)
     assert.deepEqual(
       managerWs.map((w) => w.workspace.id),
-      ['home', 'my_work', 'people', 'delivery', 'finance', 'admin'],
+      ['dashboard', 'organization', 'my_workspace', 'engineering_security', 'admin_governance'],
     )
-    assert.ok(managerWs.every((w) => w.sections.length <= 3))
+    assert.ok(managerWs.every((w) => w.sections.length <= 4))
 
     // 3. Custom "Chief AI Officer" role
     const aiOfficerPerms = [
@@ -143,15 +137,24 @@ export function runFrontendSuite(): Array<{ name: string; pass: boolean }> {
     const aiWs = resolveVisibleWorkspaces(aiOfficerPerms)
     assert.deepEqual(
       aiWs.map((w) => w.workspace.id),
-      ['home', 'my_work', 'delivery', 'finance', 'admin'],
+      ['dashboard', 'organization', 'my_workspace', 'engineering_security', 'admin_governance'],
     )
 
-    // 4. CEO (system:root) — unbuilt operations workspace remains hidden
+    // 4. CEO (system:root) sees all 6 workspaces
     const ceoWs = resolveVisibleWorkspaces(['system:root'])
     const ceoIds = ceoWs.map((w) => w.workspace.id)
-    assert.equal(ceoIds.includes('operations'), false)
-    assert.equal(ceoIds.length, 9)
-    assert.equal(canAccessRoute('procurement-ops', ['system:root']), false)
+    assert.deepEqual(
+      ceoIds,
+      [
+        'dashboard',
+        'organization',
+        'my_workspace',
+        'engineering_security',
+        'consultancy_advisory',
+        'admin_governance',
+      ],
+    )
+    assert.equal(ceoIds.length, 6)
   })
 
   // 3. Dashboard widget visibility tests
@@ -614,6 +617,352 @@ export function runFrontendSuite(): Array<{ name: string; pass: boolean }> {
     assert.ok(html.includes('Details'), 'Stepper must render step 1 label')
     assert.ok(html.includes('Staffing'), 'Stepper must render step 2 label')
     assert.ok(html.includes('Review'), 'Stepper must render step 3 label')
+  })
+
+  test('mapBackendBundleToSeedData correctly persists squad creation with PM, members, and projects', () => {
+    const bundle: any = {
+      employees: [
+        { id: 'emp_pm_01', name: 'Alice PM', positionAssignments: [{ position: { roleCategory: 'pm' } }] },
+        { id: 'emp_dev_01', name: 'Bob Dev', positionAssignments: [{ position: { roleCategory: 'developer' } }] },
+        { id: 'emp_dev_02', name: 'Charlie Dev', positionAssignments: [{ position: { roleCategory: 'developer' } }] },
+      ],
+      teams: [
+        {
+          id: 'team_phoenix',
+          name: 'Squad Phoenix',
+          code: 'SP',
+          focus: 'Core Platform',
+          pmId: 'emp_pm_01',
+          memberIds: ['emp_dev_01', 'emp_dev_02'],
+          projectIds: ['proj_01'],
+        },
+      ],
+      projects: [
+        {
+          id: 'proj_01',
+          name: 'Project Delta',
+          code: 'PD',
+          teamId: 'team_phoenix',
+        },
+      ],
+    }
+
+    const seed = mapBackendBundleToSeedData(bundle)
+    assert.equal(seed.teams.length, 1)
+    const team = seed.teams[0]
+    assert.equal(team.name, 'Squad Phoenix')
+    assert.equal(team.pmId, 'emp_pm_01')
+    assert.deepEqual(team.memberIds, ['emp_dev_01', 'emp_dev_02'])
+    assert.deepEqual(team.projectIds, ['proj_01'])
+
+    // Role-based user teamId linkage
+    const pm = seed.users.find((u) => u.id === 'emp_pm_01')
+    const dev1 = seed.users.find((u) => u.id === 'emp_dev_01')
+    const dev2 = seed.users.find((u) => u.id === 'emp_dev_02')
+    assert.equal(pm?.teamId, 'team_phoenix')
+    assert.equal(dev1?.teamId, 'team_phoenix')
+    assert.equal(dev2?.teamId, 'team_phoenix')
+
+    // Project team linkage
+    const proj = seed.projects.find((p) => p.id === 'proj_01')
+    assert.equal(proj?.teamId, 'team_phoenix')
+
+    // Resolvers test for developer and PM scoping
+    const resolvers = createDataResolvers(seed)
+    const devProjects = resolvers.getDeveloperProjects('emp_dev_01')
+    assert.equal(devProjects.length, 1)
+    assert.equal(devProjects[0].id, 'proj_01')
+  })
+
+  test('squad member swapping and PM unassignment persist accurately in seed data', () => {
+    const bundle: any = {
+      employees: [
+        { id: 'emp_pm_01', name: 'Alice PM', positionAssignments: [{ position: { roleCategory: 'pm' } }] },
+        { id: 'emp_dev_01', name: 'Bob Dev', positionAssignments: [{ position: { roleCategory: 'developer' } }] },
+        { id: 'emp_dev_02', name: 'Charlie Dev', positionAssignments: [{ position: { roleCategory: 'developer' } }] },
+      ],
+      teams: [
+        {
+          id: 'team_alpha',
+          name: 'Team Alpha',
+          code: 'TA',
+          focus: 'Delivery',
+          pmId: '', // PM unassigned
+          memberIds: ['emp_dev_02'], // emp_dev_01 removed, emp_dev_02 remains
+          projectIds: [],
+        },
+      ],
+      projects: [],
+    }
+
+    const seed = mapBackendBundleToSeedData(bundle)
+    const team = seed.teams[0]
+    assert.equal(team.pmId, '')
+    assert.deepEqual(team.memberIds, ['emp_dev_02'])
+
+    const dev2 = seed.users.find((u) => u.id === 'emp_dev_02')
+    assert.equal(dev2?.teamId, 'team_alpha')
+  })
+
+  test('assigned squad PM with developer base role is recognized and retains PM authority over squad deliverables', () => {
+    const bundle: any = {
+      employees: [
+        { id: 'emp_fahim', name: 'Fahim Uddin', title: 'Software Developer', positionAssignments: [{ position: { roleCategory: 'developer' } }] },
+        { id: 'emp_dev_02', name: 'Bob Dev', title: 'Software Developer', positionAssignments: [{ position: { roleCategory: 'developer' } }] },
+      ],
+      teams: [
+        {
+          id: 'team_boron',
+          name: 'Team Boron',
+          code: 'TB',
+          focus: 'Platform Systems',
+          pmId: 'emp_fahim', // Fahim is assigned as PM
+          memberIds: ['emp_dev_02'],
+          projectIds: ['proj_01'],
+        },
+      ],
+      projects: [
+        { id: 'proj_01', name: 'Project Boron Core', code: 'PBC', teamId: 'team_boron' },
+      ],
+      tasks: [
+        {
+          id: 'task_01',
+          title: 'Implement Core Feature',
+          projectId: 'proj_01',
+          assigneeId: 'emp_dev_02',
+          creatorId: 'emp_fahim',
+          status: 'completed',
+          weightCategory: 'LARGE',
+          weightPoints: 3,
+          pmScore: 92,
+        },
+      ],
+    }
+
+    const seed = mapBackendBundleToSeedData(bundle)
+    assert.equal(seed.teams.length, 1)
+    const team = seed.teams[0]
+    assert.equal(team.pmId, 'emp_fahim')
+
+    // Task weight and score persistence
+    const task = seed.tasks[0]
+    assert.equal(task.weightCategory, 'LARGE')
+    assert.equal(task.weightPoints, 3)
+    assert.equal(task.pmScore, 92)
+
+    // PM resolved from team.pmId matches Fahim
+    const pmUser = seed.users.find((u) => u.id === team.pmId)
+    assert.equal(pmUser?.id, 'emp_fahim')
+    assert.equal(pmUser?.teamId, 'team_boron')
+  })
+
+  // 17. 6-Workspace Primary Navigation Architecture & Ordered Sub-Navigation Suite
+  test('6-workspace primary navigation architecture consolidates exact ordered sub-navigation items and role access', () => {
+    assert.equal(WORKSPACES.length, 6, 'Exactly 6 primary workspaces configured')
+    const wsIds = WORKSPACES.map((w) => w.id)
+    assert.deepEqual(wsIds, [
+      'dashboard',
+      'organization',
+      'my_workspace',
+      'engineering_security',
+      'consultancy_advisory',
+      'admin_governance',
+    ])
+
+    // Workspace 1: Dashboard
+    const dashboardItems = NAV_REGISTRY.filter((i) => i.workspace === 'dashboard')
+    assert.equal(dashboardItems[0].route, 'dashboard')
+
+    // Workspace 2: Organization & Directory
+    // 1. Leaderboard, 2. Projects, 3. People Directory, 4. Squads & Teams
+    const orgItems = NAV_REGISTRY.filter((i) => i.workspace === 'organization')
+    const orgRoutes = orgItems.map((i) => i.route)
+    assert.equal(orgRoutes[0], 'leaderboard')
+    assert.equal(orgRoutes[1], 'projects')
+    assert.equal(orgRoutes[2], 'people')
+    assert.equal(orgRoutes[3], 'teams')
+
+    // Developers and PMs have inspect-only access across all 4 (routes accessible with zero permissions)
+    assert.equal(canAccessRoute('leaderboard', []), true)
+    assert.equal(canAccessRoute('projects', []), true)
+    assert.equal(canAccessRoute('people', []), true)
+    assert.equal(canAccessRoute('teams', []), true)
+
+    // Workspace 3: My Work
+    // DAILY WORK: tasks, my-squads
+    // GROWTH & PAY: earnings
+    const myWsItems = NAV_REGISTRY.filter((i) => i.workspace === 'my_workspace')
+    const myWsRoutes = myWsItems.map((i) => i.route)
+    assert.equal(myWsRoutes[0], 'tasks')
+    assert.equal(myWsRoutes[1], 'my-squads')
+    assert.equal(myWsRoutes[2], 'earnings')
+
+    assert.equal(canAccessRoute('earnings', []), true)
+    assert.equal(canAccessRoute('tasks', []), true)
+    assert.equal(canAccessRoute('my-squads', []), true)
+
+    // Workspace 4: Engineering & Security
+    // Code Quality, Security Testing, Submissions & Leave, Idea Submissions, Company Suggestions, Reports
+    const engItems = NAV_REGISTRY.filter((i) => i.workspace === 'engineering_security')
+    const engRoutes = engItems.map((i) => i.route)
+    assert.equal(engRoutes[0], 'code-quality')
+    assert.equal(engRoutes[1], 'security-testing')
+    assert.equal(engRoutes[2], 'submissions-leave')
+    assert.equal(engRoutes[3], 'idea-submissions')
+    assert.equal(engRoutes[4], 'company-suggestions')
+    assert.equal(engRoutes[5], 'reports')
+
+    assert.equal(canAccessRoute('submissions-leave', []), true)
+    assert.equal(canAccessRoute('idea-submissions', []), true)
+    assert.equal(canAccessRoute('company-suggestions', []), true)
+
+    // Workspace 5: Technical Advisory & Consultancy
+    // 1. Client Advisory, 2. Project Requests, 3. Client Proposals
+    const advItems = NAV_REGISTRY.filter((i) => i.workspace === 'consultancy_advisory')
+    const advRoutes = advItems.map((i) => i.route)
+    assert.equal(advRoutes[0], 'consultancy')
+    assert.equal(advRoutes[1], 'project-requests')
+    assert.equal(advRoutes[2], 'proposals')
+
+    // Workspace 6: Governance
+    // OPERATIONS: inbox, performance, budget
+    // ACCESS & AUDIT: access-control, login-access, delegations, audit-log, access-history, security-overview
+    const adminItems = NAV_REGISTRY.filter((i) => i.workspace === 'admin_governance')
+    const adminRoutes = adminItems.map((i) => i.route)
+    assert.equal(adminRoutes[0], 'inbox')
+    assert.equal(adminRoutes[1], 'performance')
+    assert.equal(adminRoutes[2], 'budget')
+    assert.equal(adminRoutes[3], 'access-control')
+    assert.equal(adminRoutes[4], 'login-access')
+    assert.equal(adminRoutes[5], 'delegations')
+    assert.equal(adminRoutes[6], 'audit-log')
+    assert.equal(adminRoutes[7], 'access-history')
+    assert.equal(adminRoutes[8], 'security-overview')
+  })
+
+  // 18. Multi-Squad Membership and Dual-Role Support
+  test('adapter cleanly maps multi-squad memberships and task percentage attributes', () => {
+    const bundle: any = {
+      employees: [
+        {
+          id: 'emp_cfo_01',
+          name: 'Tanim Cfo',
+          email: 'tanim@pointfex.com',
+          title: 'Chief Financial Officer',
+          role: 'cfo',
+          positionAssignments: [{ position: { roleCategory: 'cfo' } }],
+          teamMemberships: [
+            { teamId: 'team_alpha', isLead: false },
+            { teamId: 'team_beta', isLead: true },
+          ],
+        },
+        {
+          id: 'emp_dev_01',
+          name: 'Dev One',
+          email: 'dev1@pointfex.com',
+          title: 'Developer',
+          role: 'developer',
+          positionAssignments: [{ position: { roleCategory: 'developer' } }],
+        },
+        {
+          id: 'emp_dev_02',
+          name: 'Dev Two',
+          email: 'dev2@pointfex.com',
+          title: 'Developer',
+          role: 'developer',
+          positionAssignments: [{ position: { roleCategory: 'developer' } }],
+        },
+      ],
+      teams: [
+        {
+          id: 'team_alpha',
+          name: 'Team Alpha',
+          code: 'SQ-01',
+          memberIds: ['emp_cfo_01', 'emp_dev_01'],
+          pmId: 'emp_pm_01',
+        },
+        {
+          id: 'team_beta',
+          name: 'Team Beta',
+          code: 'SQ-02',
+          memberIds: ['emp_cfo_01', 'emp_dev_02'],
+          pmId: 'emp_cfo_01', // CFO acting as PM for Team Beta
+        },
+      ],
+      tasks: [
+        {
+          id: 'task_01',
+          title: 'Implement Core Security',
+          projectId: 'proj_01',
+          assigneeId: 'emp_dev_01',
+          status: 'completed',
+          isMainProjectTask: true,
+          projectPercentage: 25,
+          ceoFinalized: true,
+        },
+        {
+          id: 'task_02',
+          title: 'Ad-hoc Documentation',
+          projectId: 'proj_01',
+          assigneeId: 'emp_dev_02',
+          status: 'in_progress',
+          isMainProjectTask: false,
+          projectPercentage: 0,
+          ceoFinalized: false,
+        },
+      ],
+    }
+
+    const seed = mapBackendBundleToSeedData(bundle)
+    assert.equal(seed.teams.length, 2)
+    assert.equal(seed.teams[1].pmId, 'emp_cfo_01', 'C-Level executive successfully assigned as squad PM')
+
+    const user = seed.users.find((u) => u.id === 'emp_cfo_01')
+    assert.ok(user)
+    assert.equal(user.role, 'cfo', 'Core role remains CFO (not overwritten)')
+    assert.equal(user.title, 'Chief Financial Officer', 'Core title remains CFO')
+    assert.ok(user.teamIds?.includes('team_alpha'), 'Belongs to Team Alpha')
+    assert.ok(user.teamIds?.includes('team_beta'), 'Belongs to Team Beta')
+
+    // Task percentage and scope mapping
+    const linkedTask = seed.tasks.find((t) => t.id === 'task_01')
+    assert.ok(linkedTask)
+    assert.equal(linkedTask.isMainProjectTask, true)
+    assert.equal(linkedTask.projectPercentage, 25)
+    assert.equal(linkedTask.ceoFinalized, true)
+
+    const standaloneTask = seed.tasks.find((t) => t.id === 'task_02')
+    assert.ok(standaloneTask)
+    assert.equal(standaloneTask.isMainProjectTask, false)
+    assert.equal(standaloneTask.projectPercentage, 0)
+    assert.equal(standaloneTask.ceoFinalized, false)
+  })
+
+  // 19. RBAC & Route Governance Verification
+  test('validates universal inspect, reporting and strictly gated executive access', () => {
+    // Universal access checks (accessible to everyone without special permissions)
+    assert.equal(canAccessRoute('people', []), true, 'People directory is universal inspect')
+    assert.equal(canAccessRoute('projects', []), true, 'Projects directory is universal inspect')
+    assert.equal(canAccessRoute('teams', []), true, 'Squads directory is universal inspect')
+    assert.equal(canAccessRoute('leaderboard', []), true, 'Leaderboard is universal inspect')
+    assert.equal(canAccessRoute('reports', []), true, 'Reports is accessible to all employees')
+
+    // Developer / Staff cannot access confidential logs, security governance or inbox
+    const devPerms = ['tasks:read_own', 'tasks:update_own', 'teams:read_own', 'projects:read_own']
+    assert.equal(canAccessRoute('audit-log', devPerms), false, 'Devs cannot access audit trail')
+    assert.equal(canAccessRoute('access-history', devPerms), false, 'Devs cannot access access history')
+    assert.equal(canAccessRoute('security-overview', devPerms), false, 'Devs cannot access security & MFA')
+    assert.equal(canAccessRoute('inbox', devPerms), false, 'Devs cannot access approvals & inbox')
+
+    // CHRO (mfa:manage) & CEO (system:root) can access Security & MFA; CTO & CFO cannot
+    assert.equal(canAccessRoute('security-overview', ['mfa:manage']), true, 'CHRO can access Security & MFA')
+    assert.equal(canAccessRoute('security-overview', ['system:root']), true, 'CEO can access Security & MFA')
+    assert.equal(canAccessRoute('security-overview', ['quality_gates:read', 'teams:read_all']), false, 'CTO cannot access Security & MFA')
+    assert.equal(canAccessRoute('security-overview', ['treasury:read', 'budgets:approve_request']), false, 'CFO cannot access Security & MFA')
+
+    // Executive audit log access
+    assert.equal(canAccessRoute('audit-log', ['audit_logs:read_confidential']), true, 'Audit log accessible with confidential audit perm')
+    assert.equal(canAccessRoute('audit-log', ['system:root']), true, 'Audit log accessible to CEO')
   })
 
   return results

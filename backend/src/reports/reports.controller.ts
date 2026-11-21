@@ -47,7 +47,13 @@ export class ReportsController {
   }
 
   @Patch(':id/status')
-  @RequirePermissions('reports:triage')
+  @RequireAnyPermission(
+    'reports:triage',
+    'reports:forward',
+    'directives:dispatch',
+    'grievances:adjudicate_confidential',
+    'system:root',
+  )
   updateStatus(
     @Param('id') id: string,
     @Body() dto: UpdateReportStatusDto,

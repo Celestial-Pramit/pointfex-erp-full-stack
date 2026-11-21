@@ -57,6 +57,10 @@ export class CreateProjectDto {
 export class UpdateProjectDto {
   @IsOptional()
   @IsString()
+  teamId?: string | null
+
+  @IsOptional()
+  @IsString()
   name?: string
 
   @IsOptional()

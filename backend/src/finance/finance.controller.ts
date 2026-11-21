@@ -39,7 +39,12 @@ export class FinanceController {
   }
 
   @Get('transactions')
-  @RequireAnyPermission('transactions:read_own', 'transactions:read_all')
+  @RequireAnyPermission(
+    'transactions:read_own',
+    'transactions:read_all',
+    'wallets:read_own',
+    'wallets:read_all',
+  )
   getTransactions(
     @CurrentUser() actor: AuthenticatedUser,
     @Query('employeeId') employeeId?: string,

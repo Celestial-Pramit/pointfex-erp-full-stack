@@ -1,4 +1,12 @@
-import { IsNotEmpty, IsOptional, IsString, IsNumber, IsArray, IsDateString } from 'class-validator'
+import {
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsNumber,
+  IsArray,
+  IsDateString,
+  IsBoolean,
+} from 'class-validator'
 
 export class CreateTaskDto {
   @IsNotEmpty()
@@ -20,6 +28,14 @@ export class CreateTaskDto {
   @IsOptional()
   @IsString()
   milestoneId?: string
+
+  @IsOptional()
+  @IsNumber()
+  projectPercentage?: number
+
+  @IsOptional()
+  @IsBoolean()
+  isMainProjectTask?: boolean
 
   @IsOptional()
   @IsString()
@@ -47,6 +63,14 @@ export class CreateTaskDto {
   @IsOptional()
   @IsNumber()
   proposedWeight?: number
+
+  @IsOptional()
+  @IsNumber()
+  weight?: number
+
+  @IsOptional()
+  @IsNumber()
+  weightPoints?: number
 
   @IsOptional()
   @IsDateString()
@@ -162,3 +186,22 @@ export class AddTaskCommentDto {
   @IsString()
   content: string
 }
+
+export class ReviewTaskKpiDto {
+  @IsOptional()
+  @IsNumber()
+  score?: number
+
+  @IsOptional()
+  @IsNumber()
+  weightPoints?: number
+
+  @IsOptional()
+  @IsString()
+  reason?: string
+
+  @IsOptional()
+  @IsBoolean()
+  finalizeNow?: boolean
+}
+

@@ -18,6 +18,7 @@ import {
   AlertTriangle,
   Scale,
   RotateCcw,
+  Award,
 } from 'lucide-react'
 
 interface ColumnDef {
@@ -37,6 +38,7 @@ export function PmTaskManagementPage() {
     createTask,
     approveTask,
     rejectTask,
+    scoreCompletedTask,
     updateTaskStatus,
     setSelectedTaskModal,
     setSelectedProfileUser,
@@ -241,13 +243,23 @@ export function PmTaskManagementPage() {
       return
     }
 
-    // ponytail: Pass pmScore to approveTask so it updates backend task and developer KPI
-    approveTask(
-      completingTask.id,
-      pmScoreFeedback.trim() || `Approved with PM Satisfaction Score ${pmScore}/100`,
-      pmScore,
-    )
-    showToast(`Task approved with PM Satisfaction Score: ${pmScore}/100`, 'success')
+    // If task is already completed, update KPI score directly
+    if (completingTask.status === 'completed') {
+      void scoreCompletedTask(
+        completingTask.id,
+        pmScore,
+        pmScoreFeedback.trim() || `PM KPI score: ${pmScore}/100`,
+      )
+      showToast(`KPI score ${pmScore}/100 recorded for deliverable`, 'success')
+    } else {
+      // Pass pmScore to approveTask so it marks completed and records initial PM score
+      approveTask(
+        completingTask.id,
+        pmScoreFeedback.trim() || `Approved with PM Satisfaction Score ${pmScore}/100`,
+        pmScore,
+      )
+      showToast(`Task approved with PM Satisfaction Score: ${pmScore}/100`, 'success')
+    }
     setCompletingTask(null)
     setPmScore(85)
     setPmScoreFeedback('')
@@ -633,11 +645,26 @@ export function PmTaskManagementPage() {
                                     <CheckCircle2 className="w-3 h-3" />
                                     Completed
                                   </span>
-                                  {Boolean((task as any).pmScore || (task as any).score) && (
-                                    <span className="font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
-                                      PM Score: {Number((task as any).pmScore || (task as any).score)}/100
-                                    </span>
-                                  )}
+                                  <div className="flex items-center gap-1.5">
+                                    {Boolean((task as any).pmScore || (task as any).score) && (
+                                      <span className="font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                                        KPI: {Number((task as any).pmScore || (task as any).score)}/100
+                                      </span>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setCompletingTask(task)
+                                        setPmScore(Number((task as any).pmScore || (task as any).score) || 85)
+                                        setPmScoreFeedback('')
+                                      }}
+                                      className="py-0.5 px-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-900/40 text-[10px] font-semibold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                                    >
+                                      <Award className="w-3 h-3" />
+                                      <span>{Boolean((task as any).pmScore || (task as any).score) ? 'Edit KPI' : 'Assign KPI'}</span>
+                                    </button>
+                                  </div>
                                 </div>
                               )}
 
@@ -767,14 +794,19 @@ export function PmTaskManagementPage() {
                 </label>
                 <select
                   value={newTaskWeightCategory}
-                  onChange={(e) => setNewTaskWeightCategory(e.target.value as any)}
+                  onChange={(e) => {
+                    const val = e.target.value as any
+                    setNewTaskWeightCategory(val)
+                    if (val === 'CUSTOM' && newTaskCustomPoints === 6) {
+                      setNewTaskCustomPoints(10)
+                    }
+                  }}
                   className="w-full p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-white cursor-pointer"
                 >
-                  <option value="SMALL">Small (1 Point = 10 XP)</option>
-                  <option value="MEDIUM">Medium (2 Points = 20 XP)</option>
-                  <option value="LARGE">Large (3 Points = 30 XP)</option>
-                  <option value="CRITICAL">Critical (5 Points = 50 XP)</option>
-                  <option value="CUSTOM">Custom (6+ Points · CHRO Gate)</option>
+                  <option value="SMALL">10 XP (1 Point · Minor)</option>
+                  <option value="LARGE">30 XP (3 Points · Standard)</option>
+                  <option value="CRITICAL">50 XP (5 Points · Complex)</option>
+                  <option value="CUSTOM">100 XP / Custom (Set manually)</option>
                 </select>
               </div>
 

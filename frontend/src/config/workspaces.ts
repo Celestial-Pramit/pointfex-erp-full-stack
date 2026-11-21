@@ -2,18 +2,22 @@ import {
   LayoutDashboard,
   Briefcase,
   Users,
-  FolderGit2,
   Cpu,
-  Coins,
-  Package,
   Handshake,
-  Building2,
   ShieldCheck,
   type LucideIcon,
 } from 'lucide-react'
 
 export type WorkspaceId =
+  | 'dashboard'
+  | 'organization'
+  | 'my_workspace'
+  | 'engineering_security'
+  | 'consultancy_advisory'
+  | 'admin_governance'
+  // Legacy aliases for backward compatibility
   | 'home'
+  | 'work_ops'
   | 'my_work'
   | 'people'
   | 'delivery'
@@ -37,90 +41,74 @@ export interface WorkspaceMeta {
 
 export const WORKSPACES: readonly WorkspaceMeta[] = [
   {
-    id: 'home',
-    label: 'Home',
-    shortLabel: 'Home',
+    id: 'dashboard',
+    label: 'Dashboard',
+    shortLabel: 'Dashboard',
     description: 'My Day overview, priorities, and role-aware widgets',
     icon: LayoutDashboard,
     modules: ['00'],
     alwaysVisible: true,
   },
   {
-    id: 'my_work',
+    id: 'organization',
+    label: 'Organization',
+    shortLabel: 'Organization',
+    description: 'Clean, inspect-first org directory',
+    icon: Users,
+    modules: ['04', '05', '10', '11'],
+    alwaysVisible: true,
+  },
+  {
+    id: 'my_workspace',
     label: 'My Work',
-    shortLabel: 'Work',
-    description: 'Tasks, wallet & XP, leave submissions, and profile settings',
+    shortLabel: 'My Work',
+    description: 'Personal & Squad Hub',
     icon: Briefcase,
     modules: ['00'],
     alwaysVisible: true,
   },
   {
-    id: 'people',
-    label: 'People & Culture',
-    shortLabel: 'People',
-    description: 'Employee directory, squads, attendance, and performance reviews',
-    icon: Users,
-    modules: ['04', '05', '16', '17'],
-  },
-  {
-    id: 'delivery',
-    label: 'Delivery',
-    shortLabel: 'Delivery',
-    description: 'Projects, repositories, sprints, and task operations',
-    icon: FolderGit2,
-    modules: ['10', '11'],
-  },
-  {
-    id: 'engineering',
-    label: 'Engineering Ops',
-    shortLabel: 'Eng Ops',
-    description: 'Code quality gates, security alerts, and automated test runs',
+    id: 'engineering_security',
+    label: 'Engineering',
+    shortLabel: 'Engineering',
+    description: 'Engineering & Security operations',
     icon: Cpu,
     modules: ['12', '13', '14', '15'],
+    alwaysVisible: true,
   },
   {
-    id: 'finance',
-    label: 'Finance',
-    shortLabel: 'Finance',
-    description: 'Treasury reserves, project budgets, payroll, and budget requests',
-    icon: Coins,
-    modules: ['06', '07'],
-  },
-  {
-    id: 'operations',
-    label: 'Operations',
-    shortLabel: 'Ops',
-    description: 'Procurement, vendors, inventory, and company assets',
-    icon: Package,
-    modules: ['08'],
-  },
-  {
-    id: 'product_clients',
-    label: 'Product & Clients',
-    shortLabel: 'Clients',
-    description: 'Consultancy pipeline, client accounts, and advisory delivery',
+    id: 'consultancy_advisory',
+    label: 'Advisory',
+    shortLabel: 'Advisory',
+    description: 'Technical Advisory & Consultancy',
     icon: Handshake,
     modules: ['09', '18'],
   },
   {
-    id: 'company_hub',
-    label: 'Company Hub',
-    shortLabel: 'Hub',
-    description: 'Announcements, policies, and cross-squad executive reports',
-    icon: Building2,
-    modules: ['19'],
-  },
-  {
-    id: 'admin',
-    label: 'Admin & Governance',
-    shortLabel: 'Admin',
-    description: 'Roles, permissions, delegations, approval inbox, and audit trail',
+    id: 'admin_governance',
+    label: 'Governance',
+    shortLabel: 'Governance',
+    description: 'Admin, Reviews & Executive Control',
     icon: ShieldCheck,
-    modules: ['01', '02', '03', '20'],
+    modules: ['01', '02', '03', '06', '07', '16', '17', '20'],
   },
 ]
 
-export function getWorkspaceMeta(id: WorkspaceId): WorkspaceMeta {
-  return WORKSPACES.find((w) => w.id === id) || WORKSPACES[0]
+const ALIAS_MAP: Record<string, WorkspaceId> = {
+  home: 'dashboard',
+  work_ops: 'organization',
+  my_work: 'my_workspace',
+  people: 'organization',
+  delivery: 'organization',
+  engineering: 'engineering_security',
+  finance: 'admin_governance',
+  operations: 'organization',
+  product_clients: 'consultancy_advisory',
+  company_hub: 'organization',
+  admin: 'admin_governance',
 }
 
+export function getWorkspaceMeta(id: WorkspaceId): WorkspaceMeta {
+  const resolvedId = ALIAS_MAP[id] || id
+  return WORKSPACES.find((w) => w.id === resolvedId) || WORKSPACES[0]
+}

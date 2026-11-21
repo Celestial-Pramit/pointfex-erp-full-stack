@@ -22,6 +22,7 @@ export interface User {
   role: RoleId
   title: string
   teamId?: string
+  teamIds?: string[]
   avatar?: string
   avatarUrl?: string
   initials: string
@@ -33,6 +34,7 @@ export interface User {
   inviteTokenUsedAt?: string | null
   activeRoleSlugs?: string[]
   activeRoleNames?: string[]
+  lifetimeXp?: number
   pendingAccessRequest?: {
     id: string
     requestedRoleId: string
@@ -141,6 +143,13 @@ export interface Task {
   weightPoints?: number
   weightStatus?: string
   pmScore?: number | null
+  projectPercentage?: number
+  isMainProjectTask?: boolean
+  ceoFinalized?: boolean
+  completedAt?: string | Date
+  reviewStatus?: string
+  reviewDeadlineAt?: string | Date
+  kpiFinalizedAt?: string | Date
 }
 
 export interface TaskComment {
@@ -677,6 +686,7 @@ export interface AppContextType {
   activeDelegationsCount: number
   recentRoutes: string[]
   resolvers: DataResolvers
+  isSquadPm: boolean
 
   setRole: (roleId: string) => void
   setPmId: (pmId: string) => void
@@ -730,8 +740,11 @@ export interface AppContextType {
     weightCategory?: string
     proposedWeight?: number
     effectiveAt?: string
+    isMainProjectTask?: boolean
+    projectPercentage?: number
   }) => Task
   approveTask: (taskId: string, feedback?: string, pmScore?: number) => void
+  scoreCompletedTask: (taskId: string, score: number, reason?: string) => Promise<void>
   rejectTask: (taskId: string, feedback: string) => void
   reassignTask: (taskId: string, newAssigneeId: string) => void
   allocateBudget: (allocation: {

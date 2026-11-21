@@ -59,13 +59,20 @@ export const createDataResolvers = (data: SeedData): DataResolvers => {
     data.repositories.find((r) => r.id === id) || null
 
   const getDeveloperTasks = (devId = ''): Task[] =>
-    devId ? data.tasks.filter((task) => task.assigneeId === devId) : []
+    devId ? data.tasks.filter((task) => task.assigneeId === devId || task.assignedTo === devId) : []
 
   const getDeveloperProjects = (devId = ''): Project[] => {
     const dev = devId ? getUser(devId) : null
     if (!dev) return []
+    const devTeam = dev.teamId
+      ? getTeam(dev.teamId)
+      : data.teams.find((t) => t.memberIds?.includes(devId))
+    const devTeamId = devTeam?.id || dev.teamId
     return data.projects.filter(
-      (proj) => proj.teamId === dev.teamId || proj.assignedDevIds?.includes(devId),
+      (proj) =>
+        (devTeamId && proj.teamId === devTeamId) ||
+        (devTeam && devTeam.projectIds?.includes(proj.id)) ||
+        proj.assignedDevIds?.includes(devId),
     )
   }
 

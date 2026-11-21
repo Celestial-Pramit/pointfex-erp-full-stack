@@ -11,6 +11,7 @@ import {
   ProposeTaskWeightDto,
   VerifyTaskWeightDto,
   ReturnTaskWorkDto,
+  ReviewTaskKpiDto,
 } from './dto/task.dto'
 import { AuthenticatedUser } from '../common/auth-user.interface'
 import { PermissionsGuard } from '../common/permissions.guard'
@@ -44,6 +45,16 @@ export class TasksController {
   @RequireAnyPermission('tasks:create_personal', 'tasks:create_assign')
   create(@Body() dto: CreateTaskDto, @CurrentUser() actor: AuthenticatedUser) {
     return this.tasksService.create(dto, actor)
+  }
+
+  @Patch(':id')
+  @RequireAnyPermission('tasks:create_assign', 'tasks:update_status', 'tasks:approve')
+  update(
+    @Param('id') id: string,
+    @Body() dto: Partial<CreateTaskDto>,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.tasksService.update(id, dto, actor)
   }
 
   @Patch(':id/status')
@@ -115,6 +126,17 @@ export class TasksController {
     @CurrentUser() actor: AuthenticatedUser,
   ) {
     return this.tasksService.scoreTaskDirectly(id, Number(body.score), body.reason, actor)
+  }
+
+  // 24-Hour Review Window & Auto-Finalization: CTO / CHRO / CEO KPI review
+  @Post(':id/kpi-review')
+  @RequireAnyPermission('kpis:score_exec', 'performance:evaluate', 'governance:vote', 'tasks:approve')
+  reviewTaskKpi(
+    @Param('id') id: string,
+    @Body() dto: ReviewTaskKpiDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.tasksService.reviewTaskKpi(id, dto, actor)
   }
 
   // ponytail: CHRO / Executive direct task weight modification anytime

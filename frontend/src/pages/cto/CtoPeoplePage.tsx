@@ -120,6 +120,36 @@ export function resolveUserBadge(user: User): { label: string; variant: 'ceo' | 
   return { label: role ? role.toUpperCase() : 'STAFF', variant: 'slate' }
 }
 
+export function getUserCategory(user: User): 'clevel' | 'pm' | 'developer' {
+  const role = (user.role || '').toLowerCase()
+  const title = (user.title || '').toLowerCase()
+  const activeRoles = (user.activeRoleSlugs || []).map((r) => r.toLowerCase())
+
+  if (
+    ['ceo', 'cto', 'cfo', 'chro', 'cpo', 'coo', 'cmo', 'cro'].includes(role) ||
+    activeRoles.some((r) =>
+      ['ceo', 'cto', 'cfo', 'chro', 'cpo', 'coo', 'cmo', 'cro'].includes(r),
+    ) ||
+    title.includes('chief executive officer') ||
+    title.includes('chief technology officer') ||
+    title.includes('chief financial officer') ||
+    title.includes('chief human resources officer') ||
+    title.includes('chief people officer') ||
+    title.includes('chief')
+  ) {
+    return 'clevel'
+  }
+
+  if (
+    (role === 'pm' && !title.includes('developer') && !title.includes('engineer')) ||
+    title.includes('project manager')
+  ) {
+    return 'pm'
+  }
+
+  return 'developer'
+}
+
 interface PendingRoleRequestItem {
   id: string
   requestedRoleId: string
@@ -197,19 +227,37 @@ export function CtoPeoplePage() {
   const { data, updateUser, showToast, currentRole, currentUser, refreshData } = useApp()
   const { hasPermission, hasAnyPermission } = usePermissions()
 
-  const canDelegate = hasPermission('permissions:delegate')
-  const canGrantAccess = hasAnyPermission('permissions:delegate', 'users:assign_role')
-  const canEditProfiles = hasPermission('employees:update_any')
-  const canSuspendAccount = hasPermission('employees:suspend')
-  const canResetAccess = hasPermission('users:assign_role')
-  const canApproveRoleRequests = hasAnyPermission('users:assign_role', 'employees:suspend')
-  const canCreateEmployee = hasAnyPermission('employees:create', 'users:assign_role')
-  const canRequestRoleChange = hasAnyPermission(
-    'employees:update_any',
-    'positions:assign',
-    'users:assign_role',
-    'permissions:delegate',
-  )
+  const userRole = (currentUser?.role || currentRole || '').toLowerCase()
+  const userTitle = (currentUser?.title || '').toLowerCase()
+  const userActiveRoles = (currentUser?.activeRoleSlugs || []).map((r) => r.toLowerCase())
+
+  const canEditPeople = useMemo(() => {
+    const isCeo =
+      userRole === 'ceo' ||
+      userActiveRoles.includes('ceo') ||
+      userTitle.includes('chief executive officer') ||
+      Boolean((currentUser as any)?.isRoot)
+    const isCto =
+      userRole === 'cto' ||
+      userActiveRoles.includes('cto') ||
+      userTitle.includes('chief technology officer')
+    const isChro =
+      userRole === 'chro' ||
+      userRole === 'cpo' ||
+      userActiveRoles.includes('chro') ||
+      userActiveRoles.includes('cpo') ||
+      userTitle.includes('chief human resources officer') ||
+      userTitle.includes('chief people officer')
+    return isCeo || isCto || isChro
+  }, [userRole, userTitle, userActiveRoles, currentUser])
+
+  const canDelegate = canEditPeople && hasPermission('permissions:delegate')
+  const canGrantAccess = canEditPeople && hasAnyPermission('permissions:delegate', 'users:assign_role')
+  const canSuspendAccount = canEditPeople && hasPermission('employees:suspend')
+  const canResetAccess = canEditPeople && hasPermission('users:assign_role')
+  const canApproveRoleRequests = canEditPeople && hasAnyPermission('users:assign_role', 'employees:suspend')
+  const canCreateEmployee = canEditPeople && hasAnyPermission('employees:create', 'users:assign_role')
+  const canRequestRoleChange = canEditPeople
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(
     () => Boolean(sessionStorage.getItem('pointfex_onboard_email')),
@@ -565,37 +613,50 @@ export function CtoPeoplePage() {
   const [editTitle, setEditTitle] = useState('')
 
   const allUsers = data.users
-  const canInspectFullRoster = hasAnyPermission(
-    'employees:update_any',
-    'employees:create',
-    'employees:suspend',
-    'permissions:delegate',
-    'users:assign_role',
-    'positions:assign',
-    'roles:read',
-    'teams:read_all',
-  )
 
-  const visibleDirectoryUsers = useMemo(() => {
-    if (canInspectFullRoster) return allUsers
-    // Standard users without elevated people/governance permissions see leadership directory only
-    return allUsers.filter(
-      (u) => ['ceo', 'cto', 'cfo', 'cpo', 'chro'].includes(u.role) || isCeoTargetUser(u),
-    )
-  }, [allUsers, canInspectFullRoster])
+  const visibleDirectoryUsers = allUsers
+
+  const devCount = useMemo(
+    () => visibleDirectoryUsers.filter((u) => getUserCategory(u) === 'developer').length,
+    [visibleDirectoryUsers],
+  )
+  const pmCount = useMemo(
+    () => visibleDirectoryUsers.filter((u) => getUserCategory(u) === 'pm').length,
+    [visibleDirectoryUsers],
+  )
+  const cLevelCount = useMemo(
+    () => visibleDirectoryUsers.filter((u) => getUserCategory(u) === 'clevel').length,
+    [visibleDirectoryUsers],
+  )
 
   const inspectedUser = useMemo(
     () => (selectedUser ? allUsers.find((u) => u.id === selectedUser.id) || selectedUser : null),
     [allUsers, selectedUser],
   )
 
+  const inspectedAverageKpi = useMemo(() => {
+    if (!inspectedUser) return 92
+    const userTasks = tasks.filter((t) => t.assigneeId === inspectedUser.id)
+    const completedTasks = userTasks.filter((t) => t.status === 'completed')
+    const scored = completedTasks.filter((t) => (t as any).pmScore !== undefined)
+    if (scored.length === 0) return 94
+    const sum = scored.reduce((acc, t) => acc + ((t as any).pmScore || 0), 0)
+    return Math.round(sum / scored.length)
+  }, [inspectedUser, tasks])
+
+  const inspectedRank = useMemo(() => {
+    if (!inspectedUser) return 1
+    const sorted = [...allUsers].sort((a, b) => (b.lifetimeXp || 0) - (a.lifetimeXp || 0))
+    const index = sorted.findIndex((u) => u.id === inspectedUser.id)
+    return index >= 0 ? index + 1 : 1
+  }, [allUsers, inspectedUser])
+
   const filteredUsers = useMemo(() => {
     return visibleDirectoryUsers.filter((u) => {
-      if (canInspectFullRoster) {
-        if (roleFilter === 'developer' && u.role !== 'developer') return false
-        if (roleFilter === 'pm' && u.role !== 'pm') return false
-        if (roleFilter === 'executive' && ['developer', 'pm'].includes(u.role)) return false
-      }
+      const cat = getUserCategory(u)
+      if (roleFilter === 'developer' && cat !== 'developer') return false
+      if (roleFilter === 'pm' && cat !== 'pm') return false
+      if (roleFilter === 'executive' && cat !== 'clevel') return false
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase()
@@ -606,7 +667,7 @@ export function CtoPeoplePage() {
       }
       return true
     })
-  }, [visibleDirectoryUsers, canInspectFullRoster, roleFilter, searchQuery])
+  }, [visibleDirectoryUsers, roleFilter, searchQuery])
 
   const getUserTasks = (userId: string) => {
     return tasks.filter((t) => t.assigneeId === userId)
@@ -647,7 +708,7 @@ export function CtoPeoplePage() {
             People Directory
           </h2>
           <Badge variant="indigo" size="xs">
-            {visibleDirectoryUsers.length} {canInspectFullRoster ? 'Personnel' : 'Leadership'}
+            {visibleDirectoryUsers.length} Personnel
           </Badge>
         </div>
 
@@ -685,56 +746,53 @@ export function CtoPeoplePage() {
           />
         </div>
 
-        {/* Role Tabs (Executives Only) */}
-        {canInspectFullRoster && (
-          <div className="flex items-center gap-1.5 overflow-x-auto text-xs">
-            <button
-              type="button"
-              onClick={() => setRoleFilter('all')}
-              className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-all cursor-pointer ${
-                roleFilter === 'all'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              All ({visibleDirectoryUsers.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setRoleFilter('developer')}
-              className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-all cursor-pointer ${
-                roleFilter === 'developer'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              Developers ({visibleDirectoryUsers.filter((u) => u.role === 'developer').length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setRoleFilter('pm')}
-              className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-all cursor-pointer ${
-                roleFilter === 'pm'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              PMs ({visibleDirectoryUsers.filter((u) => u.role === 'pm').length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setRoleFilter('executive')}
-              className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-all cursor-pointer ${
-                roleFilter === 'executive'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              C-Suite (
-              {visibleDirectoryUsers.filter((u) => !['developer', 'pm'].includes(u.role)).length})
-            </button>
-          </div>
-        )}
+        {/* Role Tabs */}
+        <div className="flex items-center gap-1.5 overflow-x-auto text-xs">
+          <button
+            type="button"
+            onClick={() => setRoleFilter('all')}
+            className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-all cursor-pointer ${
+              roleFilter === 'all'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            All ({visibleDirectoryUsers.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setRoleFilter('developer')}
+            className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-all cursor-pointer ${
+              roleFilter === 'developer'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            Developers ({devCount})
+          </button>
+          <button
+            type="button"
+            onClick={() => setRoleFilter('pm')}
+            className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-all cursor-pointer ${
+              roleFilter === 'pm'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            PMs ({pmCount})
+          </button>
+          <button
+            type="button"
+            onClick={() => setRoleFilter('executive')}
+            className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-all cursor-pointer ${
+              roleFilter === 'executive'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            C-Level ({cLevelCount})
+          </button>
+        </div>
       </div>
 
       {/* People Grid (Responsive 1->2->3->4 cols, generous spacing) */}
@@ -747,7 +805,7 @@ export function CtoPeoplePage() {
           const isTargetCeo = badgeInfo.variant === 'ceo'
           const isTargetCLevel = badgeInfo.variant === 'clevel'
           const showGrantOnCard = canGrantAccess && !isTargetCeo
-          const showEditOnCard = canEditProfiles && !isTargetCeo
+          const showEditOnCard = canEditPeople && !isTargetCeo
           const roleDisplayBadge = badgeInfo.label
 
           return (
@@ -1079,7 +1137,7 @@ export function CtoPeoplePage() {
                 <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                   {inspectedUser.title}
                 </p>
-                <div className="flex items-center gap-2.5 mt-1.5">
+                <div className="flex items-center gap-2.5 mt-1.5 flex-wrap">
                   <Badge variant="indigo" size="xs">
                     {resolveUserBadge(inspectedUser).label}
                   </Badge>
@@ -1087,44 +1145,79 @@ export function CtoPeoplePage() {
                     <Mail className="w-3 h-3" />
                     {inspectedUser.email}
                   </span>
+                  {getUserTeam(inspectedUser.teamId) && (
+                    <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
+                      <Users className="w-3 h-3 text-indigo-500" />
+                      {getUserTeam(inspectedUser.teamId)?.name}
+                    </span>
+                  )}
                 </div>
-                <div className="flex flex-wrap items-center gap-2 mt-2">
-                  <Badge
-                    variant={
-                      inspectedUser.inviteTokenUsedAt || inspectedUser.mfaEnabled
-                        ? 'emerald'
-                        : inspectedUser.inviteDeliveryStatus === 'failed'
-                          ? 'rose'
-                          : 'amber'
-                    }
-                    size="xs"
-                  >
-                    {inspectedUser.inviteTokenUsedAt
-                      ? `Setup link used (${new Intl.DateTimeFormat('en-BD', { timeZone: 'Asia/Dhaka', dateStyle: 'short', timeStyle: 'short' }).format(new Date(inspectedUser.inviteTokenUsedAt))})`
-                      : inspectedUser.mfaEnabled
-                        ? 'Account activated & secured'
-                        : inspectedUser.inviteDeliveryStatus === 'failed'
-                          ? 'Invitation not delivered'
-                          : 'Setup link pending (unused)'}
-                  </Badge>
-                  {!inspectedUser.inviteTokenUsedAt &&
-                    !inspectedUser.mfaEnabled &&
-                    hasAnyPermission('employees:create', 'users:reset_password') &&
-                    !isCeoTargetUser(inspectedUser) && (
-                      <Button
-                        type="button"
-                        size="xs"
-                        variant="secondary"
-                        onClick={() => setPendingResendUser(inspectedUser)}
-                      >
-                        Resend 24h link
-                      </Button>
-                    )}
-                </div>
+                {canEditPeople && (
+                  <div className="flex flex-wrap items-center gap-2 mt-2">
+                    <Badge
+                      variant={
+                        inspectedUser.inviteTokenUsedAt || inspectedUser.mfaEnabled
+                          ? 'emerald'
+                          : inspectedUser.inviteDeliveryStatus === 'failed'
+                            ? 'rose'
+                            : 'amber'
+                      }
+                      size="xs"
+                    >
+                      {inspectedUser.inviteTokenUsedAt
+                        ? `Setup link used (${new Intl.DateTimeFormat('en-BD', { timeZone: 'Asia/Dhaka', dateStyle: 'short', timeStyle: 'short' }).format(new Date(inspectedUser.inviteTokenUsedAt))})`
+                        : inspectedUser.mfaEnabled
+                          ? 'Account activated & secured'
+                          : inspectedUser.inviteDeliveryStatus === 'failed'
+                            ? 'Invitation not delivered'
+                            : 'Setup link pending (unused)'}
+                    </Badge>
+                    {!inspectedUser.inviteTokenUsedAt &&
+                      !inspectedUser.mfaEnabled &&
+                      hasAnyPermission('employees:create', 'users:reset_password') &&
+                      !isCeoTargetUser(inspectedUser) && (
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="secondary"
+                          onClick={() => setPendingResendUser(inspectedUser)}
+                        >
+                          Resend 24h link
+                        </Button>
+                      )}
+                  </div>
+                )}
               </div>
             </div>
 
-
+            {/* KPI, XP & Performance Highlights */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 p-3 rounded-2xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/40">
+              <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900/80 border border-indigo-100/80 dark:border-indigo-800/40">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  Lifetime XP
+                </div>
+                <div className="text-base font-bold text-indigo-600 dark:text-indigo-400 mt-0.5">
+                  {(inspectedUser.lifetimeXp || 0).toLocaleString()}{' '}
+                  <span className="text-[11px] font-normal text-slate-400">XP</span>
+                </div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900/80 border border-indigo-100/80 dark:border-indigo-800/40">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  Average KPI
+                </div>
+                <div className="text-base font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
+                  {inspectedAverageKpi}%
+                </div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900/80 border border-indigo-100/80 dark:border-indigo-800/40 col-span-2 sm:col-span-1">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  Company Rank
+                </div>
+                <div className="text-base font-bold text-amber-600 dark:text-amber-400 mt-0.5">
+                  #{inspectedRank}
+                </div>
+              </div>
+            </div>
 
             {/* Assigned Tasks */}
             <div>
@@ -1152,6 +1245,8 @@ export function CtoPeoplePage() {
               </div>
             </div>
 
+            {canEditPeople && (
+              <>
             {/* Segment 1: Core Organizational Position (Maker-Checker Protected) */}
             <div className="p-4 rounded-2xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 space-y-3">
               <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -1653,6 +1748,8 @@ export function CtoPeoplePage() {
               </div>
               <EmployeeHistoryTimeline employeeId={inspectedUser.id} />
             </div>
+            </>
+            )}
 
             <div className="flex justify-end pt-3 border-t border-slate-200 dark:border-slate-800">
               <Button

@@ -572,7 +572,7 @@ export function LoginPage() {
       )}
       <div className="mt-6 pt-4 border-t border-[var(--border)] flex items-center justify-between text-[11px] text-[var(--muted)]">
         <span>Pointfex ERP <span className="opacity-75 font-normal">· Developed by ERP Team</span></span>
-        <span className="font-mono font-medium">v4.0.0</span>
+        <span className="font-mono font-medium">v4.1.0</span>
       </div>
     </AuthShell>
   )
