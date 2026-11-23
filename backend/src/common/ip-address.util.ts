@@ -14,7 +14,8 @@ export function normalizeClientIp(raw?: string | null): string {
   return firstHop.startsWith('::ffff:') ? firstHop.slice(7) : firstHop
 }
 
-export function extractClientIp(request: Request): string {
+export function extractClientIp(request?: Request): string {
+  if (!request) return 'unknown'
   const forwardedHeader = request.headers?.['x-forwarded-for']
   const forwarded = Array.isArray(forwardedHeader) ? forwardedHeader[0] : forwardedHeader
   const candidate = request.ip || forwarded || request.socket?.remoteAddress || null

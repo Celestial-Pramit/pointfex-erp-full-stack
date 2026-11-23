@@ -7,6 +7,7 @@ import {
   IsDateString,
   IsBoolean,
 } from 'class-validator'
+import { Type } from 'class-transformer'
 
 export class CreateTaskDto {
   @IsNotEmpty()
@@ -30,6 +31,7 @@ export class CreateTaskDto {
   milestoneId?: string
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   projectPercentage?: number
 
@@ -46,6 +48,7 @@ export class CreateTaskDto {
   dueDate?: string
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   estimatedHours?: number
 
@@ -61,14 +64,17 @@ export class CreateTaskDto {
   weightCategory?: 'SMALL' | 'MEDIUM' | 'LARGE' | 'CRITICAL' | 'CUSTOM'
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   proposedWeight?: number
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   weight?: number
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   weightPoints?: number
 
@@ -85,6 +91,7 @@ export class CreateTaskDto {
   initialStatus?: string
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   initialScore?: number
 }
@@ -134,7 +141,29 @@ export class ReturnTaskWorkDto {
 export class UpdateTaskStatusDto {
   @IsNotEmpty()
   @IsString()
-  status: string // 'todo' | 'in_progress' | 'in_review' | 'completed' | 'blocked'
+  status: string // 'todo' | 'in_progress' | 'in_review' | 'completed' | 'blocked' | 'cancelled'
+
+  @IsOptional()
+  @IsString()
+  cancellationReason?: string
+
+  @IsOptional()
+  @IsString()
+  reason?: string
+
+  @IsOptional()
+  @IsString()
+  feedback?: string
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  pmScore?: number
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  score?: number
 }
 
 export class ApproveTaskDto {

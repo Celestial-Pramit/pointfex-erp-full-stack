@@ -169,7 +169,7 @@ export function CtoAuditLogPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Audit Trail"
+        title="Activity History"
         subtitle="Immutable security, financial, and organizational activity log."
         action={
           <div className="flex items-center gap-2">
@@ -281,7 +281,7 @@ export function CtoAuditLogPage() {
                 <th className="py-3 px-4">Role</th>
                 <th className="py-3 px-6">Action</th>
                 <th className="py-3 px-4">Severity</th>
-                <th className="py-3 px-6 text-right">Payload</th>
+                <th className="py-3 px-6 text-right">Details</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -360,7 +360,7 @@ export function CtoAuditLogPage() {
         <Modal
           isOpen={!!selectedLog}
           onClose={() => setSelectedLog(null)}
-          title={`Audit Payload & Execution — ${getActionCode(selectedLog)}`}
+          title={`Activity Details — ${getActionCode(selectedLog)}`}
         >
           <div className="space-y-4 text-xs">
             <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 space-y-1.5">
@@ -397,10 +397,10 @@ export function CtoAuditLogPage() {
               </div>
             </div>
 
-            {/* Payload JSON Inspector */}
+            {/* Activity Data JSON Inspector */}
             <div>
               <span className="text-[10px] font-semibold uppercase text-slate-400 block mb-1.5">
-                Payload Parameters
+                Activity Data &amp; Parameters
               </span>
               <pre className="p-3.5 rounded-2xl bg-slate-900 text-slate-200 font-mono text-[11px] overflow-x-auto leading-relaxed border border-slate-800">
                 {JSON.stringify(

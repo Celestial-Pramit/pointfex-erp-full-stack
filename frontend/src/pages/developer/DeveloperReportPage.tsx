@@ -10,7 +10,8 @@ import { Send, Lightbulb, AlertTriangle, ExternalLink, FileText, UserCheck } fro
 import type { Report } from '../../types'
 
 export function DeveloperReportPage() {
-  const { data, addSubmission, addComplaint, currentDevId, currentUser, currentTeam } = useApp()
+  const { data, addSubmission, addComplaint, currentDevId, currentUser, currentTeam, showToast } =
+    useApp()
   const activeDevId = currentUser?.id || currentDevId
   const activeTeamId = currentUser?.teamId || currentTeam?.id || 'team_01'
 
@@ -26,24 +27,47 @@ export function DeveloperReportPage() {
   const [complaintTitle, setComplaintTitle] = useState('')
   const [complaintDesc, setComplaintDesc] = useState('')
 
+  const wordCount = (s: string) => s.trim().split(/\s+/).filter(Boolean).length
+
   // Filter current developer's items
-  const userReports = data.reports.filter((r) => r.userId === activeDevId)
+  const userReports = data.reports.filter(
+    (r) => r.userId === activeDevId || r.authorId === activeDevId,
+  )
   const projectSubmissions = userReports.filter((r) => r.type === 'project_submission')
   const complaints = userReports.filter((r) => r.type === 'complaint')
 
   // Submit New Project Idea
   const handleProjectSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!projectTitle.trim() || !docsUrl.trim() || !projectDesc.trim()) return
+    const title = projectTitle.trim()
+    const desc = projectDesc.trim()
+
+    if (!title || !desc) {
+      showToast('Please provide both a title and description.', 'error')
+      return
+    }
+
+    if (title.length < 5 || title.length > 120 || wordCount(title) < 2) {
+      showToast('Title must be between 5 and 120 characters and contain at least 2 words.', 'error')
+      return
+    }
+
+    if (desc.length < 10 || desc.length > 5000 || wordCount(desc) < 2) {
+      showToast(
+        'Description must be between 10 and 5000 characters and contain at least 2 words.',
+        'error',
+      )
+      return
+    }
 
     const submission: Report = {
       id: `prop_${Date.now()}`,
       userId: activeDevId,
       teamId: activeTeamId,
       type: 'project_submission',
-      title: projectTitle.trim(),
-      docsUrl: docsUrl.trim(),
-      description: projectDesc.trim(),
+      title,
+      docsUrl: docsUrl.trim() || undefined,
+      description: desc,
       date: new Date().toISOString().split('T')[0],
       submittedAt: new Date().toISOString(),
       status: 'pending_review',
@@ -60,7 +84,26 @@ export function DeveloperReportPage() {
   // Submit General Complaint
   const handleComplaintSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!complaintTitle.trim() || !complaintDesc.trim() || !complainTo.trim()) return
+    const title = complaintTitle.trim()
+    const desc = complaintDesc.trim()
+
+    if (!title || !desc || !complainTo.trim()) {
+      showToast('Please fill out all required complaint fields.', 'error')
+      return
+    }
+
+    if (title.length < 5 || title.length > 120 || wordCount(title) < 2) {
+      showToast('Title must be between 5 and 120 characters and contain at least 2 words.', 'error')
+      return
+    }
+
+    if (desc.length < 10 || desc.length > 5000 || wordCount(desc) < 2) {
+      showToast(
+        'Description must be between 10 and 5000 characters and contain at least 2 words.',
+        'error',
+      )
+      return
+    }
 
     const complaint: Report = {
       id: `cmp_${Date.now()}`,
@@ -68,8 +111,8 @@ export function DeveloperReportPage() {
       teamId: activeTeamId,
       type: 'complaint',
       complainTo: complainTo.trim(),
-      title: complaintTitle.trim(),
-      description: complaintDesc.trim(),
+      title,
+      description: desc,
       date: new Date().toISOString().split('T')[0],
       submittedAt: new Date().toISOString(),
       status: 'pending',

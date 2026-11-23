@@ -428,7 +428,7 @@ export const NAV_REGISTRY: readonly NavRegistryItem[] = [
   {
     id: 'access-control',
     route: 'access-control',
-    label: 'Role Matrix',
+    label: 'Roles & Access',
     group: 'admin_governance',
     workspace: 'admin_governance',
     sectionHeading: 'Access & Audit',
@@ -447,7 +447,7 @@ export const NAV_REGISTRY: readonly NavRegistryItem[] = [
         'system:root',
       ],
     },
-    description: 'Permission matrix, dynamic custom roles, and fine-grained access rules',
+    description: 'Roles & access, dynamic custom roles, and fine-grained access rules',
   },
   {
     id: 'login-access',
@@ -488,7 +488,7 @@ export const NAV_REGISTRY: readonly NavRegistryItem[] = [
   {
     id: 'audit-log',
     route: 'audit-log',
-    label: 'Audit Trail',
+    label: 'Activity History',
     group: 'admin_governance',
     workspace: 'admin_governance',
     sectionHeading: 'Access & Audit',
@@ -518,7 +518,7 @@ export const NAV_REGISTRY: readonly NavRegistryItem[] = [
   {
     id: 'security-overview',
     route: 'security-overview',
-    label: 'Security & MFA',
+    label: 'Security & Verification',
     group: 'admin_governance',
     workspace: 'admin_governance',
     sectionHeading: 'Access & Audit',
@@ -528,7 +528,7 @@ export const NAV_REGISTRY: readonly NavRegistryItem[] = [
     requiredPermissions: {
       any: ['mfa:manage', 'system:root'],
     },
-    description: 'Organization MFA enrollment status, administrative resets, and security posture',
+    description: 'Organization security verification status, administrative resets, and security posture',
   },
 
   // ==========================================
@@ -743,21 +743,45 @@ export function canAccessRoute(
       : new Set(effectivePermissions)
   if (permSet.has('system:root')) return true
 
+  // Strict check: Only C-Suite executives with explicit executive authority can access Admin & Governance
+  const isExecutiveUser =
+    permSet.has('system:root') ||
+    permSet.has('governance:read') ||
+    permSet.has('governance:manage_roles') ||
+    permSet.has('governance:approve_request') ||
+    permSet.has('governance:transfer_ceo') ||
+    permSet.has('audit_logs:read') ||
+    permSet.has('audit_logs:read_confidential') ||
+    permSet.has('login_allowlist:read') ||
+    permSet.has('login_allowlist:manage') ||
+    permSet.has('mfa:manage') ||
+    permSet.has('treasury:read') ||
+    permSet.has('performance:read_all') ||
+    permSet.has('performance:discipline')
+
+  const isGovernanceWorkspaceRoute =
+    item.workspace === 'admin_governance' ||
+    item.workspace === 'admin' ||
+    item.workspace === 'finance' ||
+    item.group === 'admin_governance' ||
+    item.group === 'governance' ||
+    item.group === 'finance'
+
+  // Non-executive users (Developers and PMs) can never access Governance workspace routes
+  if (isGovernanceWorkspaceRoute && !isExecutiveUser) {
+    return false
+  }
+
   // Governance workspace route guards:
   // 1. Delegations: strictly C-Suite executives with delegation authority
   if (item.id === 'delegations') {
+    if (!isExecutiveUser) return false
     if (
       !permSet.has('system:root') &&
       !permSet.has('permissions:delegate') &&
       !permSet.has('delegations:manage') &&
-      !permSet.has('delegations:create')
-    ) {
-      return false
-    }
-    if (
-      permSet.has('tasks:read_own') &&
-      !permSet.has('system:root') &&
-      !permSet.has('permissions:delegate')
+      !permSet.has('delegations:create') &&
+      !permSet.has('delegations:read_own')
     ) {
       return false
     }
@@ -765,19 +789,33 @@ export function canAccessRoute(
 
   // 2. Security & MFA: administrative oversight strictly for CHRO and CEO
   if (item.id === 'security-overview') {
-    if (
-      !permSet.has('system:root') &&
-      !(permSet.has('mfa:manage') && !permSet.has('tasks:read_own'))
-    ) {
+    if (!isExecutiveUser) return false
+    if (!permSet.has('system:root') && !permSet.has('mfa:manage')) {
       return false
     }
   }
 
   // 3. Performance Reviews: strictly C-Suite executive oversight (CEO, CTO, CFO, CHRO, CPO)
   if (item.id === 'performance') {
-    if (!permSet.has('system:root') && !permSet.has('performance:read_all')) {
+    if (!isExecutiveUser) return false
+    if (
+      !permSet.has('system:root') &&
+      !permSet.has('performance:read_all') &&
+      !permSet.has('performance:discipline') &&
+      !permSet.has('kpi:verify_weight')
+    ) {
       return false
     }
+  }
+
+  // 4. Budget & Treasury under Governance: strictly CFO, CEO, COO
+  if (item.id === 'budget' || item.id === 'budget-finance') {
+    if (isGovernanceWorkspaceRoute && !isExecutiveUser) return false
+  }
+
+  // 5. Approvals & Inbox under Governance: strictly C-Level
+  if (item.id === 'inbox' && isGovernanceWorkspaceRoute && !isExecutiveUser) {
+    return false
   }
 
   const req = item.requiredPermissions
@@ -786,6 +824,19 @@ export function canAccessRoute(
   if (req.any && !req.any.some((c) => permSet.has(c))) return false
   return true
 }
+
+const DUPLICATE_WORKSPACE_ITEMS = new Set<string>([
+  'idea-submissions',
+  'company-suggestions',
+  'approvals',
+  'budget-finance',
+  'my-performance',
+  'performance-ledger',
+  'performance-logs',
+  'approvals-control',
+  'projects-repos',
+  'task-management',
+])
 
 export function checkItemVisibility(
   item: NavRegistryItem,
@@ -855,10 +906,30 @@ export function resolveVisibleNavigation(effectivePermissions: readonly string[]
 }
 
 export function resolveVisibleWorkspaces(effectivePermissions: readonly string[]): VisibleWorkspace[] {
+  const permSet = new Set(effectivePermissions)
+  const isExecutiveUser =
+    permSet.has('system:root') ||
+    permSet.has('governance:read') ||
+    permSet.has('governance:manage_roles') ||
+    permSet.has('governance:approve_request') ||
+    permSet.has('governance:transfer_ceo') ||
+    permSet.has('audit_logs:read') ||
+    permSet.has('audit_logs:read_confidential') ||
+    permSet.has('login_allowlist:read') ||
+    permSet.has('login_allowlist:manage') ||
+    permSet.has('mfa:manage') ||
+    permSet.has('treasury:read') ||
+    permSet.has('performance:read_all') ||
+    permSet.has('performance:discipline')
+
   const { visibleItems } = resolveVisibleNavigation(effectivePermissions)
 
   return WORKSPACES.map((ws) => {
+    if (ws.id === 'admin_governance' && !isExecutiveUser) {
+      return null
+    }
     const items = visibleItems.filter((item) => {
+      if (DUPLICATE_WORKSPACE_ITEMS.has(item.id)) return false
       const itemWs = item.workspace
       return (
         itemWs === ws.id ||

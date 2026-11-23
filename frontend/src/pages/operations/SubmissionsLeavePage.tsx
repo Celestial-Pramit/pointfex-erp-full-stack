@@ -10,6 +10,7 @@ import {
   ThumbsUp,
   XCircle,
   Lock,
+  Pencil,
 } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
 import { Card } from '../../components/common/Card'
@@ -45,7 +46,7 @@ export interface IdeaSubmissionItem {
   submitterRole: string
   submitterAvatar?: string
   submittedAt: string
-  status: 'PROPOSED' | 'UNDER_REVIEW' | 'ACCEPTED' | 'SCHEDULED'
+  status: 'PROPOSED' | 'UNDER_REVIEW' | 'ACCEPTED' | 'REJECTED' | 'SCHEDULED'
   upvotes: number
   hasUpvoted?: boolean
 }
@@ -69,7 +70,7 @@ interface SubmissionsLeavePageProps {
 }
 
 export function SubmissionsLeavePage({ initialTab = 'leave' }: SubmissionsLeavePageProps) {
-  const { data, currentUser, currentRole, showToast } = useApp()
+  const { data, currentUser, currentRole, showToast, can } = useApp()
   const [activeTab, setActiveTab] = useState<'submissions' | 'leave' | 'ideas' | 'suggestions'>(initialTab)
 
   useEffect(() => {
@@ -83,6 +84,12 @@ export function SubmissionsLeavePage({ initialTab = 'leave' }: SubmissionsLeaveP
     const role = (currentUser?.role || currentRole || '').toLowerCase()
     return role === 'ceo' || role === 'chro'
   }, [currentUser?.role, currentRole])
+
+  // Review Authority for Project & Idea Submissions: PM and Executives
+  const isReviewerOrPm = useMemo(() => {
+    const role = (currentUser?.role || currentRole || '').toLowerCase()
+    return ['pm', 'cto', 'ceo', 'chro', 'cfo', 'cpo'].includes(role) || can('reports:triage') || can('projects:update')
+  }, [currentUser?.role, currentRole, can])
 
   // ==========================================
   // 1. LEAVE REQUESTS STATE
@@ -313,6 +320,70 @@ export function SubmissionsLeavePage({ initialTab = 'leave' }: SubmissionsLeaveP
     )
   }
 
+  const handleAcceptIdea = (id: string) => {
+    if (!isReviewerOrPm) {
+      showToast('Permission denied: Only Project Managers and Executives can review ideas.', 'error')
+      return
+    }
+    setIdeaSubmissions((prev) =>
+      prev.map((idea) => (idea.id === id ? { ...idea, status: 'ACCEPTED' } : idea)),
+    )
+    showToast('Idea accepted and approved for roadmap consideration!', 'success')
+  }
+
+  const handleRejectIdea = (id: string) => {
+    if (!isReviewerOrPm) {
+      showToast('Permission denied: Only Project Managers and Executives can review ideas.', 'error')
+      return
+    }
+    setIdeaSubmissions((prev) =>
+      prev.map((idea) => (idea.id === id ? { ...idea, status: 'REJECTED' } : idea)),
+    )
+    showToast('Idea rejected.', 'info')
+  }
+
+  // Edit Idea State
+  const [editingIdea, setEditingIdea] = useState<IdeaSubmissionItem | null>(null)
+  const [isEditIdeaModalOpen, setIsEditIdeaModalOpen] = useState(false)
+  const [editTitle, setEditTitle] = useState('')
+  const [editCategory, setEditCategory] = useState<IdeaSubmissionItem['category']>('Architecture')
+  const [editDesc, setEditDesc] = useState('')
+  const [editImpact, setEditImpact] = useState('')
+
+  const handleOpenEditIdea = (idea: IdeaSubmissionItem) => {
+    setEditingIdea(idea)
+    setEditTitle(idea.title)
+    setEditCategory(idea.category)
+    setEditDesc(idea.description)
+    setEditImpact(idea.impact)
+    setIsEditIdeaModalOpen(true)
+  }
+
+  const handleSaveEditIdea = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingIdea) return
+    if (!editTitle.trim() || !editDesc.trim()) {
+      showToast('Please provide an idea title and description.', 'warning')
+      return
+    }
+    setIdeaSubmissions((prev) =>
+      prev.map((item) =>
+        item.id === editingIdea.id
+          ? {
+              ...item,
+              title: editTitle.trim(),
+              category: editCategory,
+              description: editDesc.trim(),
+              impact: editImpact.trim(),
+            }
+          : item,
+      ),
+    )
+    setIsEditIdeaModalOpen(false)
+    setEditingIdea(null)
+    showToast('Idea updated successfully.', 'success')
+  }
+
   // ==========================================
   // 3. COMPANY SUGGESTIONS STATE
   // ==========================================
@@ -518,7 +589,7 @@ export function SubmissionsLeavePage({ initialTab = 'leave' }: SubmissionsLeaveP
 
         <div className="p-4 rounded-2xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 shadow-2xs">
           <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
-            <span>Deliverables Submitted</span>
+            <span>Tasks Submitted</span>
             <FileText className="w-4 h-4 text-sky-500" />
           </div>
           <div className="text-2xl font-bold font-mono text-sky-600 dark:text-sky-400">
@@ -749,18 +820,53 @@ export function SubmissionsLeavePage({ initialTab = 'leave' }: SubmissionsLeaveP
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => handleToggleIdeaUpvote(idea.id)}
-                    className={`px-2.5 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-                      idea.hasUpvoted
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
-                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-300'
-                    }`}
-                  >
-                    <ThumbsUp className="w-3.5 h-3.5" />
-                    <span>{idea.upvotes}</span>
-                  </button>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => handleToggleIdeaUpvote(idea.id)}
+                      className={`px-2.5 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                        idea.hasUpvoted
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                          : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-300'
+                      }`}
+                    >
+                      <ThumbsUp className="w-3.5 h-3.5" />
+                      <span>{idea.upvotes}</span>
+                    </button>
+
+                    {(idea.submitterId === currentUser?.id || isReviewerOrPm) && (
+                      <Button
+                        variant="secondary"
+                        size="xs"
+                        icon={Pencil}
+                        onClick={() => handleOpenEditIdea(idea)}
+                      >
+                        Edit
+                      </Button>
+                    )}
+
+                    {isReviewerOrPm && idea.status !== 'ACCEPTED' && (
+                      <Button
+                        variant="primary"
+                        size="xs"
+                        icon={CheckCircle2}
+                        onClick={() => handleAcceptIdea(idea.id)}
+                      >
+                        Accept
+                      </Button>
+                    )}
+
+                    {isReviewerOrPm && idea.status !== 'REJECTED' && (
+                      <Button
+                        variant="danger"
+                        size="xs"
+                        icon={XCircle}
+                        onClick={() => handleRejectIdea(idea.id)}
+                      >
+                        Reject
+                      </Button>
+                    )}
+                  </div>
                 </div>
 
                 <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
@@ -1071,7 +1177,7 @@ export function SubmissionsLeavePage({ initialTab = 'leave' }: SubmissionsLeaveP
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
-                Expected Impact &amp; Deliverables
+                Expected Impact &amp; Key Outcomes
               </label>
               <textarea
                 rows={2}
@@ -1093,6 +1199,98 @@ export function SubmissionsLeavePage({ initialTab = 'leave' }: SubmissionsLeaveP
               </Button>
               <Button variant="primary" size="sm" type="submit" icon={Send}>
                 Submit Proposal
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL 2.5: EDIT PROJECT OR ARCHITECTURE IDEA */}
+      {/* ========================================================= */}
+      {isEditIdeaModalOpen && (
+        <Modal
+          isOpen={isEditIdeaModalOpen}
+          onClose={() => {
+            setIsEditIdeaModalOpen(false)
+            setEditingIdea(null)
+          }}
+          title="Edit Project or Architecture Idea"
+        >
+          <form onSubmit={handleSaveEditIdea} className="space-y-4 text-xs">
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                Idea / Project Title *
+              </label>
+              <input
+                type="text"
+                required
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                placeholder="e.g. Distributed Caching Engine for Multi-Squad Workflows"
+                className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                Category
+              </label>
+              <select
+                value={editCategory}
+                onChange={(e) =>
+                  setEditCategory(e.target.value as IdeaSubmissionItem['category'])
+                }
+                className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white cursor-pointer"
+              >
+                <option value="Architecture">Architecture &amp; Core Infrastructure</option>
+                <option value="Internal Tooling">Internal Tooling &amp; Developer Velocity</option>
+                <option value="Product Feature">Product &amp; Client Feature</option>
+                <option value="Security">Security &amp; Hardening</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                Detailed Scope &amp; Architecture Description *
+              </label>
+              <textarea
+                required
+                rows={3}
+                value={editDesc}
+                onChange={(e) => setEditDesc(e.target.value)}
+                placeholder="Provide technical architecture details, requirements, and execution plan..."
+                className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                Expected Impact &amp; Key Outcomes
+              </label>
+              <textarea
+                rows={2}
+                value={editImpact}
+                onChange={(e) => setEditImpact(e.target.value)}
+                placeholder="Quantify performance improvements, developer velocity, or cost savings..."
+                className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <Button
+                variant="secondary"
+                size="sm"
+                type="button"
+                onClick={() => {
+                  setIsEditIdeaModalOpen(false)
+                  setEditingIdea(null)
+                }}
+              >
+                Cancel
+              </Button>
+              <Button variant="primary" size="sm" type="submit" icon={CheckCircle2}>
+                Save Changes
               </Button>
             </div>
           </form>

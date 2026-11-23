@@ -32,10 +32,11 @@ interface ScopedFinancialData {
 
 export function PmBudgetFinancePage() {
   const { financials, teamProjects, teamMembers, team } = usePmData()
-  const { allocateBudget, requestBudgetIncrease } = useApp()
+  const { data, allocateBudget, requestBudgetIncrease } = useApp()
 
   // Project Filter State (Left column filter like Dev task panel)
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all')
+  const [txTypeFilter, setTxTypeFilter] = useState<'all' | 'budget_allocation' | 'payout' | 'escrow_hold'>('all')
 
   // Modals state
   const [isAllocateModalOpen, setIsAllocateModalOpen] = useState(false)
@@ -113,6 +114,31 @@ export function PmBudgetFinancePage() {
   }, 0)
   const overallUtilization =
     totalApproved > 0 ? Math.round((totalAllocatedAll / totalApproved) * 100) : 0
+
+  const displayedTransactions = useMemo(() => {
+    return scopedData.transactions.filter((tx) => {
+      if (txTypeFilter === 'all') return true
+      if (txTypeFilter === 'budget_allocation') return tx.type === 'budget_allocation'
+      if (txTypeFilter === 'payout') return tx.type === 'payout' || (tx.amount > 0 && tx.type !== 'budget_allocation')
+      if (txTypeFilter === 'escrow_hold') return tx.type === 'escrow_hold'
+      return tx.type === txTypeFilter
+    })
+  }, [scopedData.transactions, txTypeFilter])
+
+  const teamProjectIds = useMemo(() => teamProjects.map((p) => p.id), [teamProjects])
+  const budgetRequests = useMemo(() => {
+    return data.reports.filter((r) => {
+      const isBudget =
+        r.category === 'Budget Request' ||
+        (r.title && r.title.toLowerCase().includes('budget')) ||
+        r.type === 'pm_report'
+      if (!isBudget) return false
+      if (selectedProjectId !== 'all') {
+        return r.projectId === selectedProjectId
+      }
+      return !r.projectId || teamProjectIds.includes(r.projectId)
+    })
+  }, [data.reports, selectedProjectId, teamProjectIds])
 
   const handleAllocateSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -395,15 +421,43 @@ export function PmBudgetFinancePage() {
           </div>
 
           {/* Allocation & Transaction Ledger - Scoped */}
-          <Card title="Allocation & Payment Ledger" icon={Wallet}>
+          <Card
+            title="Allocation & Payment Ledger"
+            icon={Wallet}
+            action={
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                {(
+                  [
+                    { id: 'all', label: 'All' },
+                    { id: 'budget_allocation', label: 'Allocations' },
+                    { id: 'payout', label: 'Payouts' },
+                    { id: 'escrow_hold', label: 'Escrow' },
+                  ] as const
+                ).map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setTxTypeFilter(f.id)}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-semibold transition-all cursor-pointer ${
+                      txTypeFilter === f.id
+                        ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs font-bold'
+                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            }
+          >
             <div className="space-y-3 text-xs">
-              {scopedData.transactions.length === 0 ? (
+              {displayedTransactions.length === 0 ? (
                 <div className="py-8 text-center text-slate-400">
-                  No transactions recorded for this scope yet.
+                  No transactions match the selected filter.
                 </div>
               ) : (
                 <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {scopedData.transactions.map((tx) => (
+                  {displayedTransactions.map((tx) => (
                     <div
                       key={tx.id}
                       className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
@@ -435,6 +489,66 @@ export function PmBudgetFinancePage() {
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {/* CFO Budget Increase Requests & Live Approval Status */}
+          <Card
+            title="CFO Budget Increase Requests & Decisions"
+            icon={Send}
+            subtitle="Live status of budget supplement requests reviewed by Chief Financial Officer"
+          >
+            <div className="space-y-3 text-xs">
+              {budgetRequests.length === 0 ? (
+                <div className="py-6 text-center text-slate-400">
+                  No budget increase requests submitted for this project scope.
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {budgetRequests.map((req) => {
+                    const isApproved = req.status === 'approved' || req.status === 'resolved'
+                    const isRejected = req.status === 'rejected' || req.status === 'dismissed'
+                    const statusVariant = isApproved ? 'emerald' : isRejected ? 'rose' : 'amber'
+                    const statusLabel = isApproved
+                      ? 'Approved by CFO'
+                      : isRejected
+                        ? 'Rejected by CFO'
+                        : 'Pending CFO Review'
+
+                    return (
+                      <div
+                        key={req.id}
+                        className="py-3 flex flex-col sm:flex-row sm:items-start justify-between gap-3"
+                      >
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-slate-900 dark:text-white">
+                              {req.title}
+                            </span>
+                            <Badge variant={statusVariant} size="xs">
+                              {statusLabel}
+                            </Badge>
+                          </div>
+                          <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
+                            {req.description}
+                          </p>
+                          {req.feedback && (
+                            <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-300">
+                              <strong className="text-slate-800 dark:text-slate-200 block mb-0.5">
+                                CFO Review Notes:
+                              </strong>
+                              {req.feedback}
+                            </div>
+                          )}
+                          <div className="text-[10px] text-slate-400">
+                            Submitted: {formatDate(req.date || req.submittedAt || new Date().toISOString(), 'short')}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </div>

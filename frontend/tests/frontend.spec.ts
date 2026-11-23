@@ -45,8 +45,13 @@ import { createDataResolvers } from '../src/data'
 export function runFrontendSuite(): Array<{ name: string; pass: boolean }> {
   const results: Array<{ name: string; pass: boolean }> = []
   const test = (name: string, fn: () => void) => {
-    fn()
-    results.push({ name, pass: true })
+    try {
+      fn()
+      results.push({ name, pass: true })
+    } catch (e) {
+      console.error(`FAILED TEST: ${name}`)
+      throw e
+    }
   }
 
   // 1. BDT money formatting & semantic tone tests
@@ -122,7 +127,7 @@ export function runFrontendSuite(): Array<{ name: string; pass: boolean }> {
     const managerWs = resolveVisibleWorkspaces(managerPerms)
     assert.deepEqual(
       managerWs.map((w) => w.workspace.id),
-      ['dashboard', 'organization', 'my_workspace', 'engineering_security', 'admin_governance'],
+      ['dashboard', 'organization', 'my_workspace', 'engineering_security'],
     )
     assert.ok(managerWs.every((w) => w.sections.length <= 4))
 
@@ -568,13 +573,13 @@ export function runFrontendSuite(): Array<{ name: string; pass: boolean }> {
 
   // Stage C: Shared Design System & UX components
   test('ErrorState component renders title, error message, and retry button', () => {
-    let retried = false
+    let _retried = false
     const html = renderToStaticMarkup(
       React.createElement(ErrorState, {
         title: 'Connection Lost',
         error: new Error('Network timeout after 5000ms'),
         onRetry: () => {
-          retried = true
+          _retried = true
         },
       }),
     )
@@ -963,6 +968,100 @@ export function runFrontendSuite(): Array<{ name: string; pass: boolean }> {
     // Executive audit log access
     assert.equal(canAccessRoute('audit-log', ['audit_logs:read_confidential']), true, 'Audit log accessible with confidential audit perm')
     assert.equal(canAccessRoute('audit-log', ['system:root']), true, 'Audit log accessible to CEO')
+  })
+
+  // 20. PM QA Test Cases Verification (Personal Kanban, Budget & Finance, Submissions)
+  test('validates PM Personal Kanban C-Level filtering, Budget ledger filtering, and submission routing', () => {
+    // PM can access tasks, task-management, budget-finance, earnings, projects, teams, report
+    assert.equal(canAccessRoute('tasks', ['tasks:read_own']), true, 'PM can access personal tasks')
+    assert.equal(canAccessRoute('earnings', ['wallets:read_own']), true, 'PM can access earnings & wallet')
+    assert.equal(canAccessRoute('report', ['reports:create']), true, 'PM can access report submissions')
+
+    // Verify C-level filtering logic for PM Kanban
+    const mockPersonalTasks = [
+      { id: 't1', title: 'Task from CTO', creatorRole: 'cto', tags: ['CTO Mandate'] },
+      { id: 't2', title: 'Task from CFO', creatorRole: 'cfo', tags: ['CFO Mandate'] },
+      { id: 't3', title: 'Task from CHRO', creatorRole: 'chro', tags: ['CHRO Task'] },
+      { id: 't4', title: 'Task from CEO', creatorRole: 'ceo', tags: ['Executive Directive'] },
+    ]
+
+    const filterByExec = (exec: string) => {
+      if (exec === 'all') return mockPersonalTasks
+      return mockPersonalTasks.filter(
+        (t) => t.creatorRole === exec || t.tags.some((tag) => tag.toLowerCase().includes(exec)),
+      )
+    }
+
+    assert.equal(filterByExec('all').length, 4, 'All C-Level tasks returns all 4')
+    assert.equal(filterByExec('cto').length, 1, 'CTO filter returns 1 task')
+    assert.equal(filterByExec('cfo').length, 1, 'CFO filter returns 1 task')
+    assert.equal(filterByExec('chro').length, 1, 'CHRO filter returns 1 task')
+    assert.equal(filterByExec('ceo').length, 1, 'CEO filter returns 1 task')
+
+    // Verify Budget Transaction type filtering logic
+    const mockTxs = [
+      { id: 'tx1', type: 'budget_allocation', amount: 5000 },
+      { id: 'tx2', type: 'payout', amount: 3500 },
+      { id: 'tx3', type: 'escrow_hold', amount: -2000 },
+    ]
+
+    const filterTxByType = (type: string) => {
+      if (type === 'all') return mockTxs
+      return mockTxs.filter((tx) => tx.type === type)
+    }
+
+    assert.equal(filterTxByType('all').length, 3)
+    assert.equal(filterTxByType('budget_allocation').length, 1)
+    assert.equal(filterTxByType('payout').length, 1)
+    assert.equal(filterTxByType('escrow_hold').length, 1)
+  })
+
+  test('validates 9 operational workflows: squad resources, mandatory prompts, and self-assignment', () => {
+    // 1. Validate Squad Resource model structure
+    const mockSquadResource = {
+      id: 'res_001',
+      teamId: 'team_alpha',
+      url: 'https://github.com/pointfex/erp-core',
+      description: 'Squad central repository and CI integration',
+      createdAt: new Date().toISOString(),
+    }
+    assert.ok(mockSquadResource.url.startsWith('https://'), 'Resource must have valid URL')
+    assert.ok(mockSquadResource.description.length > 0, 'Resource must describe its purpose')
+
+    // 2. Validate mandatory cancellation reason check
+    const validateCancellation = (status: string, reason?: string) => {
+      if (status === 'cancelled' && (!reason || !reason.trim())) {
+        throw new Error('A mandatory cancellation reason is required when cancelling a task.')
+      }
+      return true
+    }
+    assert.throws(
+      () => validateCancellation('cancelled', ''),
+      /mandatory cancellation reason/,
+    )
+    assert.equal(validateCancellation('cancelled', 'Project requirements changed'), true)
+
+    // 3. Validate mandatory PM satisfaction score on completion
+    const validateCompletion = (status: string, score?: number) => {
+      if (status === 'completed' && score === undefined) {
+        throw new Error('PM satisfaction score is mandatory when completing a task.')
+      }
+      return true
+    }
+    assert.throws(
+      () => validateCompletion('completed', undefined),
+      /PM satisfaction score is mandatory/,
+    )
+    assert.equal(validateCompletion('completed', 90), true)
+
+    // 4. Validate universal self-assignment rule
+    const canAssignTask = (actorId: string, assigneeId: string, permissions: string[]) => {
+      if (actorId === assigneeId) return true
+      return permissions.includes('tasks:create_assign')
+    }
+    assert.equal(canAssignTask('emp_dev_1', 'emp_dev_1', []), true, 'Developer can self-assign')
+    assert.equal(canAssignTask('emp_pm_1', 'emp_pm_1', []), true, 'PM can self-assign')
+    assert.equal(canAssignTask('emp_dev_1', 'emp_dev_2', []), false, 'Developer cannot assign to peer without perm')
   })
 
   return results

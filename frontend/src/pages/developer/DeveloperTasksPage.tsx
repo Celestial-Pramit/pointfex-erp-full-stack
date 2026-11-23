@@ -1,21 +1,68 @@
 import React, { useState } from 'react'
 import { Badge } from '../../components/common/Badge'
+import { Button } from '../../components/common/Button'
+import { Modal } from '../../components/common/Modal'
 import { useDeveloperData } from '../../hooks/useDeveloperData'
 import { useApp } from '../../context/AppContext'
 import { usePermissions } from '../../hooks/usePermissions'
 import { getRelativeDeadline } from '../../utils/formatters'
-import { Clock, FolderGit2, Lock, Layers, CheckCircle2, GripVertical } from 'lucide-react'
-import type { TaskStatus } from '../../types'
+import { Clock, FolderGit2, Lock, Layers, CheckCircle2, GripVertical, Plus } from 'lucide-react'
+import type { TaskStatus, TaskPriority } from '../../types'
 
 export function DeveloperTasksPage() {
   const { allDevTasks, devProjects } = useDeveloperData()
-  const { setSelectedTaskModal, updateTaskStatus, showToast } = useApp()
+  const { setSelectedTaskModal, updateTaskStatus, createTask, currentUser, showToast } = useApp()
   const { hasPermission } = usePermissions()
   const canApproveTasks = hasPermission('tasks:approve')
 
   const [selectedProjectId, setSelectedProjectId] = useState('all')
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null)
   const [dragOverColId, setDragOverColId] = useState<string | null>(null)
+
+  // Self-Task Creation state
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [selfTaskTitle, setSelfTaskTitle] = useState('')
+  const [selfTaskDesc, setSelfTaskDesc] = useState('')
+  const [selfTaskProjectId, setSelfTaskProjectId] = useState(devProjects[0]?.id || '')
+  const [selfTaskPriority, setSelfTaskPriority] = useState<TaskPriority>('medium')
+  const [selfTaskDueDate, setSelfTaskDueDate] = useState(
+    new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+  )
+  const [selfTaskHours, setSelfTaskHours] = useState(8)
+
+  const handleCreateSelfTask = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selfTaskTitle.trim()) {
+      showToast('Task title is required', 'error')
+      return
+    }
+    const targetProject = selfTaskProjectId || devProjects[0]?.id || ''
+    if (!targetProject) {
+      showToast('Project selection is required', 'error')
+      return
+    }
+    const currentUserId = currentUser?.id || 'dev_current'
+    try {
+      await createTask({
+        title: selfTaskTitle.trim(),
+        description: selfTaskDesc.trim(),
+        projectId: targetProject,
+        assigneeId: currentUserId,
+        priority: selfTaskPriority,
+        dueDate: selfTaskDueDate,
+        estimatedHours: selfTaskHours,
+        weightCategory: 'MEDIUM',
+        proposedWeight: 2,
+        isMainProjectTask: true,
+      })
+      showToast('Self-assigned task created successfully', 'success')
+      setSelfTaskTitle('')
+      setSelfTaskDesc('')
+      setIsCreateModalOpen(false)
+    } catch (err: any) {
+      showToast(err.message || 'Failed to create self task', 'error')
+    }
+  }
 
   const columns: { id: TaskStatus; label: string; dot: string; pmOnly?: boolean }[] = [
     { id: 'todo', label: 'To Do', dot: 'bg-slate-400 dark:bg-slate-500' },
@@ -85,7 +132,7 @@ export function DeveloperTasksPage() {
     // Permission enforcement: users without tasks:approve cannot drag into completed
     if (!canApproveTasks && targetColId === 'completed') {
       showToast(
-        'Permission denied: Deliverable completion approval (`tasks:approve`) is required',
+        'You do not have permission to mark tasks as completed. Please move to In Review for approval.',
         'error',
       )
       return
@@ -107,17 +154,31 @@ export function DeveloperTasksPage() {
           </p>
         </div>
 
-        {!canApproveTasks ? (
-          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/40 text-amber-800 dark:text-amber-300 text-xs font-medium self-start sm:self-auto">
-            <Lock className="w-3.5 h-3.5" />
-            <span>Approval Policy: Completed deliverables require PM review</span>
-          </div>
-        ) : (
-          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/40 text-emerald-800 dark:text-emerald-300 text-xs font-medium self-start sm:self-auto">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>Executive Oversight: Full deliverable verification enabled</span>
-          </div>
-        )}
+        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+          <Button
+            variant="lime"
+            size="sm"
+            icon={Plus}
+            onClick={() => {
+              if (devProjects.length > 0) setSelfTaskProjectId(devProjects[0].id)
+              setIsCreateModalOpen(true)
+            }}
+          >
+            Create Task
+          </Button>
+
+          {!canApproveTasks ? (
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/40 text-amber-800 dark:text-amber-300 text-xs font-medium">
+              <Lock className="w-3.5 h-3.5" />
+              <span>Approval Policy: Completed tasks require PM review</span>
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/40 text-emerald-800 dark:text-emerald-300 text-xs font-medium">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>Executive Oversight: Full task verification enabled</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Main Grid: Projects Sidebar (Left) + 5-Column Kanban (Right) */}
@@ -346,6 +407,124 @@ export function DeveloperTasksPage() {
           </div>
         </div>
       </div>
+
+      {/* Self-Task Creation Modal */}
+      {isCreateModalOpen && (
+        <Modal
+          isOpen={isCreateModalOpen}
+          onClose={() => setIsCreateModalOpen(false)}
+          title="Create Self-Assigned Task"
+        >
+          <form onSubmit={handleCreateSelfTask} className="space-y-4 text-xs">
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                Task Title *
+              </label>
+              <input
+                type="text"
+                value={selfTaskTitle}
+                onChange={(e) => setSelfTaskTitle(e.target.value)}
+                placeholder="e.g. Implement authentication callback handler"
+                className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-slate-400"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                Description
+              </label>
+              <textarea
+                value={selfTaskDesc}
+                onChange={(e) => setSelfTaskDesc(e.target.value)}
+                rows={3}
+                placeholder="Provide task details..."
+                className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-slate-400"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                  Project *
+                </label>
+                <select
+                  value={selfTaskProjectId}
+                  onChange={(e) => setSelfTaskProjectId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-slate-400"
+                  required
+                >
+                  {devProjects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.code} — {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                  Priority
+                </label>
+                <select
+                  value={selfTaskPriority}
+                  onChange={(e) => setSelfTaskPriority(e.target.value as TaskPriority)}
+                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-slate-400"
+                >
+                  <option value="low">Low Priority</option>
+                  <option value="medium">Medium Priority</option>
+                  <option value="high">High Priority</option>
+                  <option value="urgent">Urgent</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                  Deadline *
+                </label>
+                <input
+                  type="date"
+                  value={selfTaskDueDate}
+                  min={new Date().toISOString().split('T')[0]}
+                  onChange={(e) => setSelfTaskDueDate(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-slate-400"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                  Estimated Hours
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={80}
+                  value={selfTaskHours}
+                  onChange={(e) => setSelfTaskHours(Number(e.target.value))}
+                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-slate-400"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setIsCreateModalOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" variant="lime" size="sm" icon={Plus}>
+                Create Task
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   )
 }

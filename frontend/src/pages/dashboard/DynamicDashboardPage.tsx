@@ -33,8 +33,8 @@ import { StatCard, type StatCardProps } from '../../components/common/StatCard'
 import { Button } from '../../components/common/Button'
 import { Badge } from '../../components/common/Badge'
 import { Modal } from '../../components/common/Modal'
-import { DashboardWidgetCard } from './DashboardWidgetCard'
-import { DashboardWidgetBody } from './DashboardWidgetBody'
+import { StatusPill } from '../../components/common/StatusPill'
+import { formatDate } from '../../utils/formatters'
 import { HomePersonalizeModal } from './HomePersonalizeModal'
 import {
   WeeklyKpiTrendGraph,
@@ -70,7 +70,6 @@ export function DynamicDashboardPage() {
     authzSnapshot,
     setRoute,
     setSelectedTaskModal,
-    setSelectedProjectModal,
     can,
     canAny,
     showToast,
@@ -94,13 +93,6 @@ export function DynamicDashboardPage() {
     () => resolveVisibleDashboardWidgets(effectivePermissions),
     [effectivePermissions],
   )
-
-  const visibleWidgets = useMemo(() => {
-    const orderMap = new Map(prefs.widgetOrder.map((id, idx) => [id, idx]))
-    return allRoleWidgets
-      .filter((w) => !prefs.hiddenWidgetIds.includes(w.id))
-      .sort((a, b) => (orderMap.get(a.id) ?? 999) - (orderMap.get(b.id) ?? 999))
-  }, [allRoleWidgets, prefs.hiddenWidgetIds, prefs.widgetOrder])
 
   const { visibleItems: availablePages } = useMemo(
     () => resolveVisibleNavigation(effectivePermissions),
@@ -151,17 +143,6 @@ export function DynamicDashboardPage() {
   const [overrideMfaCode, setOverrideMfaCode] = useState('')
   const [isSubmittingOverride, setIsSubmittingOverride] = useState(false)
 
-  const roleFormula = useMemo(() => {
-    if (isCeo) return '60% Company Performance + 40% C-Level Aggregate'
-    if (['cto', 'cpo', 'cfo', 'chro'].includes(userRole)) {
-      return '40% Macro Goals + 30% Domain Avg + 20% CEO Review + 10% Peer Synergy'
-    }
-    if (isPm) {
-      return '30% CTO + 30% CPO + 20% CFO + 20% CHRO (Milestone Macro XP)'
-    }
-    return '50% PM Score + 15% CTO + 15% CPO + 10% CFO + 10% CHRO'
-  }, [isCeo, userRole, isPm])
-
   const fetchPerformanceData = useCallback(() => {
     if (!currentUser?.id) return
     erpApi
@@ -209,23 +190,19 @@ export function DynamicDashboardPage() {
 
   const displayKpiHistory = useMemo<WeeklyKpiItem[]>(() => {
     if (kpiHistory.length > 0) return kpiHistory
-    const currentScore =
-      perfSummary?.currentWeeklyKpi === 'N/A'
-        ? null
-        : Number(perfSummary?.currentWeeklyKpi || 88)
-    return [
-      { id: 'sample-1', weekNumber: 43, year: 2026, score: 85, isInactive: false },
-      { id: 'sample-2', weekNumber: 44, year: 2026, score: 92, isInactive: false },
-      { id: 'sample-3', weekNumber: 45, year: 2026, score: null, isInactive: true }, // N/A Inactivity Red Flag
-      { id: 'sample-4', weekNumber: 46, year: 2026, score: 82, isInactive: false }, // 10% penalty applied on return
-      {
-        id: 'sample-5',
-        weekNumber: 47,
-        year: 2026,
-        score: currentScore,
-        isInactive: perfSummary?.isInactive ?? false,
-      },
-    ]
+    if (perfSummary?.currentWeeklyKpi && perfSummary.currentWeeklyKpi !== 'N/A') {
+      const currentScore = Number(perfSummary.currentWeeklyKpi)
+      return [
+        {
+          id: 'current-week',
+          weekNumber: 46,
+          year: 2026,
+          score: currentScore,
+          isInactive: perfSummary?.isInactive ?? false,
+        },
+      ]
+    }
+    return []
   }, [kpiHistory, perfSummary])
 
   const effectiveLifetimeXp =
@@ -347,17 +324,109 @@ export function DynamicDashboardPage() {
     [data.wallets, currentUser?.id],
   )
 
-  const myUnreadNotifications = useMemo(
-    () => data.notifications.filter((n) => !n.read).slice(0, 5),
-    [data.notifications],
-  )
+  const [showCharts, setShowCharts] = useState(false)
+
+  const primarySquad = useMemo(() => {
+    if (!currentUser?.id) return data.teams[0] || null
+    return (
+      data.teams.find(
+        (t) =>
+          t.pmId === currentUser.id ||
+          t.memberIds.includes(currentUser.id) ||
+          currentUser.teamIds?.includes(t.id) ||
+          currentUser.teamId === t.id,
+      ) ||
+      data.teams[0] ||
+      null
+    )
+  }, [data.teams, currentUser])
 
   const statCards: StatCardProps[] = useMemo(() => {
-    const cards: StatCardProps[] = [
+    if (isCeo || isCLevel) {
+      return [
+        {
+          label: 'Active Initiatives',
+          value: data.projects.filter((p) => p.status === 'active').length,
+          trend: `${data.projects.length} total tracked`,
+          trendTone: 'neutral',
+          icon: FolderGit2,
+          onClick: () => setRoute('projects-repos'),
+        },
+        {
+          label: 'Needs My Action',
+          value: pendingApprovalsCount,
+          trend: pendingApprovalsCount > 0 ? 'Executive sign-offs waiting' : 'All caught up',
+          trendTone: pendingApprovalsCount > 0 ? 'warning' : 'neutral',
+          icon: ClipboardCheck,
+          onClick: () => setRoute('inbox'),
+        },
+        {
+          label: 'Engineering Squads',
+          value: data.teams.length,
+          trend: `${data.users.length} active personnel`,
+          trendTone: 'info',
+          icon: Users,
+          onClick: () => setRoute('team-management'),
+        },
+        {
+          label: 'Treasury Reserves',
+          value: formatBDTCompact(data.treasury.unallocatedReserves),
+          trend: `Initial Capital ${formatBDTCompact(data.treasury.initialCapital)}`,
+          trendTone: 'success',
+          icon: Coins,
+          onClick: () => setRoute('budget'),
+        },
+      ]
+    }
+
+    if (isPm) {
+      const pmSquads = data.teams.filter((t) => t.pmId === currentUser?.id)
+      const squadTaskTotal = data.tasks.filter((t) =>
+        pmSquads.some((sq) => sq.memberIds.includes(t.assigneeId)),
+      ).length
+
+      return [
+        {
+          label: 'My Open Tasks',
+          value: myTasks.length,
+          trend: myTasks.some((t) => t.priority === 'urgent') ? 'Priority items due' : 'On schedule',
+          trendTone: myTasks.some((t) => t.priority === 'urgent') ? 'warning' : 'success',
+          icon: CheckSquare,
+          onClick: () => setRoute('tasks'),
+        },
+        {
+          label: 'Needs My Action',
+          value: pendingApprovalsCount,
+          trend: pendingApprovalsCount > 0 ? 'Waiting for sign-off' : 'All caught up',
+          trendTone: pendingApprovalsCount > 0 ? 'warning' : 'neutral',
+          icon: ClipboardCheck,
+          onClick: () => setRoute('inbox'),
+        },
+        {
+          label: 'Squad Tasks',
+          value: squadTaskTotal > 0 ? squadTaskTotal : data.tasks.filter((t) => t.status !== 'completed').length,
+          trend: `${pmSquads.length || 1} active squad(s)`,
+          trendTone: 'info',
+          icon: FolderGit2,
+          onClick: () => setRoute('squads'),
+        },
+        {
+          label: 'Squad Standing',
+          value: `Level ${xpLevel}`,
+          trend: `${xpBalance} XP • ${formatBDTCompact(myWallet?.balance ?? 0)}`,
+          trendTone: 'success',
+          icon: Award,
+          onClick: () => setRoute('earnings'),
+        },
+      ]
+    }
+
+    // Default for Developers & Engineering staff
+    return [
       {
-        label: 'My Open Tasks',
+        label: 'My Active Tasks',
         value: myTasks.length,
-        trend: myTasks.some((t) => t.priority === 'urgent') ? 'Priority items due' : 'On schedule',
+        trend: myTasks.some((t) => t.priority === 'urgent') ? 'Priority item due' : 'On schedule',
         trendTone: myTasks.some((t) => t.priority === 'urgent') ? 'warning' : 'success',
         icon: CheckSquare,
         onClick: () => setRoute('tasks'),
@@ -365,61 +434,39 @@ export function DynamicDashboardPage() {
       {
         label: 'Needs My Action',
         value: pendingApprovalsCount,
-        trend: pendingApprovalsCount > 0 ? 'Waiting in Inbox' : 'All caught up',
+        trend: pendingApprovalsCount > 0 ? 'Action required in Inbox' : 'All caught up',
         trendTone: pendingApprovalsCount > 0 ? 'warning' : 'neutral',
         icon: ClipboardCheck,
         onClick: () => setRoute('inbox'),
       },
-    ]
-
-    if (can('treasury:read')) {
-      cards.push({
-        label: 'Treasury Reserves',
-        value: formatBDTCompact(data.treasury.unallocatedReserves),
-        trend: `Capital ${formatBDTCompact(data.treasury.initialCapital)}`,
+      {
+        label: 'Career Standing',
+        value: `Level ${xpLevel}`,
+        trend: `${xpBalance} Lifetime XP`,
         trendTone: 'info',
-        icon: Coins,
-        onClick: () => setRoute('budget'),
-      })
-    } else {
-      cards.push({
+        icon: Award,
+        onClick: () => setRoute('earnings'),
+      },
+      {
         label: 'Wallet Balance',
         value: formatBDTCompact(myWallet?.balance ?? 0),
-        trend: `Level ${xpLevel} • ${xpBalance} XP`,
+        trend: 'Available virtual wallet balance',
         trendTone: 'success',
         icon: Wallet,
         onClick: () => setRoute('earnings'),
-      })
-    }
-
-    if (can('projects:read_all')) {
-      cards.push({
-        label: 'Active Projects',
-        value: data.projects.filter((p) => p.status === 'active').length,
-        trend: `${data.projects.length} total tracked`,
-        trendTone: 'neutral',
-        icon: FolderGit2,
-        onClick: () => setRoute('projects-repos'),
-      })
-    } else {
-      cards.push({
-        label: 'Active Staff',
-        value: data.users.length,
-        trend: `${data.teams.length} active squads`,
-        trendTone: 'neutral',
-        icon: Users,
-        onClick: () => setRoute('team-management'),
-      })
-    }
-
-    return cards.slice(0, 4)
+      },
+    ]
   }, [
-    can,
+    isCeo,
+    isCLevel,
+    isPm,
     data.projects,
-    data.teams.length,
+    data.teams,
     data.treasury.initialCapital,
     data.treasury.unallocatedReserves,
     data.users,
+    data.tasks,
+    currentUser?.id,
     myTasks,
     myWallet?.balance,
     pendingApprovalsCount,
@@ -512,109 +559,275 @@ export function DynamicDashboardPage() {
         </div>
       )}
 
-      {/* Pointfex KPI & XP System - Absolute Top Priority Segment (Hero Section) */}
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5 shadow-xs space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--border)] pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="rounded-lg bg-indigo-50 dark:bg-indigo-950/60 p-2 text-indigo-600 dark:text-indigo-400">
-              <TrendingUp className="h-5 w-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-[var(--text)] tracking-tight">
-                  Pointfex KPI & XP System
-                </h2>
-                <Badge variant="indigo" size="xs">
-                  {isCeo
-                    ? 'Level 4 (CEO)'
-                    : isPm
-                      ? 'Level 2 (PM)'
-                      : ['cto', 'cpo', 'cfo', 'chro'].includes(userRole)
-                        ? 'Level 3 (Executive)'
-                        : 'Level 1 (Developer)'}
-                </Badge>
-              </div>
-              <p className="text-xs text-[var(--muted)] flex items-center gap-1.5 mt-0.5">
-                <span>Formula: {roleFormula}</span>
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={ShieldCheck}
-              onClick={() => setIsAuditModalOpen(true)}
-            >
-              Audit Ledger ({kpiAuditLogs.length})
-            </Button>
-            {canOverride && (
-              <Button
-                variant="primary"
-                size="sm"
-                icon={Award}
-                className={
-                  isCeo
-                    ? 'bg-amber-600 hover:bg-amber-700 text-white border-amber-600'
-                    : ''
-                }
-                onClick={() => {
-                  setOverrideTargetEmployeeId(currentUser?.id || '')
-                  setIsOverrideModalOpen(true)
-                }}
-              >
-                {isCeo
-                  ? 'CEO Supreme Override (MFA)'
-                  : isChro
-                    ? 'CHRO Full Governance (MFA)'
-                    : isCLevel
-                      ? `${userRole.toUpperCase()} Authority Override (MFA)`
-                      : 'PM Squad Adjustment (MFA)'}
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {/* Dynamic Dual-Metric Charts Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
-          <WeeklyKpiTrendGraph data={displayKpiHistory} />
-          <LifetimeXpStackedChart
-            lifetimeXp={effectiveLifetimeXp}
-            postedXp={xpSummary?.postedXp}
-            pendingXp={xpSummary?.pendingXp}
-            frozenXp={xpSummary?.frozenXp}
-          />
-        </div>
-      </div>
-
-      {/* Max 4 calm StatCards */}
+      {/* Top Summary Strip (max 3–4 clean stat cards tailored to user's role) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {statCards.map((card) => (
           <StatCard key={card.label} {...card} />
         ))}
       </div>
 
-      {/* 2-Column Permission-Driven Widget Grid */}
-      <div className={`grid grid-cols-1 lg:grid-cols-2 ${isCompact ? 'gap-4' : 'gap-6'}`}>
-        {visibleWidgets.map((widget) => (
-          <DashboardWidgetCard key={widget.id} widget={widget}>
-            <DashboardWidgetBody
-              widgetId={widget.id}
-              data={data}
-              myTasks={myTasks}
-              inboxPreview={inboxPreview}
-              myWallet={myWallet}
-              xpBalance={xpBalance}
-              activeDelegationsCount={activeDelegationsCount}
-              myUnreadNotifications={myUnreadNotifications}
-              can={can}
-              setRoute={setRoute}
-              setSelectedTaskModal={setSelectedTaskModal}
-              setSelectedProjectModal={setSelectedProjectModal}
-            />
-          </DashboardWidgetCard>
-        ))}
+      {/* Primary Focus Section: My Active Tasks / Needs My Action with clear 1-click navigation */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* Left: My Active Tasks */}
+        <div className="p-5 rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-2xs space-y-3.5 flex flex-col">
+          <div className="flex items-center justify-between pb-2 border-b border-[var(--border)]">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                <CheckSquare className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-[var(--text)]">My Active Tasks</h3>
+                <p className="text-[11px] text-[var(--muted)]">Items queued for your execution &amp; delivery</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant="indigo" size="xs">
+                {myTasks.length} open
+              </Badge>
+              <Button variant="ghost" size="xs" onClick={() => setRoute('tasks')}>
+                View All
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-2 flex-1">
+            {myTasks.length === 0 ? (
+              <div className="py-10 text-center text-xs text-[var(--muted)] italic">
+                All caught up! No active tasks assigned to you right now.
+              </div>
+            ) : (
+              myTasks.map((t) => {
+                const project = data.projects.find((p) => p.id === t.projectId)
+                return (
+                  <div
+                    key={t.id}
+                    onClick={() => setSelectedTaskModal(t)}
+                    className="p-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] hover:border-indigo-400/60 dark:hover:border-indigo-600 transition-all cursor-pointer flex items-center justify-between gap-3 shadow-2xs"
+                  >
+                    <div className="min-w-0 space-y-0.5">
+                      <div className="text-xs font-semibold text-[var(--text)] truncate">
+                        {t.title}
+                      </div>
+                      <div className="flex items-center gap-2 text-[11px] text-[var(--muted)]">
+                        <span className="font-mono">{project?.code || 'PROJECT'}</span>
+                        <span>•</span>
+                        <span>Due {formatDate(t.dueDate, 'short')}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Badge
+                        variant={
+                          t.priority === 'urgent'
+                            ? 'rose'
+                            : t.priority === 'high'
+                              ? 'amber'
+                              : 'slate'
+                        }
+                        size="xs"
+                      >
+                        {t.priority}
+                      </Badge>
+                      <StatusPill status={t.status} />
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
+
+        {/* Right: Needs My Action */}
+        <div className="p-5 rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-2xs space-y-3.5 flex flex-col">
+          <div className="flex items-center justify-between pb-2 border-b border-[var(--border)]">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                <ClipboardCheck className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-[var(--text)]">Needs My Action</h3>
+                <p className="text-[11px] text-[var(--muted)]">Approvals, sign-offs, and verification queues</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant={pendingApprovalsCount > 0 ? 'amber' : 'slate'} size="xs">
+                {pendingApprovalsCount} waiting
+              </Badge>
+              <Button variant="ghost" size="xs" onClick={() => setRoute('inbox')}>
+                Open Inbox
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-2 flex-1">
+            {inboxPreview.length === 0 && pendingApprovalsCount === 0 ? (
+              <div className="py-10 text-center text-xs text-[var(--muted)] italic">
+                All clear! Nothing currently waiting for your review or decision.
+              </div>
+            ) : (
+              (inboxPreview.length > 0
+                ? inboxPreview
+                : [
+                    {
+                      id: 'appr-1',
+                      title: 'Pending Action Requests',
+                      actorName: 'Governance Inbox',
+                      createdAt: new Date().toISOString(),
+                    },
+                  ]
+              )
+                .slice(0, 4)
+                .map((item: any) => (
+                  <div
+                    key={item.id}
+                    onClick={() => setRoute('inbox')}
+                    className="p-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] hover:border-amber-400/60 dark:hover:border-amber-600 transition-all cursor-pointer flex items-center justify-between gap-3 shadow-2xs"
+                  >
+                    <div className="min-w-0 space-y-0.5">
+                      <div className="text-xs font-semibold text-[var(--text)] truncate">
+                        {item.title || item.description || 'Pending Request'}
+                      </div>
+                      <div className="flex items-center gap-2 text-[11px] text-[var(--muted)]">
+                        <span>From {item.actorName || item.requesterName || 'System'}</span>
+                        {item.createdAt && (
+                          <>
+                            <span>•</span>
+                            <span>{formatDate(item.createdAt, 'short')}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <Button variant="secondary" size="xs">
+                      Review
+                    </Button>
+                  </div>
+                ))
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Compact Recent Activity / Squad Snapshot */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* Left: Squad & Delivery Snapshot */}
+        <div className="p-5 rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-2xs space-y-3">
+          <div className="flex items-center justify-between pb-2 border-b border-[var(--border)]">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 flex items-center justify-center">
+                <Users className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-[var(--text)]">
+                  {primarySquad ? `${primarySquad.name} (${primarySquad.code})` : 'Squad Snapshot'}
+                </h3>
+                <p className="text-[11px] text-[var(--muted)]">
+                  {primarySquad?.focus || 'Current engineering team and sprint velocity'}
+                </p>
+              </div>
+            </div>
+            <Button variant="ghost" size="xs" onClick={() => setRoute('squads')}>
+              My Squads
+            </Button>
+          </div>
+
+          <div className="space-y-3 pt-1">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-[var(--muted)]">Sprint Health:</span>
+              <Badge variant="emerald" size="xs" dot>
+                On Track
+              </Badge>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-[var(--muted)]">Active Squad Members:</span>
+              <span className="font-semibold text-[var(--text)]">
+                {primarySquad?.memberIds?.length || data.users.length} engineers
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-[var(--muted)]">Assigned Projects:</span>
+              <span className="font-semibold text-[var(--text)]">
+                {primarySquad?.projectIds?.length || 1} active
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Right: Performance & Standing Summary */}
+        <div className="p-5 rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-2xs space-y-3">
+          <div className="flex items-center justify-between pb-2 border-b border-[var(--border)]">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                <TrendingUp className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-[var(--text)]">Performance &amp; Standing</h3>
+                <p className="text-[11px] text-[var(--muted)]">Personal standing, weekly KPI, and career XP</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="xs"
+                icon={ShieldCheck}
+                onClick={() => setIsAuditModalOpen(true)}
+              >
+                Audit Log
+              </Button>
+              {canOverride && (
+                <Button
+                  variant="primary"
+                  size="xs"
+                  icon={Award}
+                  onClick={() => {
+                    setOverrideTargetEmployeeId(currentUser?.id || '')
+                    setIsOverrideModalOpen(true)
+                  }}
+                >
+                  Adjust
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-3 pt-1">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-[var(--muted)]">Current Standing:</span>
+              <Badge variant="indigo" size="xs">
+                Level {xpLevel} • {xpBalance} Lifetime XP
+              </Badge>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-[var(--muted)]">Wallet Balance:</span>
+              <span className="font-bold font-mono text-emerald-600 dark:text-emerald-400">
+                {formatBDTCompact(myWallet?.balance ?? 0)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-[var(--muted)]">Weekly Attendance:</span>
+              <span className="text-[var(--text)] font-medium">
+                {clockedInAt ? 'Clocked in for today' : 'Not clocked in'}
+              </span>
+            </div>
+
+            <div className="pt-2 border-t border-[var(--border)] flex items-center justify-between">
+              <span className="text-[11px] text-[var(--muted)]">Dual-Metric Charts</span>
+              <Button variant="ghost" size="xs" onClick={() => setShowCharts((prev) => !prev)}>
+                {showCharts ? 'Hide Charts' : 'Show KPI & XP Graphs'}
+              </Button>
+            </div>
+
+            {showCharts && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-3 border-t border-[var(--border)]">
+                <WeeklyKpiTrendGraph data={displayKpiHistory} />
+                <LifetimeXpStackedChart
+                  lifetimeXp={effectiveLifetimeXp}
+                  postedXp={xpSummary?.postedXp}
+                  pendingXp={xpSummary?.pendingXp}
+                  frozenXp={xpSummary?.frozenXp}
+                />
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       <HomePersonalizeModal

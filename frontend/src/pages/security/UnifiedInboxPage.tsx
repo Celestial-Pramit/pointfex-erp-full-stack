@@ -249,7 +249,7 @@ export function UnifiedInboxPage() {
         },
         mfaCode ? { 'x-mfa-code': mfaCode } : undefined,
       )
-      showToast(`Consensus vote (${votingConsensusItem.decision}) recorded with MFA.`, 'success')
+      showToast(`Consensus vote (${votingConsensusItem.decision.toLowerCase()}) recorded successfully.`, 'success')
       setVotingConsensusItem(null)
       setConsensusVoteNotes('')
       void fetchExecutiveSources()

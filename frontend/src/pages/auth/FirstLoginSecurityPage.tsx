@@ -191,7 +191,7 @@ export function FirstLoginSecurityPage() {
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-[var(--text)] flex items-center gap-2">
               <KeyRound className="w-4 h-4 text-amber-500" />
-              Step 2: Authenticator App (TOTP MFA) — Optional
+              Step 2: Authenticator App Verification — Optional
             </span>
             {mfaDone && (
               <span className="text-[11px] text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1 font-medium">
@@ -211,7 +211,7 @@ export function FirstLoginSecurityPage() {
                     disabled={isSubmitting || !passwordDone}
                     onClick={() => void handleStartMfa()}
                   >
-                    Set Up Authenticator MFA
+                    Set Up Authenticator Verification
                   </Button>
                   <Button
                     type="button"
@@ -241,11 +241,11 @@ export function FirstLoginSecurityPage() {
                       pattern="\d{6}"
                       value={mfaCode}
                       onChange={(e) => setMfaCode(e.target.value)}
-                      placeholder="Enter 6-digit TOTP code"
+                      placeholder="Enter 6-digit security code"
                       className="flex-1 px-3 py-2 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--text)] font-mono"
                     />
                     <Button type="submit" size="sm" variant="primary" disabled={isSubmitting}>
-                      Verify MFA
+                      Verify Code
                     </Button>
                   </div>
                 </form>

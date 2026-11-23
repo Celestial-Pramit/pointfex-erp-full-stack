@@ -114,6 +114,8 @@ export function LoginPage() {
   )
   const [newResetPassword, setNewResetPassword] = useState('')
   const [confirmResetPassword, setConfirmResetPassword] = useState('')
+  const [showResetPassword, setShowResetPassword] = useState(false)
+  const [showConfirmResetPassword, setShowConfirmResetPassword] = useState(false)
   const [resetMfaCode, setResetMfaCode] = useState('')
 
   useEffect(() => {
@@ -380,31 +382,51 @@ export function LoginPage() {
             <label htmlFor="reset-password" className="block text-xs font-medium text-[var(--text)] mb-1.5">
               New password (min 12 characters)
             </label>
-            <input
-              id="reset-password"
-              type="password"
-              required
-              minLength={12}
-              value={newResetPassword}
-              onChange={(e) => setNewResetPassword(e.target.value)}
-              placeholder="Enter new strong password"
-              className="w-full px-3.5 py-2.5 text-sm bg-[var(--bg)] border border-[var(--border)] rounded-lg text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
-            />
+            <div className="relative">
+              <input
+                id="reset-password"
+                type={showResetPassword ? 'text' : 'password'}
+                required
+                minLength={12}
+                value={newResetPassword}
+                onChange={(e) => setNewResetPassword(e.target.value)}
+                placeholder="Enter new strong password"
+                className="w-full pl-3.5 pr-10 py-2.5 text-sm bg-[var(--bg)] border border-[var(--border)] rounded-lg text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+              />
+              <button
+                type="button"
+                onClick={() => setShowResetPassword((prev) => !prev)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-[var(--text)] cursor-pointer"
+                aria-label={showResetPassword ? 'Hide password' : 'Show password'}
+              >
+                {showResetPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
           </div>
           <div>
             <label htmlFor="confirm-reset-password" className="block text-xs font-medium text-[var(--text)] mb-1.5">
               Confirm new password
             </label>
-            <input
-              id="confirm-reset-password"
-              type="password"
-              required
-              minLength={12}
-              value={confirmResetPassword}
-              onChange={(e) => setConfirmResetPassword(e.target.value)}
-              placeholder="Re-enter new password"
-              className="w-full px-3.5 py-2.5 text-sm bg-[var(--bg)] border border-[var(--border)] rounded-lg text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
-            />
+            <div className="relative">
+              <input
+                id="confirm-reset-password"
+                type={showConfirmResetPassword ? 'text' : 'password'}
+                required
+                minLength={12}
+                value={confirmResetPassword}
+                onChange={(e) => setConfirmResetPassword(e.target.value)}
+                placeholder="Re-enter new password"
+                className="w-full pl-3.5 pr-10 py-2.5 text-sm bg-[var(--bg)] border border-[var(--border)] rounded-lg text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmResetPassword((prev) => !prev)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-[var(--text)] cursor-pointer"
+                aria-label={showConfirmResetPassword ? 'Hide password' : 'Show password'}
+              >
+                {showConfirmResetPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
           </div>
           {!isOnboardingLink && (
             <div>
@@ -572,7 +594,7 @@ export function LoginPage() {
       )}
       <div className="mt-6 pt-4 border-t border-[var(--border)] flex items-center justify-between text-[11px] text-[var(--muted)]">
         <span>Pointfex ERP <span className="opacity-75 font-normal">· Developed by ERP Team</span></span>
-        <span className="font-mono font-medium">v4.1.0</span>
+        <span className="font-mono font-medium">v4.2.0</span>
       </div>
     </AuthShell>
   )

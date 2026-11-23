@@ -177,7 +177,7 @@ export function LoginAccessPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Login access"
+        title="Login Access"
         subtitle="CEO-controlled allowlist of exact verified emails allowed to sign in or be onboarded."
         action={
           <Button type="button" size="sm" variant="secondary" icon={Download} onClick={handleExportCsv}>

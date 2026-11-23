@@ -269,10 +269,38 @@ export class TasksService {
     if (dto.title !== undefined) data.title = dto.title
     if (dto.description !== undefined) data.description = dto.description
     if (dto.priority !== undefined) data.priority = dto.priority
-    if (dto.dueDate !== undefined) data.dueDate = new Date(dto.dueDate)
+    if (dto.dueDate !== undefined) {
+      const due = new Date(dto.dueDate)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      if (due < today) {
+        throw new BadRequestException('Task deadline cannot be in the past.')
+      }
+      data.dueDate = due
+    }
     if (dto.weightPoints !== undefined) data.weightPoints = new Prisma.Decimal(dto.weightPoints)
     if (dto.isMainProjectTask !== undefined) data.isMainProjectTask = dto.isMainProjectTask
-    if (dto.projectPercentage !== undefined) data.projectPercentage = new Prisma.Decimal(dto.projectPercentage)
+    if (dto.projectPercentage !== undefined) {
+      const isMain = dto.isMainProjectTask !== undefined ? dto.isMainProjectTask : task.isMainProjectTask
+      const newPct = Number(dto.projectPercentage)
+      if (isMain && newPct > 0) {
+        const otherTasks = await this.prisma.task.findMany({
+          where: {
+            projectId: task.projectId,
+            isMainProjectTask: true,
+            id: { not: id },
+          },
+          select: { projectPercentage: true },
+        })
+        const otherTotal = otherTasks.reduce((sum, t) => sum + Number(t.projectPercentage || 0), 0)
+        if (otherTotal + newPct > 100) {
+          throw new BadRequestException(
+            `Total linked task percentage cannot exceed 100%. Other tasks allocate ${otherTotal}%, cannot set to ${newPct}%.`,
+          )
+        }
+      }
+      data.projectPercentage = new Prisma.Decimal(newPct)
+    }
 
     return this.prisma.task.update({
       where: { id },
@@ -282,6 +310,15 @@ export class TasksService {
   }
 
   async create(dto: CreateTaskDto, actor: AuthenticatedUser) {
+    if (dto.dueDate) {
+      const due = new Date(dto.dueDate)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      if (due < today) {
+        throw new BadRequestException('Task deadline cannot be in the past.')
+      }
+    }
+
     const project = await this.prisma.project.findUnique({ where: { id: dto.projectId } })
     if (!project) throw new NotFoundException(`Project "${dto.projectId}" not found`)
 
@@ -588,12 +625,35 @@ export class TasksService {
       throw new ForbiddenException('CEO decision is finalized and cannot be overridden by non-CEO actors.')
     }
 
-    // Developer gate on completed status
     const targetStatus = (dto.status || '').toLowerCase()
+
+    // Mandatory cancellation reason prompt requirement
+    if (targetStatus === 'cancelled') {
+      const reason = dto.cancellationReason || dto.reason || dto.feedback
+      if (!reason || !reason.trim()) {
+        throw new BadRequestException('A mandatory cancellation reason is required when cancelling a task.')
+      }
+    }
+
+    // Developer gate on completed status
     if (targetStatus === 'completed' && actor.role.toLowerCase() === 'developer') {
       throw new ForbiddenException(
         'Developers cannot mark tasks as completed. Tasks must be submitted for review.',
       )
+    }
+
+    // Mandatory PM satisfaction score prompt requirement on completion
+    const scoreVal =
+      dto.pmScore !== undefined
+        ? Number(dto.pmScore)
+        : dto.score !== undefined
+          ? Number(dto.score)
+          : undefined
+
+    if (targetStatus === 'completed' && actor.role.toLowerCase() !== 'developer') {
+      if (scoreVal === undefined && task.pmScore === null) {
+        throw new BadRequestException('PM satisfaction score is mandatory when completing a task.')
+      }
     }
 
     if (dto.status === 'completed') {
@@ -613,7 +673,15 @@ export class TasksService {
     }
 
     // Validate transition via state machine
-    if (this.transitionService) {
+    if (
+      this.transitionService &&
+      !(
+        targetStatus === 'completed' &&
+        ['pm', 'cto', 'cpo', 'cfo', 'chro', 'ceo', 'system:root', 'admin'].includes(
+          actor.role.toLowerCase(),
+        )
+      )
+    ) {
       this.transitionService.validateTransition(task.status, dto.status, actor.role)
     }
 
@@ -626,6 +694,7 @@ export class TasksService {
       data: {
         status: dto.status,
         completedAt: targetStatus === 'completed' ? completedAt : undefined,
+        pmScore: scoreVal !== undefined ? new Prisma.Decimal(scoreVal) : undefined,
         reviewStatus: targetStatus === 'completed' ? (isActorCeo ? 'FINALIZED' : 'PENDING_REVIEW') : undefined,
         reviewDeadlineAt: targetStatus === 'completed' ? reviewDeadlineAt : undefined,
         kpiFinalizedAt: targetStatus === 'completed' && isActorCeo ? now : undefined,
@@ -652,12 +721,34 @@ export class TasksService {
       })
     }
 
-    // Log Activity
+    // Resolve squad/team name for team-scoped movement logs
+    let squadName = 'Engineering Squad'
+    try {
+      if (task.projectId && this.prisma.teamProject) {
+        const teamProj = await this.prisma.teamProject.findFirst({
+          where: { projectId: task.projectId, isActive: true },
+          include: { team: true },
+        })
+        if (teamProj?.team?.name) squadName = teamProj.team.name
+      }
+      if (squadName === 'Engineering Squad' && task.assigneeId && this.prisma.teamMembership) {
+        const membership = await this.prisma.teamMembership.findFirst({
+          where: { employeeId: task.assigneeId, isActive: true },
+          include: { team: true },
+        })
+        if (membership?.team?.name) squadName = membership.team.name
+      }
+    } catch {
+      // fallback
+    }
+
+    // Log Activity with actor, timestamp, from -> to status, and team/squad name
+    const actorDisplayName = actor.name || actor.email || actor.id
     await this.prisma.auditLog.create({
       data: {
         ipAddress: getCurrentRequestIp(),
         actorId: actor.id,
-        actorName: actor.id,
+        actorName: actorDisplayName,
         actorEmail: actor.email || '',
         actorRole: actor.role.toUpperCase(),
         action: 'TASK_STATUS_CHANGED',
@@ -665,8 +756,8 @@ export class TasksService {
         severity: dto.status === 'completed' ? 'SUCCESS' : 'INFO',
         entityType: 'task',
         entityId: id,
-        entityTitle: task.title,
-        description: `Status changed from "${task.status}" to "${dto.status}"`,
+        entityTitle: `${task.title} (${squadName})`,
+        description: `Task status changed from "${task.status}" to "${dto.status}" by ${actorDisplayName} [Squad: ${squadName}]${dto.cancellationReason ? ` — Reason: ${dto.cancellationReason}` : ''}${scoreVal !== undefined ? ` — Satisfaction Score: ${scoreVal}/100` : ''}`,
         category: 'task',
         badgeColor: dto.status === 'completed' ? 'emerald' : 'sky',
       },
@@ -717,13 +808,18 @@ export class TasksService {
 
     const actorRole = (actor.role || '').toLowerCase()
     const isCeo = ['ceo', 'system:root'].includes(actorRole) || actor.id === 'emp_ceo_01'
+    const isChro = actorRole === 'chro'
+
+    if (!isCeo && !isChro) {
+      throw new ForbiddenException('Only CHRO (plus CEO supreme override) can approve or modify task weights.')
+    }
 
     if (task.ceoFinalized && !isCeo) {
       throw new ForbiddenException('CEO decision is finalized and cannot be overridden by non-CEO actors.')
     }
 
     // CHRO self-verification block: route to CEO
-    if (actorRole === 'chro' && !isCeo) {
+    if (isChro && !isCeo) {
       if (task.proposedById === actor.id || task.assigneeId === actor.id || task.creatorId === actor.id) {
         throw new ForbiddenException('CHRO self-verification is strictly prohibited: task weight must be verified by CEO.')
       }
@@ -754,9 +850,24 @@ export class TasksService {
           weightCategory: newCategory,
           weightPoints: new Prisma.Decimal(newPoints),
           verifiedById: actor.id,
+          ceoFinalized: isCeo ? true : task.ceoFinalized,
         },
         include: { assignee: true, project: true },
       })
+
+      // Synchronize any existing TaskWeightVerification records
+      if (tx.taskWeightVerification && typeof tx.taskWeightVerification.updateMany === 'function') {
+        await tx.taskWeightVerification.updateMany({
+          where: { taskId },
+          data: {
+            status: newStatus === 'REJECTED' ? 'REJECTED' : 'APPROVED',
+            approvedWeight: new Prisma.Decimal(newPoints),
+            category: newCategory as any,
+            chroId: actor.id,
+            chroNotes: isCeo ? 'Approved and verified by CEO (CHRO verification bypassed)' : (dto.reason || 'Weight verified by CHRO'),
+          },
+        })
+      }
 
       // If XP events already exist for this task, emit REVERSAL and new AWARD event
       if (this.xpLedger) {
@@ -1068,10 +1179,10 @@ export class TasksService {
   ) {
     const task = await this.findOne(taskId)
     const actorRole = (actor?.role || '').toLowerCase()
-    const isExecutive = ['ceo', 'chro', 'cto', 'cfo', 'cpo', 'system:root', 'admin'].includes(actorRole)
+    const isChroOrCeo = ['ceo', 'chro', 'system:root'].includes(actorRole) || actor?.id === 'emp_ceo_01'
 
-    if (!isExecutive && actorRole !== 'pm') {
-      throw new ForbiddenException('Only CHRO, executives, or managers can modify task weight.')
+    if (!isChroOrCeo) {
+      throw new ForbiddenException('Only CHRO (plus CEO supreme override) can approve or modify task weights.')
     }
 
     let newPoints = weightPoints !== undefined ? Number(weightPoints) : Number(task.weightPoints || 2)
@@ -1333,6 +1444,7 @@ export class TasksService {
       // 1. Mark task completed
       const now = new Date()
       const reviewDeadlineAt = new Date(now.getTime() + 24 * 60 * 60 * 1000)
+      const isWeightVerified = task.weightStatus === 'VERIFIED' || isActorCeo
       const updatedTask = await tx.task.update({
         where: { id },
         data: {
@@ -1343,6 +1455,8 @@ export class TasksService {
           reviewDeadlineAt,
           kpiFinalizedAt: isActorCeo ? now : null,
           ceoFinalized: isActorCeo ? true : task.ceoFinalized,
+          weightStatus: isWeightVerified ? 'VERIFIED' : task.weightStatus,
+          verifiedById: isActorCeo ? actor.id : task.verifiedById,
         },
         include: {
           assignee: true,
@@ -1350,6 +1464,20 @@ export class TasksService {
           milestone: true,
         },
       })
+
+      // If CEO approved, automatically verify task weight and bypass CHRO verification
+      if (isActorCeo && tx.taskWeightVerification && typeof tx.taskWeightVerification.updateMany === 'function') {
+        await tx.taskWeightVerification.updateMany({
+          where: { taskId: id },
+          data: {
+            status: 'APPROVED',
+            approvedWeight: task.weightPoints || new Prisma.Decimal(2),
+            category: (task.weightCategory || 'MEDIUM') as any,
+            chroId: actor.id,
+            chroNotes: 'Approved by CEO (CHRO verification bypassed)',
+          },
+        })
+      }
 
       if (task.isMainProjectTask && task.projectId && tx.project?.update) {
         const linkedTasks = (await tx.task.findMany({
@@ -1471,7 +1599,7 @@ export class TasksService {
 
       // 7. Derive XP via pure engine (strictly verifiedWeightPoints * 10, no context discount)
       const weightPoints = Number(task.weightPoints || 2)
-      const weightStatus = task.weightStatus || 'PENDING_CHRO_VERIFICATION'
+      const weightStatus = isActorCeo ? 'VERIFIED' : (task.weightStatus || 'PENDING_CHRO_VERIFICATION')
       const kpiConfig = tx.kpiConfig && typeof tx.kpiConfig.findUnique === 'function'
         ? await tx.kpiConfig.findUnique({ where: { id: 'singleton' } })
         : null

@@ -44,7 +44,9 @@ export function DeveloperEarningsPage() {
     const completionPct =
       totalCount > 0
         ? Math.round((completedTasks.length / totalCount) * 100)
-        : (performance?.completionRate ?? 100)
+        : performance?.completionRate
+          ? Math.round(Number(performance.completionRate))
+          : 0
 
     const tasksWithDueDate = tasks.filter((t) => Boolean(t.dueDate))
     const metCount = tasksWithDueDate.filter(
@@ -57,11 +59,15 @@ export function DeveloperEarningsPage() {
     const onTimePct =
       totalDeadlines > 0
         ? Math.round((metCount / totalDeadlines) * 100)
-        : (performance?.onTimeDeliveryRate ?? 100)
+        : performance?.onTimeDeliveryRate
+          ? Math.round(Number(performance.onTimeDeliveryRate))
+          : 0
     const deadlineText =
       totalDeadlines > 0
         ? `${metCount} of ${totalDeadlines} deadlines met`
-        : 'All deadlines met'
+        : totalCount > 0
+          ? 'No deadlines set'
+          : 'No tasks assigned'
 
     const scoredTasks = completedTasks.filter(
       (t) => t.pmScore !== undefined && t.pmScore !== null,
@@ -75,12 +81,18 @@ export function DeveloperEarningsPage() {
         : perfSummary?.currentWeeklyKpi &&
             typeof perfSummary.currentWeeklyKpi === 'number'
           ? Math.round(perfSummary.currentWeeklyKpi)
-          : (performance?.overallScore ?? 90)
+          : performance?.overallScore
+            ? Math.round(Number(performance.overallScore))
+            : 0
 
     const totalVelocity = completedTasks.reduce(
-      (sum, t) => sum + (Number(t.weightPoints) || 2),
+      (sum, t) => sum + (Number(t.weightPoints) || 0),
       0,
     )
+
+    const bonusAmount =
+      perfSummary?.bonusAmount ??
+      (avgScore >= 85 && totalVelocity > 0 ? Math.round(totalVelocity * 15) : 0)
 
     return {
       completionPct,
@@ -88,6 +100,7 @@ export function DeveloperEarningsPage() {
       deadlineText,
       avgScore,
       totalVelocity,
+      bonusAmount,
     }
   }, [allDevTasks, performance, perfSummary])
 
@@ -179,8 +192,22 @@ export function DeveloperEarningsPage() {
               <div className="text-2xl font-bold font-display text-slate-900 dark:text-white">
                 {liveMetrics.avgScore}/100
               </div>
-              <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
-                Tier 1 Band
+              <div
+                className={`text-[10px] font-semibold ${
+                  liveMetrics.avgScore >= 85
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : liveMetrics.avgScore >= 70
+                      ? 'text-sky-600 dark:text-sky-400'
+                      : 'text-slate-400 dark:text-slate-500'
+                }`}
+              >
+                {liveMetrics.avgScore >= 85
+                  ? 'Tier 1 Band'
+                  : liveMetrics.avgScore >= 70
+                    ? 'Tier 2 Band'
+                    : liveMetrics.avgScore > 0
+                      ? 'Tier 3 Band'
+                      : 'Not Evaluated'}
               </div>
             </div>
 
@@ -212,17 +239,19 @@ export function DeveloperEarningsPage() {
               </div>
             </div>
 
-            {/* Metric 4: Sprint Velocity */}
+            {/* Metric 4: Team Pace */}
             <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 text-center space-y-1">
               <div className="flex items-center justify-center gap-1.5 text-slate-400 dark:text-slate-500 text-[11px] font-medium">
                 <Zap className="w-3.5 h-3.5 text-purple-500" />
-                <span>Velocity</span>
+                <span>Team Pace</span>
               </div>
               <div className="text-2xl font-bold font-display text-slate-900 dark:text-white">
                 {liveMetrics.totalVelocity} pts
               </div>
-              <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
-                +15% vs baseline
+              <div className="text-[10px] text-slate-400 dark:text-slate-500">
+                {liveMetrics.totalVelocity > 0
+                  ? `${liveMetrics.totalVelocity} completed pts`
+                  : 'No pace points logged'}
               </div>
             </div>
           </div>
@@ -234,7 +263,9 @@ export function DeveloperEarningsPage() {
               <span>Current Sprint Performance Bonus Qualified:</span>
             </div>
             <span className="font-bold text-amber-700 dark:text-amber-300 font-display text-sm">
-              +$600.00
+              {liveMetrics.bonusAmount > 0
+                ? `+${formatCurrency(liveMetrics.bonusAmount)}`
+                : '৳0 (Requires 85+ score)'}
             </span>
           </div>
         </div>

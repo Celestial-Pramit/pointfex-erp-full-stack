@@ -188,13 +188,30 @@ export class FinanceService {
         },
       })
 
-      // 3. Update treasury totalDistributedToDevs
-      await tx.companyTreasury.update({
-        where: { id: 'singleton' },
-        data: {
-          totalDistributedToDevs: { increment: allocAmount },
-        },
-      })
+      // 3. Update treasury totalDistributedToDevs safely via upsert
+      if (typeof tx.companyTreasury.upsert === 'function') {
+        await tx.companyTreasury.upsert({
+          where: { id: 'singleton' },
+          update: {
+            totalDistributedToDevs: { increment: allocAmount },
+          },
+          create: {
+            id: 'singleton',
+            initialCapital: new Prisma.Decimal(0),
+            totalApprovedBudgets: new Prisma.Decimal(0),
+            totalDistributedToDevs: allocAmount,
+            totalClientRevenue: new Prisma.Decimal(0),
+            unallocatedReserves: new Prisma.Decimal(0),
+          },
+        })
+      } else {
+        await tx.companyTreasury.update({
+          where: { id: 'singleton' },
+          data: {
+            totalDistributedToDevs: { increment: allocAmount },
+          },
+        })
+      }
 
       // 4. Create Transaction Ledger entry
       const txRecord = await tx.financialTransaction.create({

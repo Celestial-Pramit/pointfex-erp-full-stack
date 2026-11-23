@@ -35,6 +35,7 @@ export function TaskDetailModal({ task, isOpen, onClose }: TaskDetailModalProps)
 
   const project = resolvers.getProject(currentTask.projectId)
   const assignee = resolvers.getUser(currentTask.assigneeId)
+  const creator = resolvers.getUser(currentTask.creatorId)
   const comments = data.comments.filter((c) => c.taskId === currentTask.id)
 
   const handleStatusChange = (newStatus: string) => {
@@ -164,7 +165,7 @@ export function TaskDetailModal({ task, isOpen, onClose }: TaskDetailModalProps)
         </div>
 
         {/* Metadata info grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 rounded-2xl bg-slate-50 dark:bg-[#131a2b] border border-slate-100 dark:border-slate-800 text-[11px]">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-3 rounded-2xl bg-slate-50 dark:bg-[#131a2b] border border-slate-100 dark:border-slate-800 text-[11px]">
           <div>
             <span className="text-slate-400 dark:text-slate-500 block">Assignee</span>
             {assignee ? (
@@ -185,7 +186,46 @@ export function TaskDetailModal({ task, isOpen, onClose }: TaskDetailModalProps)
           </div>
 
           <div>
-            <span className="text-slate-400 dark:text-slate-500 block">Due Date</span>
+            <span className="text-slate-400 dark:text-slate-500 block">Assigner / Origin</span>
+            <span
+              className="font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1 mt-0.5 truncate"
+              title={creator ? `${creator.name} (${creator.role.toUpperCase()})` : 'Executive / Management'}
+            >
+              {creator ? `${creator.name} (${creator.role.toUpperCase()})` : 'Executive Mandate'}
+            </span>
+          </div>
+
+          <div>
+            <span className="text-slate-400 dark:text-slate-500 block">Project</span>
+            <span className="font-medium text-slate-700 dark:text-slate-300 block truncate mt-0.5" title={project?.name || 'Project'}>
+              {project?.name || 'Assigned Project'}
+            </span>
+          </div>
+
+          <div>
+            <span className="text-slate-400 dark:text-slate-500 block">Deliverable Weight</span>
+            <span className="font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1 mt-0.5">
+              {currentTask.projectPercentage != null
+                ? `${currentTask.projectPercentage}% project share`
+                : currentTask.weightPoints
+                  ? `${currentTask.weightPoints} pts (${currentTask.weightCategory || 'Standard'})`
+                  : 'Standard Weight'}
+            </span>
+            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-mono block">
+              {(currentTask as any).weightStatus || 'PENDING_CHRO_VERIFICATION'}
+            </span>
+          </div>
+
+          <div>
+            <span className="text-slate-400 dark:text-slate-500 block">Assigned Date</span>
+            <span className="font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1 mt-0.5">
+              <Clock className="w-3.5 h-3.5 text-slate-400" />
+              {(currentTask as any).createdAt ? formatDate((currentTask as any).createdAt, 'medium') : 'Assigned on creation'}
+            </span>
+          </div>
+
+          <div>
+            <span className="text-slate-400 dark:text-slate-500 block">Deadline (Due Date)</span>
             <span className="font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1 mt-0.5">
               <Calendar className="w-3.5 h-3.5 text-slate-400" />
               {formatDate(currentTask.dueDate, 'medium')}
@@ -193,10 +233,17 @@ export function TaskDetailModal({ task, isOpen, onClose }: TaskDetailModalProps)
           </div>
 
           <div>
-            <span className="text-slate-400 dark:text-slate-500 block">Logged Time</span>
+            <span className="text-slate-400 dark:text-slate-500 block">PM Satisfaction Point</span>
             <span className="font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1 mt-0.5">
-              <Clock className="w-3.5 h-3.5 text-slate-400" />
-              {currentTask.loggedHours || 0} hrs
+              {(currentTask as any).pmScore != null ? (
+                <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                  {(currentTask as any).pmScore} / 100
+                </span>
+              ) : currentTask.status === 'in_review' ? (
+                <span className="text-purple-600 dark:text-purple-400 italic">Pending PM Review</span>
+              ) : (
+                <span className="text-slate-400 italic">Not graded yet</span>
+              )}
             </span>
           </div>
 

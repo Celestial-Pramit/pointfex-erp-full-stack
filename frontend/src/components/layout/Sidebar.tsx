@@ -12,6 +12,7 @@ import {
 import { useApp } from '../../context/AppContext'
 import { usePermissions } from '../../hooks/usePermissions'
 import {
+  canAccessRoute,
   findWorkspaceByRoute,
   resolveVisibleWorkspaces,
 } from '../../config/nav-registry'
@@ -250,7 +251,7 @@ export function Sidebar() {
             </div>
 
             {/* Active Delegation Pill */}
-            {activeDelegationsCount > 0 && (
+            {activeDelegationsCount > 0 && canAccessRoute('delegations', effectivePermissions) && (
               <button
                 type="button"
                 onClick={() => handleNavigate('delegations')}
@@ -332,7 +333,7 @@ export function Sidebar() {
                 </button>
                 <div className="mt-2 pt-2 border-t border-[var(--border)] flex items-center justify-between text-[11px] text-[var(--muted)] px-1">
                   <span>Pointfex ERP <span className="text-[10px] opacity-75 font-normal">· Developed by ERP Team</span></span>
-                  <span className="font-mono font-medium">v4.1.0</span>
+                  <span className="font-mono font-medium">v4.2.0</span>
                 </div>
               </div>
             )}

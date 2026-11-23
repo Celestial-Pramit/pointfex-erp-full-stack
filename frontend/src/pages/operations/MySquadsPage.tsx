@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import {
   Users,
   FolderGit2,
@@ -12,6 +12,8 @@ import {
   CheckCircle2,
   DollarSign,
   Sparkles,
+  Link2,
+  ExternalLink,
 } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
 import { usePermissions } from '../../hooks/usePermissions'
@@ -22,10 +24,20 @@ import { Modal } from '../../components/common/Modal'
 import { Avatar } from '../../components/common/Avatar'
 import { formatDate, formatCurrency } from '../../utils/formatters'
 import { erpApi } from '../../api/client'
-import type { Task, TaskPriority } from '../../types'
+import { formatPlainEnglishLog } from '../../utils/plain-english-logs'
+import type { Task, TaskPriority, TaskStatus } from '../../types'
 
 export function MySquadsPage() {
-  const { data, currentUser, currentRole, createTask, scoreCompletedTask, showToast } = useApp()
+  const {
+    data,
+    currentUser,
+    currentRole,
+    createTask,
+    scoreCompletedTask,
+    updateTaskStatus,
+    setSelectedTaskModal,
+    showToast,
+  } = useApp()
   const { teams } = useCtoData()
   const { hasPermission } = usePermissions()
 
@@ -152,6 +164,64 @@ export function MySquadsPage() {
   const [editIsMainProjectTask, setEditIsMainProjectTask] = useState(true)
   const [editProjectPercentage, setEditProjectPercentage] = useState<number>(10)
 
+  // Squad Resources state
+  const [squadResources, setSquadResources] = useState<any[]>([])
+  const [isAddResourceModalOpen, setIsAddResourceModalOpen] = useState(false)
+  const [resourceLink, setResourceLink] = useState('')
+  const [resourceDescription, setResourceDescription] = useState('')
+  const [isSavingResource, setIsSavingResource] = useState(false)
+
+  // Fetch squad resources whenever activeSquad changes
+  useEffect(() => {
+    if (!activeSquad?.id) {
+      setSquadResources([])
+      return
+    }
+    let isSubscribed = true
+    erpApi.getTeamResources(activeSquad.id)
+      .then((res) => {
+        if (isSubscribed && Array.isArray(res)) {
+          setSquadResources(res)
+        }
+      })
+      .catch(() => {
+        if (isSubscribed) setSquadResources([])
+      })
+    return () => {
+      isSubscribed = false
+    }
+  }, [activeSquad?.id])
+
+  const handleSaveResource = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!activeSquad?.id) return
+    if (!resourceLink.trim()) {
+      showToast('Resource link is required', 'error')
+      return
+    }
+    if (!resourceDescription.trim()) {
+      showToast('Resource description / purpose is required', 'error')
+      return
+    }
+    setIsSavingResource(true)
+    try {
+      const created = await erpApi.addTeamResource(activeSquad.id, {
+        url: resourceLink.trim(),
+        description: resourceDescription.trim(),
+        title: resourceDescription.trim(),
+      })
+      setSquadResources((prev) => [created, ...prev])
+      showToast('Squad resource added successfully', 'success')
+      setResourceLink('')
+      setResourceDescription('')
+      setIsAddResourceModalOpen(false)
+    } catch (err: any) {
+      showToast(err.message || 'Failed to add squad resource', 'error')
+    } finally {
+      setIsSavingResource(false)
+    }
+  }
+
   const handleOpenEditTask = (task: Task) => {
     setEditingTask(task)
     setEditTaskTitle(task.title)
@@ -173,6 +243,26 @@ export function MySquadsPage() {
   const handleSaveEditTask = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!editingTask) return
+
+    if (editIsMainProjectTask) {
+      const otherTasksTotal = data.tasks
+        .filter(
+          (t) =>
+            t.projectId === editingTask.projectId &&
+            t.isMainProjectTask &&
+            t.id !== editingTask.id,
+        )
+        .reduce((sum, t) => sum + (Number(t.projectPercentage) || 0), 0)
+
+      if (otherTasksTotal + Number(editProjectPercentage) > 100) {
+        showToast(
+          `Project percentage cannot exceed 100%. Other tasks allocate ${otherTasksTotal}%, maximum allowed is ${100 - otherTasksTotal}%.`,
+          'error',
+        )
+        return
+      }
+    }
+
     const finalXp = editIsCustomXp ? Math.max(1, editCustomXpInput) : editTaskXp
     const finalPoints = Math.round((finalXp / 10) * 100) / 100
     try {
@@ -191,21 +281,171 @@ export function MySquadsPage() {
     }
   }
 
-  // Squad Activity & Progress Log resolution
+  // Squad Activity & Progress Log resolution (strictly scoped to active squad)
   const squadActivityLogs = useMemo(() => {
     if (!activeSquad) return []
-    const memberIds = activeSquad.memberIds || activeSquad.members?.map((m) => m.id) || []
-    const taskIds = squadTasks.map((t) => t.id)
+    const squadTaskIds = new Set(squadTasks.map((t) => t.id))
+    const squadProjectIds = new Set(squadProjects.map((p) => p.id))
+    const squadNameLower = activeSquad.name.toLowerCase()
+    const squadCodeLower = activeSquad.code.toLowerCase()
+
     return (data.activityLogs || [])
-      .filter(
-        (log: any) =>
-          memberIds.includes(log.userId) ||
-          (log.entityType === 'task' && taskIds.includes(log.entityId)) ||
-          log.description?.toLowerCase().includes(activeSquad.name.toLowerCase()) ||
-          log.description?.toLowerCase().includes(activeSquad.code.toLowerCase()),
-      )
-      .slice(0, 10)
-  }, [activeSquad, squadTasks, data.activityLogs])
+      .filter((log: any) => {
+        // 1. Direct squad match via payload
+        if (log.payload?.teamName && log.payload.teamName.toLowerCase() === squadNameLower) {
+          return true
+        }
+        if (log.entityType === 'team' && log.entityId === activeSquad.id) {
+          return true
+        }
+
+        // 2. Task belongs to this squad
+        if (log.entityType === 'task') {
+          if (squadTaskIds.has(log.entityId)) return true
+          const task = data.tasks.find((t) => t.id === log.entityId)
+          if (task && squadProjectIds.has(task.projectId)) return true
+        }
+
+        // 3. Squad name or code explicitly in title or description
+        const desc = (log.description || '').toLowerCase()
+        const title = (log.entityTitle || '').toLowerCase()
+        if (
+          desc.includes(`(squad: ${squadNameLower})`) ||
+          desc.includes(`[${squadNameLower}]`) ||
+          desc.includes(`[${squadCodeLower}]`) ||
+          title.includes(`[${squadNameLower}]`) ||
+          title.includes(`[${squadCodeLower}]`)
+        ) {
+          return true
+        }
+
+        return false
+      })
+      .slice(0, 15)
+  }, [activeSquad, squadTasks, squadProjects, data.activityLogs, data.tasks])
+
+  // Drag and drop state
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null)
+  const [dragOverColId, setDragOverColId] = useState<string | null>(null)
+
+  // PM drag-to-complete mandatory satisfaction score modal state
+  const [completingTask, setCompletingTask] = useState<Task | null>(null)
+  const [pmScore, setPmScore] = useState<number>(85)
+  const [pmScoreFeedback, setPmScoreFeedback] = useState<string>('')
+
+  // PM drag-to-cancel mandatory reason modal state
+  const [cancellingTask, setCancellingTask] = useState<Task | null>(null)
+  const [cancellationReason, setCancellationReason] = useState<string>('')
+
+  const isDeveloper = !isSquadPmOrLeader
+
+  const canDragTask = (task: Task) => {
+    if (isSquadPmOrLeader) return true
+    return task.assigneeId === currentUser?.id
+  }
+
+  const handleDragStart = (e: React.DragEvent<HTMLDivElement>, task: Task) => {
+    if (!canDragTask(task)) {
+      e.preventDefault()
+      return
+    }
+    setDraggedTaskId(task.id)
+    e.dataTransfer.setData('text/plain', task.id)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>, colId: string) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (dragOverColId !== colId) {
+      setDragOverColId(colId)
+    }
+  }
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>, targetColId: TaskStatus) => {
+    e.preventDefault()
+    setDragOverColId(null)
+    const taskId = e.dataTransfer.getData('text/plain') || draggedTaskId
+    if (!taskId) return
+
+    const task = squadTasks.find((t) => t.id === taskId)
+    if (!task || task.status === targetColId) {
+      setDraggedTaskId(null)
+      return
+    }
+
+    // Role-based restrictions:
+    if (isDeveloper) {
+      if (task.assigneeId !== currentUser?.id) {
+        showToast('You can only update deliverables assigned to you.', 'error')
+        setDraggedTaskId(null)
+        return
+      }
+      if (targetColId === 'completed' || targetColId === 'cancelled') {
+        showToast('Only Squad PM or Leadership can complete or cancel squad deliverables.', 'warning')
+        setDraggedTaskId(null)
+        return
+      }
+      await updateTaskStatus(taskId, targetColId)
+      showToast(`Task moved to ${targetColId.replace('_', ' ').toUpperCase()}`, 'success')
+      setDraggedTaskId(null)
+      return
+    }
+
+    // Squad PM / Leadership
+    if (targetColId === 'completed') {
+      setCompletingTask(task)
+      setPmScore(task.pmScore ?? 85)
+      setPmScoreFeedback('')
+    } else if (targetColId === 'cancelled') {
+      setCancellingTask(task)
+      setCancellationReason('')
+    } else {
+      await updateTaskStatus(taskId, targetColId)
+      showToast(`Task moved to ${targetColId.replace('_', ' ').toUpperCase()}`, 'success')
+    }
+    setDraggedTaskId(null)
+  }
+
+  const handleConfirmCompletion = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!completingTask) return
+    if (pmScore < 1 || pmScore > 100) {
+      showToast('PM satisfaction score must be between 1 and 100', 'error')
+      return
+    }
+    try {
+      await updateTaskStatus(completingTask.id, 'completed', {
+        pmScore,
+        cancellationReason: pmScoreFeedback.trim() || undefined,
+      })
+      showToast(`Task "${completingTask.title}" completed with score ${pmScore}/100`, 'success')
+      setCompletingTask(null)
+      setPmScore(85)
+      setPmScoreFeedback('')
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to complete deliverable', 'error')
+    }
+  }
+
+  const handleConfirmCancel = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!cancellingTask) return
+    if (!cancellationReason.trim()) {
+      showToast('Mandatory cancellation reason required', 'error')
+      return
+    }
+    try {
+      await updateTaskStatus(cancellingTask.id, 'cancelled', {
+        cancellationReason: cancellationReason.trim(),
+      })
+      showToast(`Task "${cancellingTask.title}" cancelled`, 'success')
+      setCancellingTask(null)
+      setCancellationReason('')
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to cancel deliverable', 'error')
+    }
+  }
 
   // Calculate current percentage sum for selected project
   const currentProjectPercentageAllocated = useMemo(() => {
@@ -510,6 +750,64 @@ export function MySquadsPage() {
                 </div>
               </div>
 
+              {/* Squad Resources (Links & Purpose) */}
+              <div
+                data-testid="squad-resources-section"
+                className="p-5 rounded-2xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 shadow-sm space-y-3"
+              >
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                    <Link2 className="w-4 h-4 text-indigo-500" />
+                    Squad Resources ({squadResources.length})
+                  </h3>
+                  {isSquadPmOrLeader && (
+                    <Button
+                      variant="secondary"
+                      size="xs"
+                      icon={Plus}
+                      onClick={() => setIsAddResourceModalOpen(true)}
+                    >
+                      Add Resource
+                    </Button>
+                  )}
+                </div>
+
+                {squadResources.length === 0 ? (
+                  <p className="text-xs text-slate-400 italic bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl">
+                    No resources added for this squad yet.
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {squadResources.map((res: any) => (
+                      <div
+                        key={res.id}
+                        className="p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60 text-xs space-y-1"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <a
+                            href={res.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 truncate max-w-[200px]"
+                          >
+                            <ExternalLink className="w-3 h-3 shrink-0" />
+                            <span className="truncate">{res.title || res.url}</span>
+                          </a>
+                          <span className="text-[10px] text-slate-400 shrink-0">
+                            {formatDate(res.createdAt, 'short')}
+                          </span>
+                        </div>
+                        {res.description && (
+                          <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-tight">
+                            {res.description}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* Squad Budget & CFO Payout (Read-Only) - PM & Executive Only */}
               {isSquadPmOrLeader && (
                 <div
@@ -547,132 +845,197 @@ export function MySquadsPage() {
               )}
             </div>
 
-            {/* Scoped Tasks Column */}
+            {/* Scoped Deliverables Kanban Board */}
             <div className="lg:col-span-2 space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <Layers className="w-4 h-4 text-indigo-500" />
-                  Squad Deliverables & Execution ({squadTasks.length})
-                </h3>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-indigo-500" />
+                    Squad Tasks &amp; Execution Board ({squadTasks.length})
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    {isDeveloper
+                      ? 'Drag your assigned tasks across To Do, In Progress, and In Review.'
+                      : 'Role-based execution board · Drag tasks to progress, sign-off, or cancel.'}
+                  </p>
+                </div>
                 {isSquadPmOrLeader && (
-                  <Button variant="secondary" size="xs" icon={Plus} onClick={handleOpenCreateModal}>
+                  <Button variant="primary" size="xs" icon={Plus} onClick={handleOpenCreateModal}>
                     New Task
                   </Button>
                 )}
               </div>
 
-              {squadTasks.length === 0 ? (
-                <div className="p-8 text-center rounded-2xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs text-slate-400">
-                  No deliverables created for this squad yet.
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {squadTasks.map((task) => {
-                    const assignee = data.users.find((u) => u.id === task.assigneeId)
-                    const project = data.projects.find((p) => p.id === task.projectId)
-                    const isCompleted = task.status === 'completed'
-                    const isPercentageLinked = task.isMainProjectTask !== false
+              {/* 5-Column Role-Based Kanban Board */}
+              <div className="overflow-x-auto pb-3">
+                <div className="flex gap-3 items-start min-w-[980px]">
+                  {[
+                    { id: 'todo' as TaskStatus, label: 'To Do', dot: 'bg-slate-400' },
+                    { id: 'in_progress' as TaskStatus, label: 'In Progress', dot: 'bg-indigo-500' },
+                    { id: 'in_review' as TaskStatus, label: 'In Review', dot: 'bg-amber-500' },
+                    { id: 'completed' as TaskStatus, label: 'Completed', dot: 'bg-emerald-500' },
+                    { id: 'cancelled' as TaskStatus, label: 'Cancelled', dot: 'bg-rose-500' },
+                  ].map((col) => {
+                    const colTasks = squadTasks.filter((t) => t.status === col.id)
+                    const isDragOver = dragOverColId === col.id
 
                     return (
                       <div
-                        key={task.id}
-                        className="p-4 rounded-2xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 transition-all shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                        key={col.id}
+                        onDragOver={(e) => handleDragOver(e, col.id)}
+                        onDrop={(e) => void handleDrop(e, col.id)}
+                        className={`flex-1 min-w-[185px] rounded-2xl p-3 min-h-[420px] flex flex-col transition-colors border ${
+                          isDragOver
+                            ? 'bg-indigo-50/60 dark:bg-indigo-950/30 border-indigo-400 ring-2 ring-indigo-400/20'
+                            : 'bg-slate-50/80 dark:bg-slate-900/40 border-slate-200/60 dark:border-slate-800/60'
+                        }`}
                       >
-                        <div className="space-y-1.5 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-semibold text-xs text-slate-900 dark:text-white">
-                              {task.title}
+                        {/* Column Header */}
+                        <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-200/60 dark:border-slate-800/80">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`w-2 h-2 rounded-full ${col.dot}`} />
+                            <span className="font-bold text-xs text-slate-800 dark:text-slate-200">
+                              {col.label}
                             </span>
-                            {isPercentageLinked ? (
-                              <Badge variant="emerald" size="xs">
-                                <Percent className="w-2.5 h-2.5 mr-0.5 inline" />
-                                {task.projectPercentage || 0}% Project Share
-                              </Badge>
-                            ) : (
-                              <Badge variant="slate" size="xs">
-                                Standalone Task
-                              </Badge>
-                            )}
-                            <Badge
-                              variant={
-                                isCompleted
-                                  ? 'emerald'
-                                  : task.status === 'in_progress'
-                                    ? 'indigo'
-                                    : 'slate'
-                              }
-                              size="xs"
-                            >
-                              {task.status.replace('_', ' ').toUpperCase()}
-                            </Badge>
                           </div>
-
-                          <div className="flex items-center gap-3 text-[11px] text-slate-400">
-                            <span>Project: {project?.name || 'General'}</span>
-                            <span>•</span>
-                            <span className="font-semibold text-amber-500/90 dark:text-amber-400">
-                              Weight: {task.weightPoints || 2} pts ({Math.round(Number(task.weightPoints || 2) * 10)} XP)
-                            </span>
-                            <span>•</span>
-                            <span>
-                              Assignee: {assignee ? assignee.name : 'Unassigned'}
-                            </span>
-                            {task.pmScore !== undefined && (
-                              <>
-                                <span>•</span>
-                                <span className="font-bold text-amber-500">
-                                  KPI Score: {task.pmScore}/100
-                                </span>
-                              </>
-                            )}
-                          </div>
+                          <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-white dark:bg-slate-800 text-slate-500 shadow-2xs">
+                            {colTasks.length}
+                          </span>
                         </div>
 
-                        {/* Actions */}
-                        <div className="flex items-center gap-2 shrink-0">
-                          {isSquadPmOrLeader && (
-                            <Button
-                              variant="ghost"
-                              size="xs"
-                              icon={Edit2}
-                              onClick={() => handleOpenEditTask(task)}
-                            >
-                              Edit
-                            </Button>
-                          )}
-                          {isCompleted && isSquadPmOrLeader && task.pmScore === undefined && (
-                            <Button
-                              variant="primary"
-                              size="xs"
-                              icon={Award}
-                              onClick={() => {
-                                setScoringTask(task)
-                                setKpiScore(90)
-                                setKpiReason('Verified deliverable meets quality threshold')
-                              }}
-                            >
-                              Score KPI
-                            </Button>
+                        {/* Task Cards */}
+                        <div className="space-y-2.5 flex-1">
+                          {colTasks.length === 0 ? (
+                            <div className="py-12 text-center text-[11px] text-slate-400/80 italic">
+                              Drop deliverable here
+                            </div>
+                          ) : (
+                            colTasks.map((task) => {
+                              const assignee = data.users.find((u) => u.id === task.assigneeId)
+                              const project = data.projects.find((p) => p.id === task.projectId)
+                              const isDraggable = canDragTask(task)
+                              const isBeingDragged = draggedTaskId === task.id
+                              const isPercentageLinked = task.isMainProjectTask !== false
+                              const isCompleted = task.status === 'completed'
+
+                              return (
+                                <div
+                                  key={task.id}
+                                  draggable={isDraggable}
+                                  onDragStart={(e) => handleDragStart(e, task)}
+                                  onClick={() => setSelectedTaskModal(task)}
+                                  className={`p-3 rounded-xl bg-white dark:bg-slate-850 border border-slate-200/80 dark:border-slate-750 shadow-2xs hover:shadow-xs transition-all space-y-2 select-none ${
+                                    isDraggable
+                                      ? 'cursor-grab active:cursor-grabbing hover:border-indigo-300 dark:hover:border-indigo-600'
+                                      : 'cursor-pointer hover:border-slate-300'
+                                  } ${isBeingDragged ? 'opacity-40 scale-95' : ''}`}
+                                >
+                                  {/* Top: Project Code & Priority */}
+                                  <div className="flex items-center justify-between gap-1 text-[10px]">
+                                    <span className="font-mono text-slate-400 truncate max-w-[85px]">
+                                      {project?.code || 'SQUAD'}
+                                    </span>
+                                    <div className="flex items-center gap-1">
+                                      {isPercentageLinked && (
+                                        <span className="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-mono text-[9px] font-semibold">
+                                          {task.projectPercentage || 0}%
+                                        </span>
+                                      )}
+                                      <Badge
+                                        variant={
+                                          task.priority === 'urgent'
+                                            ? 'rose'
+                                            : task.priority === 'high'
+                                              ? 'amber'
+                                              : 'slate'
+                                        }
+                                        size="xs"
+                                      >
+                                        {task.priority}
+                                      </Badge>
+                                    </div>
+                                  </div>
+
+                                  {/* Title */}
+                                  <div className="font-semibold text-xs text-slate-900 dark:text-white line-clamp-2">
+                                    {task.title}
+                                  </div>
+
+                                  {/* Assignee & Weight */}
+                                  <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1.5 border-t border-slate-100 dark:border-slate-800">
+                                    <span className="truncate max-w-[90px] font-medium text-slate-600 dark:text-slate-300">
+                                      {assignee
+                                        ? assignee.id === currentUser?.id
+                                          ? 'You'
+                                          : assignee.name
+                                        : 'Unassigned'}
+                                    </span>
+                                    <span className="font-mono text-amber-500 font-semibold shrink-0">
+                                      ⚡ {Math.round(Number(task.weightPoints || 2) * 10)} XP
+                                    </span>
+                                  </div>
+
+                                  {/* KPI Score if completed */}
+                                  {task.pmScore !== undefined && (
+                                    <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center justify-between">
+                                      <span>PM Score:</span>
+                                      <span className="font-mono">{task.pmScore}/100</span>
+                                    </div>
+                                  )}
+
+                                  {/* Actions for PM / Leader */}
+                                  {isSquadPmOrLeader && (
+                                    <div
+                                      className="flex items-center justify-end gap-1.5 pt-1 border-t border-slate-100 dark:border-slate-800/80"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOpenEditTask(task)}
+                                        className="text-[10px] font-medium text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center gap-1 cursor-pointer"
+                                      >
+                                        <Edit2 className="w-2.5 h-2.5" />
+                                        <span>Edit</span>
+                                      </button>
+                                      {isCompleted && task.pmScore === undefined && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setScoringTask(task)
+                                            setKpiScore(90)
+                                            setKpiReason('Verified deliverable meets quality threshold')
+                                          }}
+                                          className="text-[10px] font-semibold text-amber-600 hover:text-amber-700 flex items-center gap-0.5 cursor-pointer"
+                                        >
+                                          <Award className="w-2.5 h-2.5" />
+                                          <span>Score</span>
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })
                           )}
                         </div>
                       </div>
                     )
                   })}
                 </div>
-              )}
+              </div>
             </div>
           </div>
 
-          {/* Squad Activity & Progress Log */}
+          {/* Squad Activity & Progress Log (Strictly Squad-Scoped & Plain English) */}
           <div className="p-6 rounded-3xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 shadow-2xs space-y-4">
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <h3 className="text-base font-semibold text-slate-900 dark:text-white flex items-center gap-2">
                   <Clock className="w-4 h-4 text-indigo-500" />
-                  Squad Activity & Progress Log
+                  Squad Activity &amp; Progress Log
                 </h3>
                 <p className="text-xs text-slate-400">
-                  Real-time activity stream of deliverable milestones, task updates, and squad events
+                  Strictly squad-scoped deliverable updates and milestone transitions in plain English
                 </p>
               </div>
               <Badge variant="indigo" size="xs">
@@ -681,31 +1044,33 @@ export function MySquadsPage() {
             </div>
 
             {squadActivityLogs.length === 0 ? (
-              <div className="py-8 text-center text-slate-400 text-xs">
-                No recent activity logged for {activeSquad.name}.
+              <div className="py-8 text-center text-slate-400 text-xs italic">
+                No recent activity recorded for {activeSquad.name}.
               </div>
             ) : (
               <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                {squadActivityLogs.map((log: any) => (
-                  <div key={log.id} className="py-3 flex items-start gap-3 text-xs">
-                    <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 mt-0.5">
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-semibold text-slate-900 dark:text-white">
-                          {log.userName || log.userEmail || 'Team Member'}
-                        </span>
-                        <span className="text-[11px] text-slate-400">
-                          {formatDate(log.timestamp || new Date(), 'short')}
-                        </span>
+                {squadActivityLogs.map((log: any) => {
+                  const { sentence, relativeTime } = formatPlainEnglishLog(
+                    log,
+                    data.tasks,
+                    currentUser?.id,
+                  )
+                  return (
+                    <div key={log.id} className="py-3 flex items-start gap-3 text-xs">
+                      <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 mt-0.5">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
                       </div>
-                      <p className="text-slate-600 dark:text-slate-300 text-[11px] mt-0.5">
-                        {log.description}
-                      </p>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-slate-800 dark:text-slate-200 text-xs leading-relaxed">
+                          {sentence}
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-0.5">
+                          {relativeTime}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
@@ -1166,26 +1531,42 @@ export function MySquadsPage() {
                 </div>
               </div>
 
-              {editIsMainProjectTask && (
-                <div className="pt-2 border-t border-slate-200 dark:border-slate-700/60 space-y-2">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-600 dark:text-slate-400">
-                      Project Percentage Share (% of 100%):
-                    </span>
-                    <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                      {editProjectPercentage}%
-                    </span>
+              {editIsMainProjectTask && (() => {
+                const otherTasksTotal = data.tasks
+                  .filter(
+                    (t) =>
+                      t.projectId === editingTask.projectId &&
+                      t.isMainProjectTask &&
+                      t.id !== editingTask.id,
+                  )
+                  .reduce((sum, t) => sum + (Number(t.projectPercentage) || 0), 0)
+                const maxAvailable = Math.max(1, 100 - otherTasksTotal)
+
+                return (
+                  <div className="pt-2 border-t border-slate-200 dark:border-slate-700/60 space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-600 dark:text-slate-400">
+                        Project Percentage Share (% of 100%):
+                      </span>
+                      <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                        {editProjectPercentage}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={1}
+                      max={maxAvailable}
+                      value={Math.min(editProjectPercentage, maxAvailable)}
+                      onChange={(e) => setEditProjectPercentage(Number(e.target.value))}
+                      className="w-full accent-indigo-600 cursor-pointer"
+                    />
+                    <div className="flex items-center justify-between text-[11px] text-slate-400">
+                      <span>Already allocated: {otherTasksTotal}%</span>
+                      <span>Remaining capacity: {100 - otherTasksTotal}%</span>
+                    </div>
                   </div>
-                  <input
-                    type="range"
-                    min={1}
-                    max={100}
-                    value={editProjectPercentage}
-                    onChange={(e) => setEditProjectPercentage(Number(e.target.value))}
-                    className="w-full accent-indigo-600 cursor-pointer"
-                  />
-                </div>
-              )}
+                )
+              })()}
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-2">
@@ -1255,6 +1636,166 @@ export function MySquadsPage() {
               </Button>
               <Button variant="primary" size="sm" type="submit" className="bg-amber-600 hover:bg-amber-700 text-white">
                 Record KPI Score
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+      {/* Add Squad Resource Modal */}
+      {isAddResourceModalOpen && (
+        <Modal
+          isOpen={isAddResourceModalOpen}
+          onClose={() => setIsAddResourceModalOpen(false)}
+          title={`Add Squad Resource — ${activeSquad?.name || 'Squad'}`}
+        >
+          <form onSubmit={handleSaveResource} className="space-y-4 text-xs">
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                Resource Link (URL) *
+              </label>
+              <input
+                type="url"
+                required
+                value={resourceLink}
+                onChange={(e) => setResourceLink(e.target.value)}
+                placeholder="https://github.com/... or https://figma.com/..."
+                className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-400"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                Description / Purpose *
+              </label>
+              <textarea
+                required
+                rows={3}
+                value={resourceDescription}
+                onChange={(e) => setResourceDescription(e.target.value)}
+                placeholder="Explain what this link is for (e.g. Squad API specs, sprint repository, UI mockups)..."
+                className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-400 resize-none"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setIsAddResourceModalOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                size="sm"
+                disabled={isSavingResource}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white"
+              >
+                {isSavingResource ? 'Saving...' : 'Add Resource'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+      {/* PM Mandatory Satisfaction Score Modal upon Drag-to-Completed */}
+      {completingTask && (
+        <Modal
+          isOpen={!!completingTask}
+          onClose={() => setCompletingTask(null)}
+          title={`Deliverable Sign-Off — ${completingTask.title}`}
+        >
+          <form onSubmit={handleConfirmCompletion} className="space-y-4 text-xs">
+            <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-800 dark:text-emerald-300">
+              <div className="font-bold flex items-center gap-1.5 mb-1">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                <span>Mandatory PM Satisfaction Score</span>
+              </div>
+              <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                Sign off on deliverable completion and record the PM satisfaction score (1–100) to credit the developer's KPI and XP.
+              </p>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                  PM Satisfaction Score (1–100) *
+                </label>
+                <span className="font-mono font-bold text-amber-500 text-sm">{pmScore}/100</span>
+              </div>
+              <input
+                type="range"
+                min={1}
+                max={100}
+                value={pmScore}
+                onChange={(e) => setPmScore(Number(e.target.value))}
+                className="w-full accent-amber-500 cursor-pointer"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                Review Comments / Acceptance Notes
+              </label>
+              <textarea
+                rows={3}
+                value={pmScoreFeedback}
+                onChange={(e) => setPmScoreFeedback(e.target.value)}
+                placeholder="Optional sign-off notes on code quality, speed, and sprint impact..."
+                className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-amber-500 resize-none"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <Button variant="ghost" size="sm" type="button" onClick={() => setCompletingTask(null)}>
+                Cancel
+              </Button>
+              <Button variant="primary" size="sm" type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                Confirm &amp; Complete
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* PM Mandatory Cancellation Reason Modal upon Drag-to-Cancelled */}
+      {cancellingTask && (
+        <Modal
+          isOpen={!!cancellingTask}
+          onClose={() => setCancellingTask(null)}
+          title={`Cancel Deliverable — ${cancellingTask.title}`}
+        >
+          <form onSubmit={handleConfirmCancel} className="space-y-4 text-xs">
+            <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-800 dark:text-rose-300">
+              <div className="font-bold flex items-center gap-1.5 mb-1">
+                <span>Mandatory Cancellation Justification</span>
+              </div>
+              <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                Provide a mandatory reason for cancelling this deliverable. This action will be recorded in the squad activity log.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                Cancellation Reason *
+              </label>
+              <textarea
+                required
+                rows={3}
+                value={cancellationReason}
+                onChange={(e) => setCancellationReason(e.target.value)}
+                placeholder="Explain why this deliverable is being cancelled (e.g. Deprecated requirements, duplicate task, shifted priority)..."
+                className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-rose-500 resize-none"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <Button variant="ghost" size="sm" type="button" onClick={() => setCancellingTask(null)}>
+                Keep Deliverable
+              </Button>
+              <Button variant="primary" size="sm" type="submit" className="bg-rose-600 hover:bg-rose-700 text-white">
+                Confirm Cancellation
               </Button>
             </div>
           </form>
