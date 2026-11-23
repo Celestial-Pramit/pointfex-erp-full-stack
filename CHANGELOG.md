@@ -1,5 +1,44 @@
 # Changelog
 
+## 4.2.0 (Production Release — November 2026) · Developed by ERP Team
+
+### C-Suite Only Governance & Performance Reviews
+- **Strict Role-Gated Governance Workspace**:
+  - Gated the entire `admin_governance` workspace strictly to C-Suite executives (`CEO`, `CFO`, `CTO`, `CPO`, `CHRO`, and `system:root`).
+  - Developers and Project Managers cannot see, switch to, or expand the Governance workspace in the sidebar rail or workspace switcher.
+  - Performance Reviews (`#performance`) is strictly accessible only to C-Suite leadership (`CEO`, `CFO`, `CTO`, `CPO`, `CHRO`). Direct URL hash access by unauthorized roles immediately routes to `<AccessDeniedPage />`.
+  - Removed all finance/budget sub-segments from Governance for non-C-Level users.
+  - Delegated access quick-pill button in the sidebar is hidden for any user lacking delegation authority.
+
+### Time-Bounded C-Level Delegations & Scoped Revocation
+- **C-Level Exclusive Delegation Authority**:
+  - Authority to create and assign delegations is strictly limited to C-Level executives (`CEO`, `CFO`, `CTO`, `CPO`, `CHRO`). Developers and PMs cannot create delegations.
+  - **Hold-What-You-Delegate Law**: Non-CEO executives can strictly only delegate permissions they actively hold in their current authorization set, and cannot re-delegate permissions received through prior delegations.
+  - **Scoped Revocation**: C-Level executives can only revoke delegations that they themselves created and assigned (`delegatorId === actor.id`).
+  - **CEO Supreme Authority**: The CEO possesses supreme authority to delegate any operational permission and revoke any delegation organization-wide regardless of original assigner.
+
+### CEO Supreme Approval & Automatic CHRO Bypass
+- **Automatic Finalization on CEO Approval**:
+  - When the CEO approves any task deliverable, verifies weight, or finalizes a submission, the task weight status is immediately set to `VERIFIED` and `TaskWeightVerification` transitions to `APPROVED`.
+  - Bypasses subsequent CHRO verification requirements; XP ledger events disburse directly (`VERIFY_RELEASE` or `FREEZE`) without lingering in `AWARD_PENDING`.
+  - CHRO Weight Queue filters out any tasks already approved, finalized, or verified by the CEO.
+
+### Dynamic Navigation Deduplication
+- **Zero Duplicate Segments**:
+  - Filtered out 11 duplicate/auxiliary routes from visible workspace resolution: `idea-submissions`, `company-suggestions`, `approvals`, `budget-finance`, `my-performance`, `performance-ledger`, `performance-logs`, `approvals-control`, `projects-repos`, `task-management`, and `report`.
+  - Every application feature now lives in exactly one canonical workspace segment.
+
+### Real Database KPI Week Rendering & Chart Polish
+- **Elimination of Synthetic Week Padding**:
+  - Removed artificial placeholder weeks (`sample-1`..`sample-5` in `DynamicDashboardPage` and weeks 41–48 in `PmEarningsPage` and `CtoEarningsPage`).
+  - Corrected KPI week labeling: clearly distinguishes between calendar week designation (e.g., `Week 46, 2026`) and total recorded weeks (e.g., `1 Week Recorded`).
+  - Centered single-week data points dynamically on SVG trend curves.
+
+### Database & Role Matrix Hardening
+- Stripped inadvertent `mfa:manage` and delegation permissions from `developer` and `pm` roles in the RBAC matrix and database seeders.
+- Granted `performance:read_all` and `performance:evaluate` to `cto`, `cfo`, and `cpo`.
+- Purged all temporary test records and ensured clean developer role assignment.
+
 ## 4.1.0 (Production Release — November 2026) · Developed by ERP Team
 
 ### 6-Workspace Navigation Architecture & Role Scoping

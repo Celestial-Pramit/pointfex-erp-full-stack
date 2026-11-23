@@ -38,6 +38,7 @@ export function PmTasksPage() {
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState<string>('')
   const [priorityFilter, setPriorityFilter] = useState<string>('all')
+  const [cLevelFilter, setCLevelFilter] = useState<'all' | 'cto' | 'cfo' | 'chro' | 'ceo'>('all')
 
   // Drag and drop state
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null)
@@ -57,11 +58,24 @@ export function PmTasksPage() {
     return data.projects.filter((p) => projectIdsWithTasks.has(p.id))
   }, [data.projects, myTasks])
 
-  // Filter tasks based on project, priority, and search
+  // Filter tasks based on project, priority, C-level executive assigner, and search
   const filteredTasks = useMemo(() => {
     return myTasks.filter((task) => {
       if (selectedProjectId !== 'all' && task.projectId !== selectedProjectId) {
         return false
+      }
+
+      if (cLevelFilter !== 'all') {
+        const creator = task.creator || data.users.find((u) => u.id === task.creatorId)
+        const creatorRole = (creator?.role || '').toLowerCase()
+        const tags = task.tags || []
+        const isMatch =
+          creatorRole === cLevelFilter ||
+          (cLevelFilter === 'cto' && (tags.includes('CTO Mandate') || tags.includes('Engineering Task') || tags.includes('CTO Task'))) ||
+          (cLevelFilter === 'chro' && (tags.includes('CHRO Mandate') || tags.includes('CHRO Task') || tags.includes('People Task'))) ||
+          (cLevelFilter === 'cfo' && (tags.includes('CFO Mandate') || tags.includes('Finance Directive') || tags.includes('Budget Task'))) ||
+          (cLevelFilter === 'ceo' && (tags.includes('Executive Directive') || tags.includes('CEO Mandate')))
+        if (!isMatch) return false
       }
 
       if (priorityFilter !== 'all' && task.priority !== priorityFilter) {
@@ -79,7 +93,7 @@ export function PmTasksPage() {
 
       return true
     })
-  }, [myTasks, selectedProjectId, priorityFilter, searchQuery])
+  }, [myTasks, selectedProjectId, cLevelFilter, priorityFilter, searchQuery, data.users])
 
   // Overall stats for left sidebar
   const totalTasksCount = myTasks.length
@@ -126,7 +140,7 @@ export function PmTasksPage() {
     // Permission constraint: users without tasks:approve cannot mark directly as completed
     if (targetColId === 'completed' && !canApproveTasks) {
       showToast(
-        'Permission denied: Deliverable completion requires executive sign-off. Please move to "In Review" for review.',
+        'Task completion requires executive sign-off. Please move to In Review for approval.',
         'error',
       )
       setDraggedTaskId(null)
@@ -193,9 +207,9 @@ export function PmTasksPage() {
                 </div>
                 <div>
                   <span className="font-bold text-xs text-slate-900 dark:text-white block">
-                    All Tasks
+                    All Projects / All C-Level Tasks
                   </span>
-                  <span className="text-[10px] text-slate-400">All assigned deliverables</span>
+                  <span className="text-[10px] text-slate-400">All assigned C-level deliverables</span>
                 </div>
               </div>
               <Badge variant="lime" size="xs">
@@ -295,7 +309,26 @@ export function PmTasksPage() {
               />
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {/* C-Level Executive Filter */}
+              <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+                <span className="text-[10px] font-semibold text-slate-400 pl-1.5 pr-0.5">Assigner:</span>
+                {(['all', 'cto', 'cfo', 'chro', 'ceo'] as const).map((exec) => (
+                  <button
+                    key={exec}
+                    type="button"
+                    onClick={() => setCLevelFilter(exec)}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-semibold uppercase transition-all cursor-pointer ${
+                      cLevelFilter === exec
+                        ? 'bg-lime-400 dark:bg-lime-500 text-slate-950 font-bold shadow-xs'
+                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    {exec === 'all' ? 'All C-Level' : exec}
+                  </button>
+                ))}
+              </div>
+
               <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
                 {(['all', 'urgent', 'high', 'medium', 'low'] as const).map((pri) => (
                   <button

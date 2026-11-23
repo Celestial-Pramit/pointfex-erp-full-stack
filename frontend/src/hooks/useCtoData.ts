@@ -181,15 +181,26 @@ export function useCtoData(): CtoData {
   const ctoEngineeringTasks = useMemo(() => {
     return tasks.filter(
       (t) =>
-        (t.creatorId === cto.id ||
-          t.creatorId === currentUser?.id ||
-          t.tags?.includes('Engineering Task') ||
-          t.tags?.includes('Executive Directive') ||
-          t.tags?.includes('CTO Mandate')) &&
-        t.assigneeId !== cto.id &&
-        t.assigneeId !== currentUser?.id,
+        t.creatorId === cto.id ||
+        t.creatorId === currentUser?.id ||
+        t.creatorId === 'emp_chro' ||
+        t.creatorId === 'emp_cfo' ||
+        t.creatorId === 'emp_ceo_01' ||
+        t.tags?.includes('Engineering Task') ||
+        t.tags?.includes('Executive Directive') ||
+        t.tags?.includes('CTO Mandate') ||
+        t.tags?.includes('CHRO Mandate') ||
+        t.tags?.includes('CFO Mandate') ||
+        t.tags?.includes('CHRO Task') ||
+        Boolean(
+          data.users.find(
+            (u) =>
+              u.id === t.creatorId &&
+              ['ceo', 'chro', 'cto', 'cfo', 'cpo'].includes((u.role || '').toLowerCase()),
+          ),
+        ),
     )
-  }, [tasks, cto.id, currentUser?.id])
+  }, [tasks, cto.id, currentUser?.id, data.users])
 
   // 7. Enriched Teams (all 6 squads)
   const teams = useMemo<TeamWithDetails[]>(() => {

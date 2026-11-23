@@ -151,7 +151,7 @@ export function UserProfileModal({ user, isOpen, onClose }: UserProfileModalProp
 
           <div className="p-3 rounded-2xl bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/60">
             <div className="text-[10px] uppercase font-bold text-emerald-600 dark:text-emerald-400">
-              Deliverables Done
+              Tasks Completed
             </div>
             <div className="text-2xl font-black font-mono text-emerald-700 dark:text-emerald-300 mt-0.5">
               {completedCount} / {tasks.length}
@@ -198,7 +198,7 @@ export function UserProfileModal({ user, isOpen, onClose }: UserProfileModalProp
             }`}
           >
             <Layers className="w-3.5 h-3.5" />
-            Deliverables &amp; Grading ({tasks.length})
+            Tasks &amp; Grading ({tasks.length})
           </button>
           <button
             type="button"
@@ -210,7 +210,7 @@ export function UserProfileModal({ user, isOpen, onClose }: UserProfileModalProp
             }`}
           >
             <Calendar className="w-3.5 h-3.5" />
-            Weekly KPI History ({weeklyKpis.length})
+            Weekly KPI History ({weeklyKpis.length} {weeklyKpis.length === 1 ? 'Week Recorded' : 'Weeks Recorded'})
           </button>
         </div>
 

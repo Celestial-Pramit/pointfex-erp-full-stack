@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common'
 import { PrismaService } from '../common/prisma.service'
 import {
   CreateProjectDto,
@@ -150,6 +150,15 @@ export class ProjectsService {
   }
 
   async create(dto: CreateProjectDto) {
+    if (dto.deadline) {
+      const deadlineDate = new Date(dto.deadline)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      if (deadlineDate < today) {
+        throw new BadRequestException('Project deadline cannot be in the past.')
+      }
+    }
+
     const projectId = dto.id || `proj_${Date.now()}`
 
     await this.prisma.$transaction(async (tx) => {
@@ -198,6 +207,15 @@ export class ProjectsService {
     await this.findOne(id)
     const { teamId, ...rest } = dto
 
+    if (rest.deadline) {
+      const deadlineDate = new Date(rest.deadline)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      if (deadlineDate < today) {
+        throw new BadRequestException('Project deadline cannot be in the past.')
+      }
+    }
+
     if (Object.keys(rest).length > 0) {
       await this.prisma.project.update({
         where: { id },
@@ -224,6 +242,14 @@ export class ProjectsService {
 
   async addMilestone(projectId: string, dto: CreateMilestoneDto) {
     await this.findOne(projectId)
+    if (dto.dueDate) {
+      const dueDate = new Date(dto.dueDate)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      if (dueDate < today) {
+        throw new BadRequestException('Milestone due date cannot be in the past.')
+      }
+    }
     const milestoneId = `ms_${Date.now()}`
 
     return this.prisma.projectMilestone.create({

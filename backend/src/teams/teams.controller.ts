@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards } from '@nestjs/common'
 import { TeamsService } from './teams.service'
-import { CreateTeamDto, UpdateTeamDto, AddTeamMemberDto } from './dto/team.dto'
+import { CreateTeamDto, UpdateTeamDto, AddTeamMemberDto, CreateTeamResourceDto } from './dto/team.dto'
 import { PermissionsGuard } from '../common/permissions.guard'
 import { RequireAnyPermission, RequirePermissions } from '../common/require-permissions.decorator'
 import { CurrentUser } from '../common/current-user.decorator'
@@ -17,10 +17,32 @@ export class TeamsController {
     return this.teamsService.findAll(actor)
   }
 
+  @Get('resources/all')
+  @RequireAnyPermission('teams:read_all', 'teams:read_own')
+  getAllResources() {
+    return this.teamsService.getAllResources()
+  }
+
   @Get(':id')
   @RequireAnyPermission('teams:read_own', 'teams:read_all')
   findOne(@Param('id') id: string) {
     return this.teamsService.findOne(id)
+  }
+
+  @Get(':id/resources')
+  @RequireAnyPermission('teams:read_own', 'teams:read_all')
+  getResources(@Param('id') id: string) {
+    return this.teamsService.getResources(id)
+  }
+
+  @Post(':id/resources')
+  @RequireAnyPermission('teams:update', 'teams:manage_members', 'tasks:create_assign', 'projects:update')
+  addResource(
+    @Param('id') id: string,
+    @Body() dto: CreateTeamResourceDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.teamsService.addResource(id, dto, actor)
   }
 
   @Post()

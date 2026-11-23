@@ -84,36 +84,40 @@ export class AuthService {
     )
   }
 
-  private resolveCookieSameSite(): 'strict' | 'lax' | 'none' {
+  private resolveCookieSameSite(request?: Request): 'strict' | 'lax' | 'none' {
     const raw = this.configService?.get<string>('COOKIE_SAMESITE')?.trim().toLowerCase()
     if (raw === 'strict' || raw === 'lax' || raw === 'none') return raw
+    if (this.configService?.get<string>('NODE_ENV') === 'production') return 'none'
+    const origin = (request?.headers?.origin as string) || ''
+    const host = (request?.headers?.host as string) || ''
+    if (origin && host && !origin.includes(host)) return 'none'
     return 'lax'
   }
 
   private buildAccessCookieOptions(request: Request): CookieOptions {
-    const sameSite = this.resolveCookieSameSite()
+    const sameSite = this.resolveCookieSameSite(request)
     return {
       httpOnly: true,
       secure: sameSite === 'none' ? true : this.resolveCookieSecure(request),
       sameSite,
-      path: '/api',
+      path: '/',
       maxAge: ACCESS_COOKIE_MAX_AGE_MS,
     }
   }
 
   private buildRefreshCookieOptions(request: Request): CookieOptions {
-    const sameSite = this.resolveCookieSameSite()
+    const sameSite = this.resolveCookieSameSite(request)
     return {
       httpOnly: true,
       secure: sameSite === 'none' ? true : this.resolveCookieSecure(request),
       sameSite,
-      path: '/api/auth',
+      path: '/',
       maxAge: this.getRefreshTtlDays() * 24 * 60 * 60 * 1000,
     }
   }
 
   private clearAuthCookies(request: Request, response: Response): void {
-    const sameSite = this.resolveCookieSameSite()
+    const sameSite = this.resolveCookieSameSite(request)
     const secure = sameSite === 'none' ? true : this.resolveCookieSecure(request)
     const paths = ['/', '/api', '/api/auth']
     const cookieNames = [
@@ -152,7 +156,7 @@ export class AuthService {
     request: Request,
     response: Response,
     revokeTokenHash?: string,
-  ): Promise<void> {
+  ): Promise<{ accessToken: string; refreshToken: string }> {
     const rawRefreshToken = crypto.randomBytes(48).toString('hex')
     const refreshTokenHash = sha256Hex(rawRefreshToken)
     const refreshExpiresAt = new Date(Date.now() + this.getRefreshTtlDays() * 24 * 60 * 60 * 1000)
@@ -238,6 +242,8 @@ export class AuthService {
 
     response.cookie(ACCESS_TOKEN_COOKIE, accessToken, this.buildAccessCookieOptions(request))
     response.cookie(REFRESH_TOKEN_COOKIE, rawRefreshToken, this.buildRefreshCookieOptions(request))
+
+    return { accessToken, refreshToken: rawRefreshToken }
   }
 
   async login(dto: LoginDto, request: Request, response: Response) {
@@ -328,7 +334,7 @@ export class AuthService {
       : null
     const effectivePermissions = accessProfile?.permissions || []
 
-    await this.issueSessionCookies(
+    const sessionTokens = await this.issueSessionCookies(
       employee.id,
       employee.email,
       primaryRole,
@@ -362,6 +368,9 @@ export class AuthService {
 
     return {
       authenticated: true,
+      accessToken: sessionTokens.accessToken,
+      refreshToken: sessionTokens.refreshToken,
+      token: sessionTokens.accessToken,
       user: {
         id: employee.id,
         email: employee.email,
@@ -387,7 +396,10 @@ export class AuthService {
 
   async refresh(request: Request, response: Response) {
     const cookies = request?.cookies as Record<string, string | undefined> | undefined
-    const rawToken = cookies?.[REFRESH_TOKEN_COOKIE]
+    const rawToken =
+      cookies?.[REFRESH_TOKEN_COOKIE] ||
+      (request.body as any)?.refreshToken ||
+      (request.headers?.['x-refresh-token'] as string | undefined)
 
     if (!rawToken) {
       this.clearAuthCookies(request, response)
@@ -485,7 +497,7 @@ export class AuthService {
       : null
     const effectivePermissions = accessProfile?.permissions || []
 
-    await this.issueSessionCookies(
+    const sessionTokens = await this.issueSessionCookies(
       employee.id,
       employee.email,
       primaryRole,
@@ -497,6 +509,9 @@ export class AuthService {
 
     return {
       authenticated: true,
+      accessToken: sessionTokens.accessToken,
+      refreshToken: sessionTokens.refreshToken,
+      token: sessionTokens.accessToken,
       user: {
         id: employee.id,
         email: employee.email,
@@ -1412,7 +1427,7 @@ export class AuthService {
       ? await this.rbacService.getEmployeeAccessProfile(employee.id)
       : null
 
-    await this.issueSessionCookies(
+    const sessionTokens = await this.issueSessionCookies(
       employee.id,
       employee.email,
       primaryRole,
@@ -1446,6 +1461,9 @@ export class AuthService {
 
     return {
       authenticated: true,
+      accessToken: sessionTokens.accessToken,
+      refreshToken: sessionTokens.refreshToken,
+      token: sessionTokens.accessToken,
       user: {
         id: employee.id,
         email: employee.email,

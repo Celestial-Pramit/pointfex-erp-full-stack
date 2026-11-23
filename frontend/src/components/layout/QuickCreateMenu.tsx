@@ -8,6 +8,7 @@ import {
   Megaphone,
   Share2,
   KeyRound,
+  Lightbulb,
 } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
 import { usePermissions } from '../../hooks/usePermissions'
@@ -33,10 +34,18 @@ const QUICK_CREATE_ACTIONS: QuickCreateAction[] = [
   },
   {
     id: 'leave_request',
-    label: 'Leave / Submission',
-    description: 'Submit leave notice or proposal',
-    route: 'report',
+    label: 'Leave Request',
+    description: 'Submit employee leave request',
+    route: 'submissions-leave',
     icon: Send,
+    alwaysVisible: true,
+  },
+  {
+    id: 'idea_submission',
+    label: 'Idea / Architecture Proposal',
+    description: 'Submit project idea or improvement',
+    route: 'submissions-leave',
+    icon: Lightbulb,
     alwaysVisible: true,
   },
   {
@@ -58,10 +67,10 @@ const QUICK_CREATE_ACTIONS: QuickCreateAction[] = [
   {
     id: 'announcement',
     label: 'Announcement / Directive',
-    description: 'Publish an executive update',
-    route: 'reports',
+    description: 'Publish an executive directive or update',
+    route: 'task-management',
     icon: Megaphone,
-    requiredAny: ['announcements:create', 'directives:dispatch', 'reports:triage'],
+    requiredAny: ['announcements:create', 'directives:dispatch'],
   },
   {
     id: 'delegation',

@@ -165,8 +165,25 @@ model Team {
   teamProjects TeamProject[]
   reports      Report[]
   consultancies ConsultancyRequest[]
+  resources    TeamResource[]
 
   @@map("teams")
+}
+
+model TeamResource {
+  id          String   @id @default(cuid())
+  teamId      String
+  title       String?
+  url         String
+  description String?
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId])
+  @@map("team_resources")
 }
 
 model TeamMembership {

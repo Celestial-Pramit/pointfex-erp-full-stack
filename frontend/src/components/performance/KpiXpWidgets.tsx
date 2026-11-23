@@ -73,7 +73,10 @@ export function WeeklyKpiTrendGraph({
   const padding = 40
 
   const points = sorted.map((d, index) => {
-    const x = padding + (index / Math.max(1, sorted.length - 1)) * (width - 2 * padding)
+    const x =
+      sorted.length === 1
+        ? width / 2
+        : padding + (index / (sorted.length - 1)) * (width - 2 * padding)
     const numericScore = d.isInactive || d.score === null ? 0 : Number(d.score)
     const y = height - padding - (numericScore / 100) * (height - 2 * padding)
     return {
@@ -108,7 +111,9 @@ export function WeeklyKpiTrendGraph({
             <TrendingUp className="h-5 w-5" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-[var(--text)]">Weekly KPI Trend (Last 8 Weeks)</h3>
+            <h3 className="text-sm font-bold text-[var(--text)]">
+              Weekly KPI Trend ({sorted.length} {sorted.length === 1 ? 'Week Recorded' : 'Weeks Recorded'})
+            </h3>
             <p className="text-xs text-[var(--muted)]">
               Bounded 0–100 weekly execution efficiency. Hover any point for formula breakdown.
             </p>

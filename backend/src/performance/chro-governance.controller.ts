@@ -101,6 +101,14 @@ export class ChroGovernanceController {
     const where: any = {}
     if (status) {
       where.status = status
+      if (status === 'PENDING_CHRO') {
+        where.NOT = {
+          task: {
+            ceoFinalized: true,
+            weightStatus: 'VERIFIED',
+          },
+        }
+      }
     }
 
     return this.prisma.taskWeightVerification.findMany({
@@ -139,6 +147,11 @@ export class ChroGovernanceController {
     @Body() body: { approvedWeight: number; notes?: string },
     @CurrentUser() actor: AuthenticatedUser,
   ) {
+    const actorRole = (actor.role || '').toLowerCase()
+    const isChroOrCeo = ['ceo', 'chro', 'system:root'].includes(actorRole) || actor.id === 'emp_ceo_01'
+    if (!isChroOrCeo) {
+      throw new ForbiddenException('Only CHRO (plus CEO supreme override) can approve or modify task weights.')
+    }
     return this.kpiEngine.verifyTaskWeight(
       verificationId,
       Number(body.approvedWeight),

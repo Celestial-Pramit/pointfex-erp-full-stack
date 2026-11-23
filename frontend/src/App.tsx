@@ -151,6 +151,11 @@ const EngineeringReportsPage = lazy(() =>
     default: m.EngineeringReportsPage,
   })),
 )
+const CtoReportsPage = lazy(() =>
+  import('./pages/cto/CtoReportsPage').then((m) => ({
+    default: m.CtoReportsPage,
+  })),
+)
 
 function PageRouteFallback() {
   return (
@@ -162,7 +167,7 @@ function PageRouteFallback() {
 }
 
 function MainContentRouter() {
-  const { currentRoute, can, canAny, isSquadPm, currentUser } = useApp()
+  const { currentRoute, currentRole, can, canAny, isSquadPm, currentUser } = useApp()
   const { permissions, authzSnapshot } = usePermissions()
   const effectivePermissions = authzSnapshot?.effectiveCodes ?? permissions
 
@@ -304,6 +309,9 @@ function MainContentRouter() {
     return <AccessDeniedPage routeId="performance" />
   }
   if (currentRoute === 'reports') {
+    if (currentRole === 'cto') {
+      return <CtoReportsPage />
+    }
     return <EngineeringReportsPage />
   }
   if (currentRoute === 'code-quality' && can('quality_gates:read')) {
@@ -382,6 +390,7 @@ function MainContentRouter() {
     return <DeveloperEarningsPage />
   }
   if (currentRoute === 'report') {
+    if (currentRole === 'cto') return <CtoReportsPage />
     return can('reports:triage') ? <PmReportsPage /> : <DeveloperReportPage />
   }
   if (currentRoute === 'settings' || currentRoute === 'my-account') {

@@ -113,7 +113,7 @@ export interface Project {
 }
 
 // --- TASKS ---
-export type TaskStatus = 'todo' | 'in_progress' | 'in_review' | 'completed' | 'blocked'
+export type TaskStatus = 'todo' | 'in_progress' | 'in_review' | 'completed' | 'blocked' | 'cancelled'
 export type TaskPriority = 'urgent' | 'high' | 'medium' | 'low'
 
 export interface TaskChecklistItem {
@@ -716,7 +716,11 @@ export interface AppContextType {
   setSelectedTaskModal: React.Dispatch<React.SetStateAction<Task | EnrichedTask | null>>
   setSelectedProjectModal: React.Dispatch<React.SetStateAction<Project | EnrichedProject | null>>
   setSelectedProfileUser: React.Dispatch<React.SetStateAction<User | any | null>>
-  updateTaskStatus: (taskId: string, newStatus: TaskStatus) => boolean
+  updateTaskStatus: (
+    taskId: string,
+    newStatus: TaskStatus,
+    extra?: { cancellationReason?: string; pmScore?: number },
+  ) => boolean
   addTaskComment: (taskId: string, content: string) => void
   updateUserProfile: (updatedFields: Partial<User>) => void
   addSubmission: (submission: Report) => void

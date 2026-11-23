@@ -258,7 +258,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           canFetch('performance:read') || canFetch('employees:read')
             ? erpApi.getPerformance().catch(() => [])
             : Promise.resolve([]),
-          canFetch('reports:read') || canFetch('reports:submit')
+          canFetch('reports:read') ||
+          canFetch('reports:read_standard') ||
+          canFetch('reports:create') ||
+          canFetch('reports:submit')
             ? erpApi.getReports().catch(() => [])
             : Promise.resolve([]),
           canReadAudit ? erpApi.getAuditLogs().catch(() => []) : Promise.resolve([]),
@@ -817,7 +820,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // --- TASK HANDLERS ---
 
   const handleUpdateTaskStatus = useCallback(
-    (taskId: string, newStatus: TaskStatus): boolean => {
+    (
+      taskId: string,
+      newStatus: TaskStatus,
+      extra?: { cancellationReason?: string; pmScore?: number },
+    ): boolean => {
       if (currentRole === 'developer' && newStatus === 'completed') {
         showToast(
           'Permission denied: Only Project Managers (PM) can mark tasks as Completed',
@@ -828,11 +835,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       setData((prev) => ({
         ...prev,
-        tasks: prev.tasks.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t)),
+        tasks: prev.tasks.map((t) =>
+          t.id === taskId
+            ? {
+                ...t,
+                status: newStatus,
+                ...(extra?.pmScore !== undefined ? { pmScore: extra.pmScore } : {}),
+              }
+            : t,
+        ),
       }))
 
       void runApiMutation(
-        () => erpApi.updateTaskStatus(taskId, newStatus),
+        () => erpApi.updateTaskStatus(taskId, newStatus, extra),
         `Task moved to "${newStatus.replace('_', ' ')}"`,
       )
       return true
@@ -900,11 +915,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
             description: submission.description,
             type: submission.type || 'project_submission',
             category: submission.category,
+            recipient: (submission as any).recipient || submission.complainTo,
+            complainTo: submission.complainTo || (submission as any).recipient,
             projectId: submission.projectId || undefined,
             teamId: submission.teamId || currentTeam?.id || undefined,
             docsUrl: submission.docsUrl || undefined,
           }),
-        'Project deliverable submitted for PM review',
+        'Project deliverable submitted for review',
       )
     },
     [currentTeam?.id, runApiMutation],
@@ -1121,6 +1138,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       const devName = resolvers.getUser(allocation.developerId)?.name || 'developer'
+
+      // Optimistically update project allocated budget and developer wallet balance
+      setData((prev) => ({
+        ...prev,
+        projects: prev.projects.map((p) =>
+          p.id === allocation.projectId
+            ? { ...p, allocatedBudget: (p.allocatedBudget || 0) + allocAmount }
+            : p,
+        ),
+        wallets: prev.wallets.map((w) =>
+          w.userId === allocation.developerId
+            ? {
+                ...w,
+                balance: (w.balance || 0) + allocAmount,
+                totalEarnedToDate: (w.totalEarnedToDate || 0) + allocAmount,
+              }
+            : w,
+        ),
+      }))
+
       void runApiMutation(
         () =>
           erpApi.allocateDeveloperBudget({
@@ -1140,6 +1177,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const handleRequestBudgetIncrease = useCallback(
     (req: { projectId: string; amount: number | string; reason: string }) => {
       const amountNum = Number(req.amount)
+      const targetProj = data.projects.find((p) => p.id === req.projectId)
+      const newBudgetReport: Report = {
+        id: `br_${Date.now()}`,
+        userId: currentUser?.id || 'emp_pm_01',
+        projectId: req.projectId,
+        type: 'pm_report',
+        category: 'Budget Request',
+        recipient: 'Chief Financial Officer (CFO)',
+        title: `Budget Increase Request: ${formatBDT(amountNum)} for ${targetProj?.name || req.projectId}`,
+        description: req.reason,
+        date: new Date().toISOString().split('T')[0],
+        submittedAt: new Date().toISOString(),
+        status: 'pending',
+        feedback: 'Budget supplement request submitted to CFO. Awaiting executive review and decision.',
+      }
+
+      setData((prev) => ({
+        ...prev,
+        reports: [newBudgetReport, ...prev.reports],
+      }))
+
       void runApiMutation(
         () =>
           erpApi.requestBudgetIncrease({
@@ -1150,7 +1208,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         `Budget request of ${formatBDT(amountNum)} submitted to CFO`,
       )
     },
-    [runApiMutation],
+    [data.projects, currentUser?.id, runApiMutation],
   )
 
   const handleSubmitPmReport = useCallback(

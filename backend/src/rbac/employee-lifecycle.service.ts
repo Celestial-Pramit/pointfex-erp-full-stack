@@ -338,6 +338,16 @@ export class EmployeeLifecycleService {
     actor: AuthenticatedUser,
     reason?: string,
   ) {
+    const actorRole = (actor?.role || '').toLowerCase()
+    if (
+      actorRole === 'developer' ||
+      actorRole === 'junior_developer' ||
+      actorRole === 'senior_developer'
+    ) {
+      throw new ForbiddenException(
+        'Developers are strictly forbidden from performing administrative MFA resets.',
+      )
+    }
     const effectiveReason =
       !reason || reason.trim().length === 0
         ? 'MFA-verified administrative reset'

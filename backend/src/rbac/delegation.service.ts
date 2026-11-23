@@ -252,22 +252,25 @@ export class DelegationService
         requiresApproval = true
       }
 
-      // Rule 1 + Rule 3: Must hold the permission at the requested scope/scopeIds, and not purely via delegation
-      const targetsToCheck = scopeIds.length > 0 ? scopeIds : [undefined]
-      for (const targetScopeId of targetsToCheck) {
-        const check = await this.authz.check(delegatorId, perm.code, {
-          requiredScope: scope,
-          targetScopeId,
-        })
-        if (!check.allowed) {
-          throw new ForbiddenException(
-            `Delegation denied: You do not hold "${perm.code}" at scope "${scope}"${targetScopeId ? ` (${targetScopeId})` : ''}`,
-          )
-        }
-        if (check.source === 'delegation' && allowRedelegationDepth <= 1) {
-          throw new ForbiddenException(
-            `Re-delegation denied: Permission "${perm.code}" was received via delegation and max delegation depth is ${allowRedelegationDepth}`,
-          )
+      // Rule 1 + Rule 3: Non-CEO executives can strictly only delegate permissions they actively hold, and not via delegation.
+      // CEO has supreme authority to delegate any delegable operational permission.
+      if (!isCeo) {
+        const targetsToCheck = scopeIds.length > 0 ? scopeIds : [undefined]
+        for (const targetScopeId of targetsToCheck) {
+          const check = await this.authz.check(delegatorId, perm.code, {
+            requiredScope: scope,
+            targetScopeId,
+          })
+          if (!check.allowed) {
+            throw new ForbiddenException(
+              `Delegation denied: You do not hold "${perm.code}" at scope "${scope}"${targetScopeId ? ` (${targetScopeId})` : ''}`,
+            )
+          }
+          if (check.source === 'delegation' && allowRedelegationDepth <= 1) {
+            throw new ForbiddenException(
+              `Re-delegation denied: Permission "${perm.code}" was received via delegation and max delegation depth is ${allowRedelegationDepth}`,
+            )
+          }
         }
       }
     }

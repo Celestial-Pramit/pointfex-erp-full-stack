@@ -631,14 +631,14 @@ export function CeoRoleMatrixPage() {
               </span>
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40">
                 <KeyRound className="w-3 h-3" />
-                Strict MFA Direct Verification
+                Direct Security Verification
               </span>
             </div>
             <h2 className="text-xl font-bold tracking-tight text-white font-display">
               Chief Executive Officer: {currentUser?.name || 'Chief Executive Officer'}
             </h2>
             <p className="text-xs text-slate-300 max-w-3xl leading-relaxed">
-              Holds supreme root authority with all 606 active system capabilities enabled by default. Authorized to design custom roles, direct employee assignments, grant instant temporary authority escalations, and manage corporate security policies with streamlined 6-digit MFA verification.
+              Holds supreme root authority with all active system capabilities enabled by default. Authorized to design custom roles, direct employee assignments, grant temporary authority delegations, and manage corporate security policies with streamlined 6-digit security code verification.
             </p>
           </div>
 
@@ -650,7 +650,7 @@ export function CeoRoleMatrixPage() {
               onClick={() => void loadRbacData(true)}
               disabled={isLoading}
             >
-              Refresh Matrix
+              Refresh Roles
             </Button>
             <Button variant="lime" size="sm" icon={Sparkles} onClick={() => setActiveTab('cart')}>
               Custom Role Creator
@@ -697,7 +697,7 @@ export function CeoRoleMatrixPage() {
           }`}
         >
           <Layers className="w-3.5 h-3.5" />
-          <span>Role Capability Matrix ({roles.length} Roles)</span>
+          <span>Roles &amp; Access Matrix ({roles.length} Roles)</span>
         </button>
 
         <button

@@ -42,6 +42,7 @@ export function PmTaskManagementPage() {
     updateTaskStatus,
     setSelectedTaskModal,
     setSelectedProfileUser,
+    currentUser,
     showToast,
   } = useApp()
 
@@ -54,6 +55,10 @@ export function PmTaskManagementPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false)
   const [rejectingTask, setRejectingTask] = useState<Task | null>(null)
   const [rejectFeedback, setRejectFeedback] = useState<string>('')
+
+  // Cancellation Modal state (Mandatory prompt)
+  const [cancellingTask, setCancellingTask] = useState<Task | null>(null)
+  const [cancellationReason, setCancellationReason] = useState<string>('')
 
   // Satisfaction Review Modal state
   const [completingTask, setCompletingTask] = useState<Task | null>(null)
@@ -129,6 +134,7 @@ export function PmTaskManagementPage() {
     { id: 'in_progress', label: 'In Progress', dot: 'bg-sky-500' },
     { id: 'in_review', label: 'In Review', dot: 'bg-purple-500', isReview: true },
     { id: 'completed', label: 'Completed', dot: 'bg-emerald-500', isApproval: true },
+    { id: 'cancelled', label: 'Cancelled', dot: 'bg-slate-500' },
     { id: 'blocked', label: 'Blocked', dot: 'bg-rose-500' },
   ]
 
@@ -172,7 +178,10 @@ export function PmTaskManagementPage() {
     const task = teamTasks.find((t) => t.id === taskId)
     if (!task || task.status === targetColId) return
 
-    if (targetColId === 'completed') {
+    if (targetColId === 'cancelled') {
+      setCancellingTask(task)
+      setCancellationReason('')
+    } else if (targetColId === 'completed') {
       setCompletingTask(task)
       setPmScore(85)
       setPmScoreFeedback('')
@@ -182,9 +191,38 @@ export function PmTaskManagementPage() {
     setDraggedTaskId(null)
   }
 
+  const handleConfirmCancel = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!cancellingTask) return
+    if (!cancellationReason.trim()) {
+      showToast('Mandatory cancellation reason required', 'error')
+      return
+    }
+    updateTaskStatus(cancellingTask.id, 'cancelled', {
+      cancellationReason: cancellationReason.trim(),
+    })
+    showToast(`Task "${cancellingTask.title}" cancelled`, 'success')
+    setCancellingTask(null)
+    setCancellationReason('')
+  }
+
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newTaskTitle.trim() || !newTaskProject || !newTaskDev) return
+    const targetProject = newTaskProject || teamProjects[0]?.id || ''
+    const targetDev = newTaskDev || teamMembers[0]?.id || ''
+
+    if (!newTaskTitle.trim()) {
+      showToast('Task title is required', 'error')
+      return
+    }
+    if (!targetProject) {
+      showToast('Project selection is required', 'error')
+      return
+    }
+    if (!targetDev) {
+      showToast('Assignee developer is required', 'error')
+      return
+    }
 
     const tagList = newTaskTags
       .split(',')
@@ -200,17 +238,17 @@ export function PmTaskManagementPage() {
             ? 3
             : newTaskWeightCategory === 'CRITICAL'
               ? 5
-              : Number(newTaskCustomPoints)
+              : Number(newTaskCustomPoints) || 1
 
     try {
       await createTask({
         title: newTaskTitle.trim(),
         description: newTaskDesc.trim(),
-        projectId: newTaskProject,
-        assigneeId: newTaskDev,
+        projectId: targetProject,
+        assigneeId: targetDev,
         priority: newTaskPriority,
         dueDate: newTaskDueDate || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
-        estimatedHours: newTaskHours,
+        estimatedHours: Number(newTaskHours) || 8,
         tags: tagList,
         weightCategory: newTaskWeightCategory,
         proposedWeight: points,
@@ -250,7 +288,7 @@ export function PmTaskManagementPage() {
         pmScore,
         pmScoreFeedback.trim() || `PM KPI score: ${pmScore}/100`,
       )
-      showToast(`KPI score ${pmScore}/100 recorded for deliverable`, 'success')
+      showToast(`Satisfaction score ${pmScore}/100 recorded for task`, 'success')
     } else {
       // Pass pmScore to approveTask so it marks completed and records initial PM score
       approveTask(
@@ -300,7 +338,7 @@ export function PmTaskManagementPage() {
             Team Task Management
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            5-Column Kanban Board · Manage, assign, and approve deliverables for{' '}
+            5-Column Kanban Board · Manage, assign, and approve tasks for{' '}
             <span className="font-semibold text-slate-700 dark:text-slate-300">
               {team?.name || 'Squad'}
             </span>
@@ -313,7 +351,11 @@ export function PmTaskManagementPage() {
             size="sm"
             icon={Plus}
             onClick={() => {
-              if (selectedProjectId !== 'all') setNewTaskProject(selectedProjectId)
+              const defaultProj = selectedProjectId !== 'all' ? selectedProjectId : (teamProjects[0]?.id || '')
+              setNewTaskProject(defaultProj)
+              if (teamMembers.length > 0 && !newTaskDev) {
+                setNewTaskDev(teamMembers[0].id)
+              }
               setIsCreateModalOpen(true)
             }}
           >
@@ -322,7 +364,7 @@ export function PmTaskManagementPage() {
         </div>
       </div>
 
-      {/* Backfill Countdown Ticker Banner */}
+      {/* Review Countdown Ticker Banner */}
       <div
         className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 text-xs ${
           !isBackfillWindowOpen
@@ -337,14 +379,14 @@ export function PmTaskManagementPage() {
           <div>
             <span className="font-bold">
               {isBackfillWindowOpen
-                ? 'Backfill Grace Window Active:'
-                : 'Backfill Grace Window Expired:'}{' '}
+                ? 'Review Window Active:'
+                : 'Review Window Expired:'}{' '}
             </span>
             <span>{backfillCountdownText}</span>
           </div>
         </div>
         <Badge variant={isBackfillWindowOpen ? 'success' : 'danger'}>
-          {isBackfillWindowOpen ? 'BACKFILL ALLOWED' : 'BACKFILL LOCKED'}
+          {isBackfillWindowOpen ? 'REVIEW WINDOW OPEN' : 'REVIEW WINDOW CLOSED'}
         </Badge>
       </div>
 
@@ -377,7 +419,7 @@ export function PmTaskManagementPage() {
                 </div>
                 <div>
                   <h4 className="font-bold text-xs text-slate-900 dark:text-white">All Projects</h4>
-                  <p className="text-[10px] text-slate-400">Total team deliverables</p>
+                  <p className="text-[10px] text-slate-400">Total team tasks</p>
                 </div>
               </div>
               <Badge variant="slate" size="xs">
@@ -760,6 +802,11 @@ export function PmTaskManagementPage() {
                 onChange={(e) => setNewTaskDev(e.target.value)}
                 className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white focus:outline-none cursor-pointer"
               >
+                {currentUser && !teamMembers.some((m) => m.id === currentUser.id) && (
+                  <option value={currentUser.id}>
+                    {currentUser.name} (You / Self-Assignment)
+                  </option>
+                )}
                 {teamMembers.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.name} ({m.title})
@@ -901,6 +948,7 @@ export function PmTaskManagementPage() {
               </label>
               <input
                 type="date"
+                min={new Date().toISOString().split('T')[0]}
                 value={newTaskDueDate}
                 onChange={(e) => setNewTaskDueDate(e.target.value)}
                 className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white focus:outline-none"
@@ -949,6 +997,42 @@ export function PmTaskManagementPage() {
           </div>
         </form>
       </Modal>
+
+      {/* Modal: Mandatory Cancellation Reason Prompt */}
+      {cancellingTask && (
+        <Modal
+          isOpen={Boolean(cancellingTask)}
+          onClose={() => setCancellingTask(null)}
+          title={`Cancel Task — ${cancellingTask.title}`}
+        >
+          <form onSubmit={handleConfirmCancel} className="space-y-4 text-xs">
+            <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
+              Please provide a mandatory written reason for cancelling this task. This reason will be permanently recorded in the organizational audit trail.
+            </p>
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                Cancellation Reason <span className="text-rose-500">*</span>
+              </label>
+              <textarea
+                value={cancellationReason}
+                onChange={(e) => setCancellationReason(e.target.value)}
+                placeholder="Explain why this deliverable was cancelled..."
+                rows={3}
+                required
+                className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-rose-400"
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <Button type="button" variant="secondary" size="sm" onClick={() => setCancellingTask(null)}>
+                Abort
+              </Button>
+              <Button type="submit" variant="danger" size="sm">
+                Confirm Cancellation
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
 
       {/* Modal: PM Satisfaction Score Review (0–100 Slider) */}
       <Modal

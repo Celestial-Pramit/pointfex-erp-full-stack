@@ -1222,7 +1222,7 @@ export function CtoPeoplePage() {
             {/* Assigned Tasks */}
             <div>
               <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                Current Assigned Deliverables ({getUserTasks(inspectedUser.id).length})
+                Current Assigned Tasks ({getUserTasks(inspectedUser.id).length})
               </h4>
               <div className="space-y-1.5 max-h-48 overflow-y-auto">
                 {getUserTasks(inspectedUser.id).length === 0 ? (
@@ -1231,14 +1231,28 @@ export function CtoPeoplePage() {
                   getUserTasks(inspectedUser.id).map((task) => (
                     <div
                       key={task.id}
-                      className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 flex items-center justify-between text-xs"
+                      className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 space-y-1 text-xs"
                     >
-                      <span className="font-medium text-slate-800 dark:text-slate-200 truncate max-w-[280px]">
-                        {task.title}
-                      </span>
-                      <span className="text-[11px] font-semibold text-slate-500 uppercase">
-                        {task.status.replace('_', ' ')}
-                      </span>
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-slate-800 dark:text-slate-200 truncate max-w-[280px]">
+                          {task.title}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {(task as any).pmScore != null && (
+                            <Badge variant="emerald" size="xs">
+                              {(task as any).pmScore}/100 KPI
+                            </Badge>
+                          )}
+                          <span className="text-[11px] font-semibold text-slate-500 uppercase">
+                            {task.status.replace('_', ' ')}
+                          </span>
+                        </div>
+                      </div>
+                      {((task as any).feedback || (task as any).reviewComments) && (
+                        <p className="text-[11px] text-slate-600 dark:text-slate-300 italic bg-white dark:bg-slate-900/60 p-1.5 rounded-lg border border-slate-200/60 dark:border-slate-800">
+                          &ldquo;{(task as any).feedback || (task as any).reviewComments}&rdquo;
+                        </p>
+                      )}
                     </div>
                   ))
                 )}

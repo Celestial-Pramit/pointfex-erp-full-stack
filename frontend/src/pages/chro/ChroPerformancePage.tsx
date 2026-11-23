@@ -896,7 +896,7 @@ export function ChroPerformancePage() {
               }`}
             >
               <Calendar className="w-4 h-4 text-emerald-500" />
-              Backfill Windows
+              Review Windows
             </button>
           </div>
         </div>
@@ -1320,20 +1320,26 @@ export function ChroPerformancePage() {
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
                 <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto">
-                  {['all', 'completed', 'in_progress', 'in_review', 'todo'].map((st) => (
+                  {[
+                    { id: 'all', label: 'All Tasks' },
+                    { id: 'completed', label: 'Completed' },
+                    { id: 'in_progress', label: 'In Progress' },
+                    { id: 'in_review', label: 'In Review' },
+                    { id: 'todo', label: 'To Do' },
+                  ].map((st) => (
                     <button
-                      key={st}
-                      onClick={() => setSquadTaskFilter(st)}
+                      key={st.id}
+                      onClick={() => setSquadTaskFilter(st.id)}
                       className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
-                        squadTaskFilter === st
+                        squadTaskFilter === st.id
                           ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs'
                           : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
                       }`}
                     >
-                      {st === 'all'
+                      {st.id === 'all'
                         ? `All Tasks (${squadTasks.length})`
-                        : `${st.replace('_', ' ').toUpperCase()} (${
-                            squadTasks.filter((t: any) => t.status === st).length
+                        : `${st.label} (${
+                            squadTasks.filter((t: any) => t.status === st.id).length
                           })`}
                     </button>
                   ))}
@@ -1926,7 +1932,7 @@ export function ChroPerformancePage() {
                       className="w-full p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-sm"
                     />
                     <span className="text-[10px] text-slate-400">
-                      Standard: 200 XP. Deliverables at or above this trigger massive-XP consensus hold.
+                      Standard: 200 XP. Tasks at or above this trigger high-value consensus review.
                     </span>
                   </div>
 
@@ -2065,10 +2071,10 @@ export function ChroPerformancePage() {
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                    Backfill Windows Governance
+                    Review Windows Governance
                   </h3>
                   <p className="text-xs text-slate-600 dark:text-slate-400">
-                    Configure time-bound retroactive backfill periods for PMs. Requires CHRO MFA confirmation.
+                    Configure time-bound retroactive review periods for PMs. Requires CHRO security verification.
                   </p>
                 </div>
               </div>

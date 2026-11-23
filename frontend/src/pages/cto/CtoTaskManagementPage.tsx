@@ -28,12 +28,16 @@ export function CtoTaskManagementPage() {
   } = useApp()
 
   const allActiveAssignees = useMemo(() => {
+    const cLevelUsers = (data?.users || []).filter((u) =>
+      ['ceo', 'cto', 'cfo', 'chro', 'cpo'].includes((u.role || '').toLowerCase()),
+    )
     const list = [
+      ...cLevelUsers,
       ...projectManagers,
       ...ctoEngineeringTasks.map((t) => t.assignee).filter((u): u is User => u != null),
     ]
     return Array.from(new Map(list.map((u) => [u.id, u])).values())
-  }, [projectManagers, ctoEngineeringTasks])
+  }, [data?.users, projectManagers, ctoEngineeringTasks])
 
   // Filters (Assignee filter on left + Search on right)
   const [selectedPmId, setSelectedPmId] = useState<string>('all')
@@ -79,11 +83,11 @@ export function CtoTaskManagementPage() {
   }, [projects, projectId])
 
   const columns: ColumnDef[] = [
-    { id: 'todo', label: 'Assigned', dot: 'bg-slate-400 dark:bg-slate-500' },
+    { id: 'todo', label: 'To Do', dot: 'bg-slate-400 dark:bg-slate-500' },
     { id: 'in_progress', label: 'In Progress', dot: 'bg-sky-500' },
-    { id: 'in_review', label: 'Deliverable Review', dot: 'bg-purple-500', isReview: true },
-    { id: 'completed', label: 'Verified & Merged', dot: 'bg-emerald-500' },
-    { id: 'blocked', label: 'Escalated / Blocked', dot: 'bg-rose-500' },
+    { id: 'in_review', label: 'In Review', dot: 'bg-purple-500', isReview: true },
+    { id: 'completed', label: 'Completed', dot: 'bg-emerald-500' },
+    { id: 'blocked', label: 'Blocked', dot: 'bg-rose-500' },
   ]
 
   // Filter tasks based on PM selection + Project selection + search
@@ -138,8 +142,15 @@ export function CtoTaskManagementPage() {
     const task = ctoEngineeringTasks.find((t) => t.id === taskId)
     if (!task || task.status === targetColId) return
 
+    const statusLabels: Record<string, string> = {
+      todo: 'To Do',
+      in_progress: 'In Progress',
+      in_review: 'In Review',
+      completed: 'Completed',
+      blocked: 'Blocked',
+    }
     updateTaskStatus(taskId, targetColId)
-    showToast(`Task status updated to ${targetColId.replace('_', ' ')}`, 'success')
+    showToast(`Task status updated to ${statusLabels[targetColId] || targetColId}`, 'success')
     setDraggedTaskId(null)
   }
 
@@ -647,6 +658,7 @@ export function CtoTaskManagementPage() {
             </label>
             <input
               type="date"
+              min={new Date().toISOString().split('T')[0]}
               value={deadline}
               onChange={(e) => setDeadline(e.target.value)}
               className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-lime-500 cursor-pointer"

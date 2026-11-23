@@ -111,13 +111,13 @@ export function SecurityOverviewPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Security & MFA Governance"
-        subtitle="Monitor multi-factor enrollment, locked accounts, and perform audited MFA or session resets."
+        title="Security &amp; Verification Governance"
+        subtitle="Monitor authenticator verification status, locked accounts, and perform audited security resets."
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
-          label="MFA Enabled"
+          label="Verification Enabled"
           value={`${data?.summary.mfaEnabledPct ?? 0}%`}
           icon={ShieldCheck}
         />

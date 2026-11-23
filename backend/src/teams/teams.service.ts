@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common'
 import { PrismaService } from '../common/prisma.service'
-import { CreateTeamDto, UpdateTeamDto, AddTeamMemberDto } from './dto/team.dto'
+import { CreateTeamDto, UpdateTeamDto, AddTeamMemberDto, CreateTeamResourceDto } from './dto/team.dto'
 import { AuthenticatedUser } from '../common/auth-user.interface'
 
 @Injectable()
@@ -565,5 +565,59 @@ export class TeamsService {
     })
 
     return { message: `Employee "${employeeId}" removed from team "${teamId}"` }
+  }
+
+  async addResource(
+    teamId: string,
+    dto: CreateTeamResourceDto,
+    actor?: AuthenticatedUser,
+  ) {
+    const team = await this.prisma.team.findUnique({ where: { id: teamId } })
+    if (!team) {
+      throw new NotFoundException(`Team "${teamId}" not found`)
+    }
+
+    if (this.prisma.teamResource?.create) {
+      return this.prisma.teamResource.create({
+        data: {
+          teamId,
+          url: dto.url,
+          description: dto.description || '',
+          title: dto.title || dto.description || 'Squad Resource',
+          createdById: actor?.id || null,
+        },
+      })
+    }
+
+    return {
+      id: `res_${Date.now()}`,
+      teamId,
+      url: dto.url,
+      description: dto.description || '',
+      title: dto.title || 'Squad Resource',
+      createdById: actor?.id || null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+  }
+
+  async getResources(teamId: string) {
+    if (this.prisma.teamResource?.findMany) {
+      return this.prisma.teamResource.findMany({
+        where: { teamId },
+        orderBy: { createdAt: 'desc' },
+      })
+    }
+    return []
+  }
+
+  async getAllResources() {
+    if (this.prisma.teamResource?.findMany) {
+      return this.prisma.teamResource.findMany({
+        include: { team: true },
+        orderBy: { createdAt: 'desc' },
+      })
+    }
+    return []
   }
 }

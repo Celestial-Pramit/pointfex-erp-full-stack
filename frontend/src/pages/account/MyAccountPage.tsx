@@ -177,13 +177,16 @@ export function MyAccountPage() {
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-sm font-semibold text-[var(--text)] flex items-center gap-2">
             <UserIcon className="w-4 h-4 text-[var(--primary)]" />
-            Profile
+            Profile &amp; Identity
           </h2>
-          <Badge variant="neutral">{currentUser?.title || 'Team Member'}</Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant="success">{(currentUser?.role || 'PM').toUpperCase()}</Badge>
+            <Badge variant="neutral">{currentUser?.title || 'Project Manager'}</Badge>
+          </div>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
           <div>
-            <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Name</label>
+            <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Full Name</label>
             <input
               type="text"
               disabled
@@ -192,13 +195,47 @@ export function MyAccountPage() {
             />
           </div>
           <div>
-            <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Email</label>
+            <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Corporate Email</label>
             <input
               type="email"
               disabled
               value={currentUser?.email || ''}
               className="w-full px-3 py-2 rounded-lg bg-[var(--bg)] border border-[var(--border)] text-[var(--muted)]"
             />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Assigned Department</label>
+            <input
+              type="text"
+              disabled
+              value={(currentUser as any)?.department || 'Engineering & Project Management'}
+              className="w-full px-3 py-2 rounded-lg bg-[var(--bg)] border border-[var(--border)] text-[var(--muted)]"
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Contact Phone</label>
+            <input
+              type="text"
+              disabled
+              value={(currentUser as any)?.phone || '+880 1700-000000'}
+              className="w-full px-3 py-2 rounded-lg bg-[var(--bg)] border border-[var(--border)] text-[var(--muted)]"
+            />
+          </div>
+        </div>
+
+        {/* Notifications & Alert Preferences */}
+        <div className="pt-2 border-t border-[var(--border)] flex flex-wrap items-center justify-between gap-2 text-xs">
+          <span className="text-[var(--muted)] text-[11px]">System Notifications &amp; Alerts:</span>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              In-App Dispatch Enabled
+            </span>
+            <span className="text-[var(--border)]">·</span>
+            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              Email Summaries Active
+            </span>
           </div>
         </div>
       </Card>
@@ -399,7 +436,7 @@ export function MyAccountPage() {
             )
           ) : (
             <p className="text-xs text-[var(--muted)]">
-              Authenticator TOTP is active. Sensitive actions require a fresh 6-digit code every time.
+              Authenticator verification is active. Sensitive actions require a fresh 6-digit security code every time.
             </p>
           )}
         </Card>
@@ -471,7 +508,7 @@ export function MyAccountPage() {
 
       <div className="pt-4 border-t border-[var(--border)] flex items-center justify-between text-xs text-[var(--muted)]">
         <span>Pointfex ERP Enterprise Platform <span className="opacity-75 font-normal">· Developed by ERP Team</span></span>
-        <span className="font-mono font-medium">v4.1.0</span>
+        <span className="font-mono font-medium">v4.2.0</span>
       </div>
     </div>
   )

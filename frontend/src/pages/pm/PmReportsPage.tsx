@@ -31,6 +31,7 @@ export function PmReportsPage() {
   >('submission')
 
   // Form State: New Project Idea Submission (Same as Dev)
+  const [projectRecipient, setProjectRecipient] = useState('Chief Technology Officer (CTO)')
   const [projectTitle, setProjectTitle] = useState('')
   const [docsUrl, setDocsUrl] = useState('')
   const [projectDesc, setProjectDesc] = useState('')
@@ -88,13 +89,15 @@ export function PmReportsPage() {
       userId: pmId,
       teamId: team?.id || 'team_01',
       type: 'project_submission',
+      recipient: projectRecipient,
+      complainTo: projectRecipient,
       title: projectTitle.trim(),
       docsUrl: docsUrl.trim(),
       description: projectDesc.trim(),
       date: new Date().toISOString().split('T')[0],
       submittedAt: new Date().toISOString(),
       status: 'pending_review',
-      feedback: 'Awaiting C-Level Executive review and roadmap allocation.',
+      feedback: `Awaiting ${projectRecipient} review and roadmap allocation.`,
     }
     addSubmission(newReport)
 
@@ -229,6 +232,38 @@ export function PmReportsPage() {
               <form onSubmit={handleProjectSubmit} className="space-y-4 text-xs">
                 <div>
                   <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1.5">
+                    Submit To (Executive Recipient) <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <span className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
+                      <UserCheck className="w-4 h-4" />
+                    </span>
+                    <select
+                      value={projectRecipient}
+                      onChange={(e) => setProjectRecipient(e.target.value)}
+                      className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-slate-400 cursor-pointer font-medium"
+                    >
+                      <option value="Chief Technology Officer (CTO)">
+                        Chief Technology Officer (CTO)
+                      </option>
+                      <option value="Chief Financial Officer (CFO)">
+                        Chief Financial Officer (CFO)
+                      </option>
+                      <option value="Chief Human Resources Officer (CHRO)">
+                        Chief Human Resources Officer (CHRO)
+                      </option>
+                      <option value="Chief People Officer (CPO)">
+                        Chief People Officer (CPO / HR)
+                      </option>
+                      <option value="Chief Executive Officer (CEO)">
+                        Chief Executive Officer (CEO)
+                      </option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1.5">
                     Project Title
                   </label>
                   <input
@@ -305,6 +340,9 @@ export function PmReportsPage() {
                       </option>
                       <option value="Chief Financial Officer (CFO)">
                         Chief Financial Officer (CFO)
+                      </option>
+                      <option value="Chief Human Resources Officer (CHRO)">
+                        Chief Human Resources Officer (CHRO)
                       </option>
                       <option value="Chief People Officer (CPO)">
                         Chief People Officer (CPO / HR)

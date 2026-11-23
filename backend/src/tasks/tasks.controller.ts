@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Param, Body, Query, UseGuards } from '@nestjs/common'
+import { Controller, Get, Post, Patch, Param, Body, Query, UseGuards, ForbiddenException } from '@nestjs/common'
 import { TasksService } from './tasks.service'
 import {
   CreateTaskDto,
@@ -44,6 +44,20 @@ export class TasksController {
   @Post()
   @RequireAnyPermission('tasks:create_personal', 'tasks:create_assign')
   create(@Body() dto: CreateTaskDto, @CurrentUser() actor: AuthenticatedUser) {
+    // Universal self-task assignment: developer, PM, executive, CEO can assign tasks to themselves
+    if (dto.assigneeId === actor.id) {
+      return this.tasksService.create(dto, actor)
+    }
+    const actorRole = (actor.role || '').toLowerCase()
+    const isAuthorized =
+      (actor.permissions || []).some((p: string) =>
+        ['tasks:create_assign', 'tasks:create_personal'].includes(p),
+      ) ||
+      ['ceo', 'chro', 'cto', 'cfo', 'cpo', 'system:root', 'admin', 'pm'].includes(actorRole)
+
+    if (!isAuthorized) {
+      throw new ForbiddenException('Permission denied: requires tasks:create_assign')
+    }
     return this.tasksService.create(dto, actor)
   }
 
@@ -114,6 +128,11 @@ export class TasksController {
     @Body() dto: VerifyTaskWeightDto,
     @CurrentUser() actor: AuthenticatedUser,
   ) {
+    const actorRole = (actor.role || '').toLowerCase()
+    const isChroOrCeo = ['ceo', 'chro', 'system:root'].includes(actorRole) || actor.id === 'emp_ceo_01'
+    if (!isChroOrCeo) {
+      throw new ForbiddenException('Only CHRO (plus CEO supreme override) can approve or modify task weights.')
+    }
     return this.tasksService.verifyWeight(id, dto, actor)
   }
 

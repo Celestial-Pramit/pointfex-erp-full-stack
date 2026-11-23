@@ -52,22 +52,10 @@ export function PmEarningsPage() {
         ])
         if (cancelled) return
 
-        if (Array.isArray(series) && series.length > 0) {
+        if (Array.isArray(series)) {
           setKpiSeries(series)
         } else {
-          const baseScore = teamPerformance?.overallScore || 95
-          const currentYear = new Date().getFullYear()
-          const fallback: WeeklyKpiItem[] = [
-            { weekNumber: 41, year: currentYear, score: Math.max(75, baseScore - 7), isInactive: false },
-            { weekNumber: 42, year: currentYear, score: Math.max(78, baseScore - 5), isInactive: false },
-            { weekNumber: 43, year: currentYear, score: Math.max(82, baseScore - 6), isInactive: false },
-            { weekNumber: 44, year: currentYear, score: Math.max(86, baseScore - 3), isInactive: false },
-            { weekNumber: 45, year: currentYear, score: Math.max(84, baseScore - 4), isInactive: false },
-            { weekNumber: 46, year: currentYear, score: Math.max(90, baseScore - 2), isInactive: false },
-            { weekNumber: 47, year: currentYear, score: baseScore, isInactive: false },
-            { weekNumber: 48, year: currentYear, score: baseScore, isInactive: false, isProvisional: true },
-          ]
-          setKpiSeries(fallback)
+          setKpiSeries([])
         }
 
         if (xp && typeof xp.lifetimeXp === 'number') {
@@ -201,15 +189,15 @@ export function PmEarningsPage() {
               {teamPerformance?.completionRate ?? 100}%
             </div>
             <div className="text-[10px] text-slate-400 dark:text-slate-500">
-              Sprint deliverables done
+              Sprint tasks completed
             </div>
           </div>
 
-          {/* Metric 4: Sprint Velocity */}
-          <div className="p-4 rounded-3xl bg-slate-50 dark:bg-slate-850/80 border border-slate-100 dark:border-slate-800 text-center space-y-1 shadow-2xs">
+          {/* Metric 4: Team Pace */}
+          <div className="p-4 rounded-3xl bg-slate-50 dark:bg-slate-855/80 border border-slate-100 dark:border-slate-800 text-center space-y-1 shadow-2xs">
             <div className="flex items-center justify-center gap-1.5 text-slate-400 dark:text-slate-500 text-[11px] font-medium">
               <Zap className="w-3.5 h-3.5 text-purple-500" />
-              <span>Velocity</span>
+              <span>Team Pace</span>
             </div>
             <div className="text-2xl font-bold font-display text-slate-900 dark:text-white">
               {teamPerformance?.teamVelocity ?? 40} pts

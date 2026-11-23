@@ -50,11 +50,51 @@ export class ApiError extends Error {
   }
 }
 
+const TOKEN_KEY = 'pointfex_access_token'
+const REFRESH_TOKEN_KEY = 'pointfex_refresh_token'
+
+export function getStoredAccessToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function getStoredRefreshToken(): string | null {
+  try {
+    return localStorage.getItem(REFRESH_TOKEN_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function setStoredTokens(accessToken?: string, refreshToken?: string) {
+  try {
+    if (accessToken) localStorage.setItem(TOKEN_KEY, accessToken)
+    if (refreshToken) localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken)
+  } catch {
+    // ignore
+  }
+}
+
+export function clearStoredTokens() {
+  try {
+    localStorage.removeItem(TOKEN_KEY)
+    localStorage.removeItem(REFRESH_TOKEN_KEY)
+  } catch {
+    // ignore
+  }
+}
+
 let onUnauthorizedCallback: (() => void) | null = null
 let refreshInFlight: Promise<boolean> | null = null
 
 export function setOnUnauthorized(cb: (() => void) | null) {
-  onUnauthorizedCallback = cb
+  onUnauthorizedCallback = () => {
+    clearStoredTokens()
+    cb?.()
+  }
 }
 
 async function attemptSessionRefresh(): Promise<boolean> {
@@ -62,11 +102,31 @@ async function attemptSessionRefresh(): Promise<boolean> {
     return refreshInFlight
   }
 
+  const refreshToken = getStoredRefreshToken()
+
   refreshInFlight = fetch(`${API_BASE}/auth/refresh`, {
     method: 'POST',
     credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(refreshToken ? { 'X-Refresh-Token': refreshToken } : {}),
+    },
+    body: JSON.stringify({ refreshToken }),
   })
-    .then((res) => res.ok)
+    .then(async (res) => {
+      if (res.ok) {
+        try {
+          const data = await res.json()
+          if (data?.accessToken || data?.token) {
+            setStoredTokens(data.accessToken || data.token, data.refreshToken)
+          }
+        } catch {
+          // ignore
+        }
+        return true
+      }
+      return false
+    })
     .catch(() => false)
     .finally(() => {
       refreshInFlight = null
@@ -98,6 +158,11 @@ export async function apiRequest<T>(
   const headers = new Headers(options.headers || {})
   if (!headers.has('Content-Type') && options.body) {
     headers.set('Content-Type', 'application/json')
+  }
+
+  const token = getStoredAccessToken()
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`)
   }
 
   const res = await fetch(`${API_BASE}${path}`, {
@@ -157,13 +222,16 @@ export interface AuthSessionUser {
 
 export const erpApi = {
   // Authentication (HttpOnly SameSite=Strict Cookies + Refresh Rotation)
-  login: (
+  login: async (
     email: string,
     password: string,
     options?: { mfaCode?: string; recoveryCode?: string },
-  ) =>
-    apiRequest<{
+  ) => {
+    const res = await apiRequest<{
       authenticated: boolean
+      accessToken?: string
+      refreshToken?: string
+      token?: string
       mfaRequired?: boolean
       methods?: string[]
       user?: AuthSessionUser
@@ -175,16 +243,24 @@ export const erpApi = {
         ...(options?.mfaCode ? { mfaCode: options.mfaCode } : {}),
         ...(options?.recoveryCode ? { recoveryCode: options.recoveryCode } : {}),
       }),
-    }),
+    })
+    if (res?.authenticated && (res.accessToken || res.token)) {
+      setStoredTokens(res.accessToken || res.token, res.refreshToken)
+    }
+    return res
+  },
   getGoogleAuthUrl: () => apiRequest<{ url: string }>('/auth/google'),
-  exchangeGoogleCode: (body: {
+  exchangeGoogleCode: async (body: {
     code?: string
     pendingToken?: string
     mfaCode?: string
     recoveryCode?: string
-  }) =>
-    apiRequest<{
+  }) => {
+    const res = await apiRequest<{
       authenticated: boolean
+      accessToken?: string
+      refreshToken?: string
+      token?: string
       mfaRequired?: boolean
       pendingToken?: string
       methods?: string[]
@@ -192,7 +268,12 @@ export const erpApi = {
     }>('/auth/google/exchange', {
       method: 'POST',
       body: JSON.stringify(body),
-    }),
+    })
+    if (res?.authenticated && (res.accessToken || res.token)) {
+      setStoredTokens(res.accessToken || res.token, res.refreshToken)
+    }
+    return res
+  },
   refreshSession: () =>
     apiRequest<{
       authenticated: boolean
@@ -200,10 +281,12 @@ export const erpApi = {
     }>('/auth/refresh', {
       method: 'POST',
     }),
-  logoutSession: () =>
-    apiRequest<{ loggedOut: boolean }>('/auth/logout', {
+  logoutSession: () => {
+    clearStoredTokens()
+    return apiRequest<{ loggedOut: boolean }>('/auth/logout', {
       method: 'POST',
-    }),
+    })
+  },
   getAuthMe: () => apiRequest<AuthSessionUser>('/auth/me'),
   changePassword: (currentPassword?: string, newPassword?: string, mfaCode?: string) =>
     apiRequest<{ changed: boolean; mustChangePassword: boolean; mustEnrollMfa: boolean }>(
@@ -280,6 +363,10 @@ export const erpApi = {
     apiRequest<any>(`/teams/${teamId}/members`, { method: 'POST', body: JSON.stringify(body) }),
   removeTeamMember: (teamId: string, employeeId: string) =>
     apiRequest<any>(`/teams/${teamId}/members/${employeeId}`, { method: 'DELETE' }),
+  getTeamResources: (teamId: string) => apiRequest<any[]>(`/teams/${teamId}/resources`),
+  getAllTeamResources: () => apiRequest<any[]>('/teams/resources/all'),
+  addTeamResource: (teamId: string, body: { url: string; description?: string; title?: string }) =>
+    apiRequest<any>(`/teams/${teamId}/resources`, { method: 'POST', body: JSON.stringify(body) }),
 
   // Projects & Milestones
   getProjects: () => apiRequest<any[]>('/projects'),
@@ -309,8 +396,15 @@ export const erpApi = {
     apiRequest<any>('/tasks', { method: 'POST', body: JSON.stringify(body) }),
   updateTask: (id: string, body: Record<string, unknown>) =>
     apiRequest<any>(`/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
-  updateTaskStatus: (id: string, status: string) =>
-    apiRequest<any>(`/tasks/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  updateTaskStatus: (
+    id: string,
+    status: string,
+    extra?: { cancellationReason?: string; pmScore?: number },
+  ) =>
+    apiRequest<any>(`/tasks/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, ...extra }),
+    }),
   approveTask: (id: string, body: { feedback?: string; pmScore?: number; payoutAmount?: number }) =>
     apiRequest<any>(`/tasks/${id}/approve`, { method: 'POST', body: JSON.stringify(body) }),
   // ponytail: Direct C-level grading / score assignment on any task

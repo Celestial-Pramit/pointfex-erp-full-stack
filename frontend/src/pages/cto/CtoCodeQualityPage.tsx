@@ -172,17 +172,23 @@ export function CtoCodeQualityPage() {
         <div className="space-y-4">
           {/* PR Filter Pills */}
           <div className="flex items-center gap-1.5">
-            {['all', 'open', 'in_review', 'approved', 'merged'].map((f) => (
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'open', label: 'Open' },
+              { id: 'in_review', label: 'In Review' },
+              { id: 'approved', label: 'Approved' },
+              { id: 'merged', label: 'Merged' },
+            ].map((f) => (
               <button
-                key={f}
-                onClick={() => setPrFilter(f)}
-                className={`px-3 py-1 rounded-xl text-xs font-medium capitalize transition-colors ${
-                  prFilter === f
+                key={f.id}
+                onClick={() => setPrFilter(f.id)}
+                className={`px-3 py-1 rounded-xl text-xs font-medium transition-colors ${
+                  prFilter === f.id
                     ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900'
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
                 }`}
               >
-                {f.replace('_', ' ')}
+                {f.label}
               </button>
             ))}
           </div>

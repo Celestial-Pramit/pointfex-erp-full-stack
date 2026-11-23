@@ -52,21 +52,10 @@ export function CtoEarningsPage() {
         ])
         if (cancelled) return
 
-        if (Array.isArray(series) && series.length > 0) {
+        if (Array.isArray(series)) {
           setKpiSeries(series)
         } else {
-          const currentYear = new Date().getFullYear()
-          const fallback: WeeklyKpiItem[] = [
-            { weekNumber: 41, year: currentYear, score: 92, isInactive: false },
-            { weekNumber: 42, year: currentYear, score: 94, isInactive: false },
-            { weekNumber: 43, year: currentYear, score: 91, isInactive: false },
-            { weekNumber: 44, year: currentYear, score: 96, isInactive: false },
-            { weekNumber: 45, year: currentYear, score: 95, isInactive: false },
-            { weekNumber: 46, year: currentYear, score: 98, isInactive: false },
-            { weekNumber: 47, year: currentYear, score: 97, isInactive: false },
-            { weekNumber: 48, year: currentYear, score: 98, isInactive: false, isProvisional: true },
-          ]
-          setKpiSeries(fallback)
+          setKpiSeries([])
         }
 
         if (xp && typeof xp.lifetimeXp === 'number') {

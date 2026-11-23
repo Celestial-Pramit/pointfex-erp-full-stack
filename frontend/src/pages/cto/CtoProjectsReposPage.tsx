@@ -460,6 +460,7 @@ export function CtoProjectsReposPage() {
                 </label>
                 <input
                   type="date"
+                  min={new Date().toISOString().split('T')[0]}
                   value={newDeadline}
                   onChange={(e) => setNewDeadline(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-slate-400"
@@ -585,6 +586,7 @@ export function CtoProjectsReposPage() {
                 </label>
                 <input
                   type="date"
+                  min={new Date().toISOString().split('T')[0]}
                   value={editDeadline}
                   onChange={(e) => setEditDeadline(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-slate-400"

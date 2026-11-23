@@ -144,3 +144,17 @@ export class AddTeamMemberDto {
   @IsString()
   roleInTeam?: string
 }
+
+export class CreateTeamResourceDto {
+  @IsNotEmpty()
+  @IsString()
+  url: string
+
+  @IsOptional()
+  @IsString()
+  description?: string
+
+  @IsOptional()
+  @IsString()
+  title?: string
+}

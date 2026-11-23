@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Param, Body, Headers, UseGuards } from '@nestjs/common'
+import { Controller, Get, Post, Param, Body, Headers, UseGuards, ForbiddenException } from '@nestjs/common'
 import { EmployeeLifecycleService } from './employee-lifecycle.service'
 import { AuthenticatedUser } from '../common/auth-user.interface'
 import { PermissionsGuard } from '../common/permissions.guard'
@@ -72,6 +72,16 @@ export class UsersLifecycleController {
     @Body() dto: LifecycleActionDto,
     @CurrentUser() actor: AuthenticatedUser,
   ) {
+    const actorRole = (actor?.role || '').toLowerCase()
+    if (
+      actorRole === 'developer' ||
+      actorRole === 'junior_developer' ||
+      actorRole === 'senior_developer'
+    ) {
+      throw new ForbiddenException(
+        'Developers are strictly forbidden from performing administrative MFA resets.',
+      )
+    }
     return this.lifecycleService.adminResetMfa(employeeId, actor, dto?.reason)
   }
 

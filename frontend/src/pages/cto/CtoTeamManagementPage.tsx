@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { Badge } from '../../components/common/Badge'
 import { Button } from '../../components/common/Button'
 import { Modal } from '../../components/common/Modal'
@@ -6,6 +6,8 @@ import { ConfirmDialog } from '../../components/common/ConfirmDialog'
 import { Avatar } from '../../components/common/Avatar'
 import { useCtoData, type TeamWithDetails } from '../../hooks/useCtoData'
 import { useApp } from '../../context/AppContext'
+import { erpApi } from '../../api/client'
+import { formatPlainEnglishLog } from '../../utils/plain-english-logs'
 import {
   Users,
   Search,
@@ -15,11 +17,25 @@ import {
   Plus,
   Edit2,
   CheckCircle2,
+  Kanban,
+  History,
+  Link2,
+  ExternalLink,
 } from 'lucide-react'
 
 export function CtoTeamManagementPage() {
   const { teams, developers, projectManagers, pmEligibleUsers, projects } = useCtoData()
-  const { createTeam, updateTeam, showToast, currentRole, currentUser, data } = useApp()
+  const {
+    createTeam,
+    updateTeam,
+    showToast,
+    currentRole,
+    currentUser,
+    data,
+    setSelectedTaskModal,
+  } = useApp()
+
+  const [inspectTab, setInspectTab] = useState<'kanban' | 'roster' | 'logs' | 'resources'>('kanban')
 
   const allCompanyPersonnel = useMemo(() => {
     return (data.users || []).filter((u) => !u.isSuspended)
@@ -55,6 +71,27 @@ export function CtoTeamManagementPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'current' | 'previous'>('all')
   const [selectedSquad, setSelectedSquad] = useState<TeamWithDetails | null>(null)
+  const [squadResources, setSquadResources] = useState<any[]>([])
+
+  useEffect(() => {
+    if (!selectedSquad) {
+      setSquadResources([])
+      return
+    }
+    let isSubscribed = true
+    erpApi.getTeamResources(selectedSquad.id)
+      .then((res) => {
+        if (isSubscribed && Array.isArray(res)) {
+          setSquadResources(res)
+        }
+      })
+      .catch(() => {
+        if (isSubscribed) setSquadResources([])
+      })
+    return () => {
+      isSubscribed = false
+    }
+  }, [selectedSquad?.id])
 
   const currentCount = useMemo(
     () =>
@@ -294,7 +331,7 @@ export function CtoTeamManagementPage() {
             <div className="text-base font-bold text-slate-900 dark:text-slate-100">
               {projects.length} Projects
             </div>
-            <div className="text-[11px] text-slate-400">Active Deliverables</div>
+            <div className="text-[11px] text-slate-400">Active Tasks</div>
           </div>
         </div>
       </div>
@@ -743,92 +780,366 @@ export function CtoTeamManagementPage() {
       )}
 
       {/* Squad Inspection Modal */}
-      {activeSelectedSquad && (
-        <Modal
-          isOpen={!!activeSelectedSquad}
-          onClose={() => setSelectedSquad(null)}
-          title={
-            activeSelectedSquad
-              ? `${activeSelectedSquad.name} (${activeSelectedSquad.code}) — Squad Overview`
-              : 'Squad'
+      {activeSelectedSquad && (() => {
+        const memberIds = new Set(activeSelectedSquad.members.map((m) => m.id))
+        const projectIds = new Set(activeSelectedSquad.projects.map((p) => p.id))
+        const squadTasks = (data.tasks || []).filter(
+          (t) =>
+            (t.assigneeId && memberIds.has(t.assigneeId)) ||
+            (t.projectId && projectIds.has(t.projectId)) ||
+            (Boolean((t as any).teamId) && (t as any).teamId === activeSelectedSquad.id),
+        )
+
+        const squadTaskIds = new Set(squadTasks.map((t) => t.id))
+        const squadMovementLogs = (data.activityLogs || []).filter((log: any) => {
+          const isMovement =
+            log.action === 'TASK_STATUS_CHANGED' ||
+            log.actionCode === 'TASK_STATUS_TRANSITION' ||
+            (log.description || '').toLowerCase().includes('status updated from') ||
+            Boolean(log.payload?.toStatus)
+
+          if (!isMovement) return false
+
+          if (log.payload?.teamName?.toLowerCase() === activeSelectedSquad.name.toLowerCase()) {
+            return true
           }
-        >
-          <div className="space-y-4 text-xs">
-            {/* PM Card */}
-            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 flex items-center justify-between">
-              <span className="text-slate-400 font-medium">Assigned Project Manager</span>
-              <div className="flex items-center gap-2">
-                <Avatar
-                  src={activeSelectedSquad.pm?.avatarUrl || activeSelectedSquad.pm?.avatar}
-                  name={activeSelectedSquad.pm?.name || 'Project Manager'}
-                  initials={activeSelectedSquad.pm?.initials}
-                  className="w-6 h-6 text-[10px]"
-                />
-                <span className="font-semibold text-slate-800 dark:text-slate-200">
-                  {activeSelectedSquad.pm?.name || 'Unassigned'}
-                </span>
-              </div>
-            </div>
+          if (squadTaskIds.has(log.entityId)) {
+            return true
+          }
+          const desc = (log.description || '').toLowerCase()
+          const title = (log.entityTitle || '').toLowerCase()
+          const nameLower = activeSelectedSquad.name.toLowerCase()
+          const codeLower = activeSelectedSquad.code.toLowerCase()
+          if (
+            desc.includes(`(squad: ${nameLower})`) ||
+            desc.includes(`[${nameLower}]`) ||
+            desc.includes(`[${codeLower}]`) ||
+            title.includes(`[${nameLower}]`) ||
+            title.includes(`[${codeLower}]`)
+          ) {
+            return true
+          }
+          return false
+        })
 
-            {/* Members List */}
-            <div>
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
-                Dedicated Engineers ({activeSelectedSquad.members.length})
-              </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {activeSelectedSquad.members.map((member) => (
-                  <div
-                    key={member.id}
-                    className="p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center gap-2"
-                  >
-                    <Avatar
-                      src={member.avatarUrl || member.avatar}
-                      name={member.name}
-                      initials={member.initials}
-                      className="w-8 h-8 text-xs"
-                    />
-                    <div>
-                      <h5 className="font-semibold text-xs text-slate-900 dark:text-slate-100">
-                        {member.name}
-                      </h5>
-                      <span className="text-[10px] text-slate-400 block">{member.title}</span>
-                    </div>
+        const columns = [
+          { id: 'todo', label: 'To Do', dot: 'bg-slate-400' },
+          { id: 'in_progress', label: 'In Progress', dot: 'bg-sky-500' },
+          { id: 'in_review', label: 'In Review', dot: 'bg-purple-500' },
+          { id: 'completed', label: 'Completed', dot: 'bg-emerald-500' },
+          { id: 'blocked', label: 'Blocked', dot: 'bg-rose-500' },
+        ]
+
+        return (
+          <Modal
+            isOpen={!!activeSelectedSquad}
+            onClose={() => setSelectedSquad(null)}
+            title={
+              activeSelectedSquad
+                ? `${activeSelectedSquad.name} (${activeSelectedSquad.code}) — Squad Task Board`
+                : 'Squad'
+            }
+          >
+            <div className="space-y-4 text-xs">
+              {/* Tab Switcher: Kanban Board vs Squad Roster */}
+              <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
+                <button
+                  type="button"
+                  onClick={() => setInspectTab('kanban')}
+                  className={`px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                    inspectTab === 'kanban'
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <Kanban className="w-3.5 h-3.5" />
+                  <span>Kanban Board ({squadTasks.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInspectTab('roster')}
+                  className={`px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                    inspectTab === 'roster'
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>Squad Overview &amp; Roster</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInspectTab('logs')}
+                  className={`px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                    inspectTab === 'logs'
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <History className="w-3.5 h-3.5" />
+                  <span>Movement Logs</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInspectTab('resources')}
+                  className={`px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                    inspectTab === 'resources'
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <Link2 className="w-3.5 h-3.5" />
+                  <span>Squad Resources ({squadResources.length})</span>
+                </button>
+              </div>
+
+              {inspectTab === 'kanban' && (
+                /* Squad Kanban Task Board View */
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-slate-400">
+                    <span>PM: <strong>{activeSelectedSquad.pm?.name || 'Unassigned'}</strong></span>
+                    <span>{squadTasks.filter((t) => t.status === 'completed').length} of {squadTasks.length} tasks completed</span>
                   </div>
-                ))}
-              </div>
-            </div>
 
-            {/* Active Projects */}
-            <div>
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
-                Managed Projects ({activeSelectedSquad.projects.length})
-              </h4>
-              <div className="space-y-2">
-                {activeSelectedSquad.projects.map((p) => (
-                  <div
-                    key={p.id}
-                    className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs"
-                  >
-                    <div>
-                      <span className="font-semibold text-slate-900 dark:text-slate-100">
-                        {p.code} — {p.name}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5 overflow-x-auto pb-2">
+                    {columns.map((col) => {
+                      const colTasks = squadTasks.filter((t) => (t.status || 'todo') === col.id)
+                      return (
+                        <div
+                          key={col.id}
+                          className="bg-slate-50/70 dark:bg-slate-850/50 rounded-xl p-2.5 border border-slate-200/60 dark:border-slate-800 flex flex-col min-h-[220px]"
+                        >
+                          <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-200/60 dark:border-slate-800 font-semibold text-[11px] text-slate-700 dark:text-slate-300">
+                            <span className="flex items-center gap-1.5">
+                              <span className={`w-2 h-2 rounded-full ${col.dot}`} />
+                              {col.label}
+                            </span>
+                            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-slate-700 font-mono">
+                              {colTasks.length}
+                            </span>
+                          </div>
+
+                          <div className="space-y-2 flex-1">
+                            {colTasks.length === 0 ? (
+                              <div className="h-full flex items-center justify-center text-[10px] text-slate-400 py-6 text-center italic">
+                                Drop task here
+                              </div>
+                            ) : (
+                              colTasks.map((task) => {
+                                const assigneeUser = (data.users || []).find((u) => u.id === task.assigneeId)
+                                return (
+                                  <div
+                                    key={task.id}
+                                    onClick={() => setSelectedTaskModal(task)}
+                                    className="p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs hover:border-indigo-400 dark:hover:border-indigo-500 cursor-pointer space-y-1.5 transition-all"
+                                  >
+                                    <div className="font-semibold text-slate-900 dark:text-slate-100 text-[11px] line-clamp-2">
+                                      {task.title}
+                                    </div>
+                                    <div className="flex items-center justify-between gap-1 text-[10px] text-slate-400">
+                                      <Badge variant="indigo" size="xs">
+                                        {Math.round((Number(task.weightPoints) || 2) * 10)} XP
+                                      </Badge>
+                                      <span className="capitalize text-[10px]">{task.priority || 'medium'}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-700/60">
+                                      <div className="flex items-center gap-1.5 min-w-0">
+                                        <Avatar
+                                          src={assigneeUser?.avatarUrl || assigneeUser?.avatar}
+                                          name={assigneeUser?.name || 'Engineer'}
+                                          initials={assigneeUser?.initials}
+                                          className="w-4 h-4 text-[9px]"
+                                        />
+                                        <span className="truncate text-[10px] text-slate-600 dark:text-slate-300">
+                                          {assigneeUser?.name || 'Unassigned'}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )
+                              })
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {inspectTab === 'logs' && (
+                /* Team-Scoped Movement Logs */
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-slate-400">
+                    <span>Task Status &amp; Deliverable Movement Logs</span>
+                    <span>{squadMovementLogs.length} events recorded</span>
+                  </div>
+                  {squadMovementLogs.length === 0 ? (
+                    <div className="p-8 text-center bg-slate-50 dark:bg-slate-800/40 rounded-xl text-slate-400 italic">
+                      No status movement logs recorded for this squad yet.
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-80 overflow-y-auto">
+                      {squadMovementLogs.map((log: any) => {
+                        const { sentence, relativeTime } = formatPlainEnglishLog(
+                          log,
+                          data.tasks,
+                          currentUser?.id,
+                        )
+                        return (
+                          <div
+                            key={log.id}
+                            className="p-3 rounded-xl bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-800 space-y-1"
+                          >
+                            <div className="flex items-center justify-between text-xs">
+                              <div className="text-slate-800 dark:text-slate-100 font-medium">
+                                {sentence}
+                              </div>
+                              <span className="text-[10px] text-slate-400 shrink-0 ml-2">
+                                {relativeTime}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[10px] text-slate-400 pt-0.5">
+                              <span>
+                                Squad:{' '}
+                                <strong className="text-indigo-600 dark:text-indigo-400">
+                                  {activeSelectedSquad.name}
+                                </strong>
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {inspectTab === 'resources' && (
+                /* Squad Resources */
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-slate-400">
+                    <span>Squad Tasks, Repositories &amp; Links</span>
+                    <span>{squadResources.length} resources</span>
+                  </div>
+                  {squadResources.length === 0 ? (
+                    <div className="p-8 text-center bg-slate-50 dark:bg-slate-800/40 rounded-xl text-slate-400 italic">
+                      No resources registered for this squad yet.
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-80 overflow-y-auto">
+                      {squadResources.map((res: any) => (
+                        <div
+                          key={res.id}
+                          className="p-3 rounded-xl bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-800 flex items-start justify-between gap-3"
+                        >
+                          <div className="space-y-1 min-w-0">
+                            <a
+                              href={res.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="font-semibold text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 truncate"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                              <span className="truncate">{res.title || res.url}</span>
+                            </a>
+                            {res.description && (
+                              <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                                {res.description}
+                              </p>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-slate-400 shrink-0">
+                            {res.createdAt ? new Date(res.createdAt).toLocaleDateString() : ''}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {inspectTab === 'roster' && (
+                /* Roster Overview */
+                <div className="space-y-4">
+                  {/* PM Card */}
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 flex items-center justify-between">
+                    <span className="text-slate-400 font-medium">Assigned Project Manager</span>
+                    <div className="flex items-center gap-2">
+                      <Avatar
+                        src={activeSelectedSquad.pm?.avatarUrl || activeSelectedSquad.pm?.avatar}
+                        name={activeSelectedSquad.pm?.name || 'Project Manager'}
+                        initials={activeSelectedSquad.pm?.initials}
+                        className="w-6 h-6 text-[10px]"
+                      />
+                      <span className="font-semibold text-slate-800 dark:text-slate-200">
+                        {activeSelectedSquad.pm?.name || 'Unassigned'}
                       </span>
-                      <p className="text-[11px] text-slate-400 line-clamp-1">{p.description}</p>
                     </div>
-                    <span className="font-bold text-sky-600 dark:text-sky-400">{p.progress}%</span>
                   </div>
-                ))}
+
+                  {/* Members List */}
+                  <div>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                      Dedicated Engineers ({activeSelectedSquad.members.length})
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {activeSelectedSquad.members.map((member) => (
+                        <div
+                          key={member.id}
+                          className="p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center gap-2"
+                        >
+                          <Avatar
+                            src={member.avatarUrl || member.avatar}
+                            name={member.name}
+                            initials={member.initials}
+                            className="w-8 h-8 text-xs"
+                          />
+                          <div>
+                            <h5 className="font-semibold text-xs text-slate-900 dark:text-slate-100">
+                              {member.name}
+                            </h5>
+                            <span className="text-[10px] text-slate-400 block">{member.title}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Active Projects */}
+                  <div>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                      Managed Projects ({activeSelectedSquad.projects.length})
+                    </h4>
+                    <div className="space-y-2">
+                      {activeSelectedSquad.projects.map((p) => (
+                        <div
+                          key={p.id}
+                          className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs"
+                        >
+                          <div>
+                            <span className="font-semibold text-slate-900 dark:text-slate-100">
+                              {p.code} — {p.name}
+                            </span>
+                            <p className="text-[11px] text-slate-400 line-clamp-1">{p.description}</p>
+                          </div>
+                          <span className="font-bold text-sky-600 dark:text-sky-400">{p.progress}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end pt-3 border-t border-slate-200 dark:border-slate-800">
+                <Button variant="ghost" size="sm" onClick={() => setSelectedSquad(null)}>
+                  Close
+                </Button>
               </div>
             </div>
-
-            <div className="flex justify-end pt-3 border-t border-slate-200 dark:border-slate-800">
-              <Button variant="ghost" size="sm" onClick={() => setSelectedSquad(null)}>
-                Close
-              </Button>
-            </div>
-          </div>
-        </Modal>
-      )}
+          </Modal>
+        )
+      })()}
 
       {pendingSquadConfirm && (
         <ConfirmDialog

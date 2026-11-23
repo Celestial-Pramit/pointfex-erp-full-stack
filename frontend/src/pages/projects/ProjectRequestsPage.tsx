@@ -27,7 +27,7 @@ import { Stepper } from '../../components/common/Stepper'
 
 const STEPS = [
   'Details & Scope',
-  'Deliverables & Timeline',
+  'Milestones & Timeline',
   'Team Staffing',
   'Risks & Success',
   'Budget & Justification',
@@ -472,19 +472,19 @@ export function ProjectRequestsPage() {
             </div>
           )}
 
-          {/* Step 2: Deliverables & Timeline */}
+          {/* Step 2: Milestones & Timeline */}
           {currentStep === 1 && (
             <div className="space-y-4">
-              <h3 className="font-semibold text-sm text-[var(--text)]">Deliverables &amp; Timeline</h3>
+              <h3 className="font-semibold text-sm text-[var(--text)]">Milestones &amp; Timeline</h3>
               <div>
                 <label className="block text-xs font-medium text-[var(--muted)] mb-1">
-                  Key Deliverables
+                  Key Milestones &amp; Outcomes
                 </label>
                 <textarea
                   rows={3}
                   value={deliverables}
                   onChange={(e) => setDeliverables(e.target.value)}
-                  placeholder="List verifiable milestones and architectural deliverables..."
+                  placeholder="List verifiable milestones and project outcomes..."
                   className="w-full px-3 py-2 text-xs rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--text)]"
                 />
               </div>
@@ -494,6 +494,7 @@ export function ProjectRequestsPage() {
                 </label>
                 <input
                   type="date"
+                  min={new Date().toISOString().split('T')[0]}
                   required
                   value={targetCompletionDate}
                   onChange={(e) => setTargetCompletionDate(e.target.value)}

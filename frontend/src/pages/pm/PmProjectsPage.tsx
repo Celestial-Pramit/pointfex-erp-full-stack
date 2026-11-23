@@ -383,6 +383,7 @@ export function PmProjectsPage() {
               </label>
               <input
                 type="date"
+                min={new Date().toISOString().split('T')[0]}
                 value={milestoneDueDate}
                 onChange={(e) => setMilestoneDueDate(e.target.value)}
                 className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white focus:outline-none"

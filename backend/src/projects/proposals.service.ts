@@ -31,6 +31,23 @@ export class ProposalsService {
       throw new BadRequestException('Title and description are required.')
     }
 
+    const title = input.title.trim()
+    const description = input.description.trim()
+    const titleWords = title.split(/\s+/).filter(Boolean).length
+    const descWords = description.split(/\s+/).filter(Boolean).length
+
+    if (title.length < 5 || title.length > 150 || titleWords < 2) {
+      throw new BadRequestException(
+        'Title must be between 5 and 150 characters and contain at least 2 words.',
+      )
+    }
+
+    if (description.length < 10 || description.length > 5000 || descWords < 2) {
+      throw new BadRequestException(
+        'Description must be between 10 and 5000 characters and contain at least 2 words.',
+      )
+    }
+
     const type = input.type || 'PROPOSAL'
 
     // Confidential grievances bypass PM and go directly to HR/Management
@@ -39,8 +56,8 @@ export class ProposalsService {
         data: {
           id: `rep_grievance_${Date.now()}`,
           authorId: actor.id,
-          title: `Confidential Grievance: ${input.title.trim()}`,
-          description: input.description.trim(),
+          title: `Confidential Grievance: ${title}`,
+          description,
           type: 'grievance',
           status: 'pending',
           confidentialTo: 'chro',
@@ -59,8 +76,8 @@ export class ProposalsService {
     const proposal = await this.prisma.projectProposal.create({
       data: {
         requesterId: actor.id,
-        title: input.title.trim(),
-        description: input.description.trim(),
+        title,
+        description,
         suggestedPmId: input.suggestedPmId,
         type,
         status: 'PENDING',
