@@ -12,6 +12,12 @@ production projects deploy only after every verification job succeeds. Runtime s
 live in Vercel and GitHub Actions secrets; real `.env` files are ignored and must never
 be committed.
 
+GitHub Actions deploys to the `erp-pointfex` frontend project and the
+`backend-erp-pointfex` backend project. Keep the GitHub repository connected only to
+these canonical Vercel projects; disconnect obsolete duplicate projects such as
+`pointfex-frontend` and `pointfex-backend` to prevent duplicate or failing deployment
+checks.
+
 Configure these GitHub Actions secrets for the deployment job:
 
 - `VERCEL_TOKEN`: a valid Vercel account or team access token. Create it in Vercel

@@ -70,7 +70,7 @@ jobs:
           if [ -n "$VERCEL_SCOPE" ]; then
             scope_args+=(--scope "$VERCEL_SCOPE")
           fi
-          vercel link --yes --project pointfex-frontend "${scope_args[@]}" --token="$VERCEL_TOKEN"
+          vercel link --yes --project erp-pointfex "${scope_args[@]}" --token="$VERCEL_TOKEN"
           vercel pull --yes --environment=production "${scope_args[@]}" --token="$VERCEL_TOKEN"
           vercel build --prod "${scope_args[@]}" --token="$VERCEL_TOKEN"
           vercel deploy --prebuilt --prod "${scope_args[@]}" --token="$VERCEL_TOKEN"
@@ -81,7 +81,7 @@ jobs:
           if [ -n "$VERCEL_SCOPE" ]; then
             scope_args+=(--scope "$VERCEL_SCOPE")
           fi
-          vercel link --yes --project pointfex-backend "${scope_args[@]}" --token="$VERCEL_TOKEN"
+          vercel link --yes --project backend-erp-pointfex "${scope_args[@]}" --token="$VERCEL_TOKEN"
           vercel pull --yes --environment=production "${scope_args[@]}" --token="$VERCEL_TOKEN"
           vercel build --prod "${scope_args[@]}" --token="$VERCEL_TOKEN"
           vercel deploy --prebuilt --prod "${scope_args[@]}" --token="$VERCEL_TOKEN"
