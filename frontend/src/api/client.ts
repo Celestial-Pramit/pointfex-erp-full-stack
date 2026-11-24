@@ -478,12 +478,26 @@ export const erpApi = {
         : undefined,
       body: JSON.stringify({ feedback, reason: feedback }),
     }),
-  issueFinancialAdjustment: (body: {
-    userId: string
-    amount: number
-    type: 'bonus' | 'penalty'
-    reason: string
-  }) => apiRequest<any>('/finance/adjustment', { method: 'POST', body: JSON.stringify(body) }),
+  issueFinancialAdjustment: (
+    body: {
+      userId: string
+      amount: number
+      type: 'bonus' | 'penalty'
+      reason: string
+    },
+    mfaCode?: string,
+  ) =>
+    apiRequest<any>('/finance/adjustment', {
+      method: 'POST',
+      headers: mfaCode
+        ? {
+            'X-MFA-Code': mfaCode,
+            'X-MFA-Action': 'treasury:transfer',
+            'X-MFA-Target': 'global',
+          }
+        : undefined,
+      body: JSON.stringify(body),
+    }),
 
   // Performance
   getPerformance: () => apiRequest<any[]>('/performance'),

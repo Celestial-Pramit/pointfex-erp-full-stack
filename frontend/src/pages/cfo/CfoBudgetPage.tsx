@@ -69,7 +69,7 @@ export function CfoBudgetPage() {
     whatWillHappen: string
     severity: 'standard' | 'danger'
     isCritical: boolean
-    onRun: () => void
+    onRun: (mfaCode?: string) => void
   } | null>(null)
 
   // Combined staff for bonus/penalty dropdown
@@ -93,7 +93,13 @@ export function CfoBudgetPage() {
   // Filtered Ledger Transactions
   const filteredTransactions = useMemo(() => {
     return financialTransactions.filter((tx) => {
-      if (ledgerTypeFilter !== 'all' && tx.type !== ledgerTypeFilter) return false
+      if (ledgerTypeFilter !== 'all') {
+        if (ledgerTypeFilter === 'penalty' || ledgerTypeFilter === 'deduction') {
+          if (tx.type !== 'penalty' && tx.type !== 'deduction') return false
+        } else if (tx.type !== ledgerTypeFilter) {
+          return false
+        }
+      }
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase()
         return (
@@ -152,7 +158,13 @@ export function CfoBudgetPage() {
       whatWillHappen: `Transfers ${formatBDT(amt)} from Treasury Reserves to the squad project pool immediately.`,
       severity: 'standard',
       isCritical: amt >= 50_000,
-      onRun: () => approveBudgetRequest(req.id, amt, note),
+      onRun: (mfaCode) =>
+        (approveBudgetRequest as (id: string, amount: number, feedback?: string, mfa?: string) => void)(
+          req.id,
+          amt,
+          note,
+          mfaCode,
+        ),
     })
   }
 
@@ -196,8 +208,16 @@ export function CfoBudgetPage() {
       whatWillHappen: `Posts a permanent ${type} ledger entry of ${formatBDT(amt)} (${reason}).`,
       severity: type === 'penalty' ? 'danger' : 'standard',
       isCritical: type === 'penalty' || amt >= 25_000,
-      onRun: () => {
-        issueFinancialAdjustment(uid, amt, type, reason)
+      onRun: (mfaCode) => {
+        ;(
+          issueFinancialAdjustment as (
+            userId: string,
+            amount: number,
+            type: 'bonus' | 'penalty',
+            reason: string,
+            mfa?: string,
+          ) => void
+        )(uid, amt, type, reason, mfaCode)
         setTargetUserId('')
         setAdjustmentAmount(500)
         setAdjustmentReason('')
@@ -602,7 +622,12 @@ export function CfoBudgetPage() {
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {financialTransactions
-                    .filter((tx) => tx.type === 'bonus' || tx.type === 'deduction')
+                    .filter(
+                      (tx) =>
+                        tx.type === 'bonus' ||
+                        tx.type === 'penalty' ||
+                        tx.type === 'deduction',
+                    )
                     .slice(0, 10)
                     .map((tx) => {
                       const recipient = allStaff.find((u) => u.id === tx.userId)
@@ -639,7 +664,10 @@ export function CfoBudgetPage() {
                       )
                     })}
                   {financialTransactions.filter(
-                    (tx) => tx.type === 'bonus' || tx.type === 'deduction',
+                    (tx) =>
+                      tx.type === 'bonus' ||
+                      tx.type === 'penalty' ||
+                      tx.type === 'deduction',
                   ).length === 0 && (
                     <tr>
                       <td colSpan={5} className="py-10 text-center text-xs text-slate-400">
@@ -676,7 +704,7 @@ export function CfoBudgetPage() {
                   <option value="all">All Types</option>
                   <option value="budget_allocation">Budget Allocations</option>
                   <option value="bonus">Incentives</option>
-                  <option value="deduction">Penalties</option>
+                  <option value="penalty">Penalties</option>
                   <option value="milestone_payout">Milestones</option>
                 </select>
               </div>
@@ -977,8 +1005,8 @@ export function CfoBudgetPage() {
         <SecurityConfirmModal
           isOpen={!!pendingFinanceConfirm}
           onClose={() => setPendingFinanceConfirm(null)}
-          onConfirm={() => {
-            pendingFinanceConfirm.onRun()
+          onConfirm={(_stepUpPhrase, _passwordConfirm, mfaCode) => {
+            pendingFinanceConfirm.onRun(mfaCode)
             setPendingFinanceConfirm(null)
           }}
           title={pendingFinanceConfirm.title}
