@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect, useCallback } from 'react'
 import {
   DollarSign,
   TrendingUp,
@@ -12,6 +12,14 @@ import {
 } from 'lucide-react'
 import { useExecutiveData } from '../../hooks/useExecutiveData'
 import { useApp } from '../../context/AppContext'
+import { usePermissions } from '../../hooks/usePermissions'
+import { erpApi } from '../../api/client'
+import {
+  FinanceV2Account,
+  FinanceV2Config,
+  mapFinanceV2Account,
+  mapFinanceV2Config,
+} from '../../api/adapter'
 import { Modal } from '../../components/common/Modal'
 import { Button } from '../../components/common/Button'
 import { PageHeader } from '../../components/common/PageHeader'
@@ -19,6 +27,25 @@ import { SecurityConfirmModal } from '../../components/common/SecurityConfirmMod
 import { MoneyInput } from '../../components/common/MoneyInput'
 import { formatCurrency } from '../../utils/formatters'
 import { formatBDT, moneyToneClass } from '../../utils/money'
+import { AccountsStatementsTab } from './components/AccountsStatementsTab'
+import { AddMoneyTransferTab } from './components/AddMoneyTransferTab'
+import { BonusTab } from './components/BonusTab'
+import { CommissionSprintTab } from './components/CommissionSprintTab'
+import { FinanceV2PermFlags, FinanceV2SharedProps, MfaConfirmRequest } from './components/financeV2Types'
+import { PayrollTab } from './components/PayrollTab'
+import { PenaltyTab } from './components/PenaltyTab'
+
+type CfoWorkspaceTab =
+  | 'allocations'
+  | 'requests'
+  | 'adjustments'
+  | 'ledger'
+  | 'accounts'
+  | 'funding'
+  | 'payroll'
+  | 'bonuses'
+  | 'penalties'
+  | 'commission'
 
 export function CfoBudgetPage() {
   const {
@@ -28,19 +55,144 @@ export function CfoBudgetPage() {
     financialTransactions,
     developers,
     projectManagers,
+    teams,
   } = useExecutiveData()
 
   const {
+    currentUser,
+    showToast,
     allocateProjectBudget,
     approveBudgetRequest,
     rejectBudgetRequest,
     issueFinancialAdjustment,
   } = useApp()
 
+  const { hasPermission, hasAnyPermission, isRoot } = usePermissions()
+
+  const currentRoleLower = (currentUser?.role || '').toLowerCase()
+  const v2Perms: FinanceV2PermFlags = useMemo(() => {
+    const isCeo = isRoot || currentRoleLower === 'ceo'
+    const canReadAll = isRoot || hasPermission('finance_ledger:read_all')
+    const canCreateRequest = isRoot || hasPermission('money_requests:create')
+    const canApproveMoney = isRoot || hasPermission('money_requests:approve')
+    const canPostMoney = isRoot || hasPermission('money_requests:post')
+    const canRunPayroll = isRoot || hasPermission('payroll:run')
+    const canConfirmPayroll = isRoot || hasPermission('payroll:confirm')
+    const canScoreBonus = isRoot || hasPermission('bonus_awards:score')
+    const canApproveBonus = isRoot || hasPermission('bonus_awards:approve')
+    const canDisburseBonus = isRoot || hasPermission('bonus_awards:disburse')
+    const canRecordPenalty = isRoot || hasPermission('penalties:record')
+    const canPostPenalty = isRoot || hasPermission('penalties:post')
+    const canRunCommission = isRoot || hasPermission('commissions:run')
+    const canRequestSprintLock = isRoot || hasPermission('sprints:lock')
+    const canManageConfig = isRoot || hasPermission('finance_config:manage')
+    const canExportCsv = isRoot || hasPermission('finance_reports:export')
+    const canSubmitRanking =
+      isRoot ||
+      currentRoleLower === 'chro' ||
+      currentRoleLower === 'cpo' ||
+      currentRoleLower === 'ceo'
+
+    const hasAnyMutationPerm =
+      canCreateRequest ||
+      canApproveMoney ||
+      canPostMoney ||
+      canRunPayroll ||
+      canConfirmPayroll ||
+      canScoreBonus ||
+      canApproveBonus ||
+      canDisburseBonus ||
+      canRecordPenalty ||
+      canPostPenalty ||
+      canRunCommission ||
+      canRequestSprintLock ||
+      canManageConfig
+
+    return {
+      isCeo,
+      canReadAll,
+      canCreateRequest,
+      canApproveMoney,
+      canPostMoney,
+      canRunPayroll,
+      canConfirmPayroll,
+      canScoreBonus,
+      canApproveBonus,
+      canDisburseBonus,
+      canRecordPenalty,
+      canPostPenalty,
+      canRunCommission,
+      canRequestSprintLock,
+      canManageConfig,
+      canExportCsv,
+      canSubmitRanking,
+      isReadOnlyAuditor: !isRoot && (currentRoleLower === 'auditor' || (canReadAll && !hasAnyMutationPerm)),
+    }
+  }, [isRoot, currentRoleLower, hasPermission])
+
+  const canViewLegacyTreasury =
+    isRoot ||
+    hasAnyPermission(
+      'treasury:read',
+      'budgets:read_requests',
+      'transactions:read_all',
+      'finance_ledger:read_all',
+      'finance:issue_adjustment',
+    )
+
+  const defaultTab: CfoWorkspaceTab = canViewLegacyTreasury
+    ? 'allocations'
+    : v2Perms.canSubmitRanking
+      ? 'funding'
+      : 'penalties'
+
   // Tabs
-  const [activeTab, setActiveTab] = useState<'allocations' | 'requests' | 'adjustments' | 'ledger'>(
-    'allocations',
-  )
+  const [activeTab, setActiveTab] = useState<CfoWorkspaceTab>(defaultTab)
+
+  // v2 Treasury State
+  const [v2Accounts, setV2Accounts] = useState<FinanceV2Account[]>([])
+  const [v2Config, setV2Config] = useState<FinanceV2Config | null>(null)
+
+  const refreshV2All = useCallback(async () => {
+    try {
+      const [accRes, cfgRes] = await Promise.all([
+        erpApi.getFinanceAccounts().catch(() => null),
+        erpApi.getFinanceConfig().catch(() => null),
+      ])
+      if (accRes && Array.isArray(accRes.accounts)) {
+        setV2Accounts(accRes.accounts.map(mapFinanceV2Account))
+      }
+      if (cfgRes) {
+        setV2Config(mapFinanceV2Config(cfgRes))
+      }
+    } catch {
+      // Optional v2 panel gracefully handles initial offline/loading states.
+    }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    ;(async () => {
+      try {
+        const [accRes, cfgRes] = await Promise.all([
+          erpApi.getFinanceAccounts().catch(() => null),
+          erpApi.getFinanceConfig().catch(() => null),
+        ])
+        if (!active) return
+        if (accRes && Array.isArray(accRes.accounts)) {
+          setV2Accounts(accRes.accounts.map(mapFinanceV2Account))
+        }
+        if (cfgRes) {
+          setV2Config(mapFinanceV2Config(cfgRes))
+        }
+      } catch {
+        // Ignore on initial mount if role lacks access.
+      }
+    })()
+    return () => {
+      active = false
+    }
+  }, [])
 
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState('')
@@ -72,10 +224,57 @@ export function CfoBudgetPage() {
     onRun: (mfaCode?: string) => void
   } | null>(null)
 
+  const handleRequestV2MfaConfirm = useCallback(
+    (opts: MfaConfirmRequest) => {
+      setPendingFinanceConfirm({
+        title: opts.title,
+        details: opts.details,
+        whatWillHappen: opts.whatWillHappen,
+        severity: opts.severity ?? 'standard',
+        isCritical: Boolean(opts.isCritical),
+        onRun: (mfaCode) => {
+          void opts.onRun(mfaCode).catch((err: any) => {
+            showToast(err?.message || 'Treasury operation failed', 'error')
+          })
+        },
+      })
+    },
+    [showToast],
+  )
+
   // Combined staff for bonus/penalty dropdown
   const allStaff = useMemo(() => {
     return [...projectManagers, ...developers]
   }, [projectManagers, developers])
+
+  const v2SharedProps: FinanceV2SharedProps = useMemo(
+    () => ({
+      accounts: v2Accounts,
+      companyFund: v2Accounts.find((a) => a.type === 'COMPANY_FUND') || null,
+      squadAccounts: v2Accounts.filter((a) => a.type === 'SQUAD'),
+      config: v2Config,
+      teams: (teams || []).map((t) => ({ id: t.id, name: t.name, code: t.code || t.id })),
+      staffList: allStaff.map((u) => ({ id: u.id, name: u.name, role: u.role })),
+      currentUserId: currentUser?.id || '',
+      currentUserRole: currentUser?.role || '',
+      perms: v2Perms,
+      onRefreshAll: refreshV2All,
+      onToast: (message: string) => showToast(message),
+      onRequestMfaConfirm: handleRequestV2MfaConfirm,
+    }),
+    [
+      v2Accounts,
+      v2Config,
+      teams,
+      allStaff,
+      currentUser?.id,
+      currentUser?.role,
+      v2Perms,
+      refreshV2All,
+      showToast,
+      handleRequestV2MfaConfirm,
+    ],
+  )
 
   // Filtered Project Budgets
   const filteredProjects = useMemo(() => {
@@ -229,19 +428,21 @@ export function CfoBudgetPage() {
     <div className="space-y-6">
       <PageHeader
         title="Treasury & Budgets"
-        subtitle="Manage project allocations, review budget requests, and track BDT disbursements."
+        subtitle="Manage project allocations, double-entry accounts, payroll, bonuses, penalties, and BDT disbursements."
         action={
-          <Button
-            variant="primary"
-            size="sm"
-            icon={PlusCircle}
-            onClick={() => {
-              if (allStaff.length > 0) setTargetUserId(allStaff[0].id)
-              setIsBonusPenaltyModalOpen(true)
-            }}
-          >
-            Issue Bonus / Penalty
-          </Button>
+          !v2Perms.isReadOnlyAuditor && (isRoot || hasPermission('finance:issue_adjustment')) ? (
+            <Button
+              variant="primary"
+              size="sm"
+              icon={PlusCircle}
+              onClick={() => {
+                if (allStaff.length > 0) setTargetUserId(allStaff[0].id)
+                setIsBonusPenaltyModalOpen(true)
+              }}
+            >
+              Issue Bonus / Penalty
+            </Button>
+          ) : undefined
         }
       />
 
@@ -341,65 +542,154 @@ export function CfoBudgetPage() {
         {/* Navigation Tabs and Action Buttons */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-200/80 dark:border-slate-800 pb-4 mb-6">
           <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 w-full sm:w-auto">
-            <button
-              onClick={() => setActiveTab('allocations')}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer whitespace-nowrap ${
-                activeTab === 'allocations'
-                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
-              }`}
-            >
-              Project Allocations ({projectBudgets.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('requests')}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-                activeTab === 'requests'
-                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
-              }`}
-            >
-              PM Budget Requests
-              {pendingBudgetRequests.length > 0 && (
-                <span className="w-5 h-5 rounded-full bg-rose-500 text-white text-[11px] font-bold flex items-center justify-center">
-                  {pendingBudgetRequests.length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTab('adjustments')}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer whitespace-nowrap ${
-                activeTab === 'adjustments'
-                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
-              }`}
-            >
-              Incentives & Penalties
-            </button>
-            <button
-              onClick={() => setActiveTab('ledger')}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer whitespace-nowrap ${
-                activeTab === 'ledger'
-                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
-              }`}
-            >
-              Financial Ledger ({financialTransactions.length})
-            </button>
+            {canViewLegacyTreasury && (
+              <>
+                <button
+                  onClick={() => setActiveTab('allocations')}
+                  className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                    activeTab === 'allocations'
+                      ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                  }`}
+                >
+                  Project Allocations ({projectBudgets.length})
+                </button>
+                <button
+                  onClick={() => setActiveTab('requests')}
+                  className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                    activeTab === 'requests'
+                      ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                  }`}
+                >
+                  PM Budget Requests
+                  {pendingBudgetRequests.length > 0 && (
+                    <span className="w-5 h-5 rounded-full bg-rose-500 text-white text-[11px] font-bold flex items-center justify-center">
+                      {pendingBudgetRequests.length}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setActiveTab('adjustments')}
+                  className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                    activeTab === 'adjustments'
+                      ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                  }`}
+                >
+                  Incentives & Penalties
+                </button>
+                <button
+                  onClick={() => setActiveTab('ledger')}
+                  className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                    activeTab === 'ledger'
+                      ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                  }`}
+                >
+                  Financial Ledger ({financialTransactions.length})
+                </button>
+              </>
+            )}
+
+            {(v2Perms.canReadAll || v2Perms.canExportCsv) && (
+              <button
+                onClick={() => setActiveTab('accounts')}
+                className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                  activeTab === 'accounts'
+                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                }`}
+              >
+                Accounts & Statements
+              </button>
+            )}
+            {(v2Perms.canReadAll ||
+              v2Perms.canCreateRequest ||
+              v2Perms.canApproveMoney ||
+              v2Perms.canPostMoney ||
+              v2Perms.canSubmitRanking) && (
+              <button
+                onClick={() => setActiveTab('funding')}
+                className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                  activeTab === 'funding'
+                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                }`}
+              >
+                Add Money, Rankings & Transfers
+              </button>
+            )}
+            {(v2Perms.canReadAll || v2Perms.canRunPayroll || v2Perms.canConfirmPayroll) && (
+              <button
+                onClick={() => setActiveTab('payroll')}
+                className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                  activeTab === 'payroll'
+                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                }`}
+              >
+                Payroll
+              </button>
+            )}
+            {(v2Perms.canReadAll ||
+              v2Perms.canScoreBonus ||
+              v2Perms.canApproveBonus ||
+              v2Perms.canDisburseBonus) && (
+              <button
+                onClick={() => setActiveTab('bonuses')}
+                className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                  activeTab === 'bonuses'
+                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                }`}
+              >
+                Sprint Bonuses
+              </button>
+            )}
+            {(v2Perms.canReadAll || v2Perms.canRecordPenalty || v2Perms.canPostPenalty) && (
+              <button
+                onClick={() => setActiveTab('penalties')}
+                className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                  activeTab === 'penalties'
+                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                }`}
+              >
+                Penalties & Splits
+              </button>
+            )}
+            {(v2Perms.canReadAll ||
+              v2Perms.canRunCommission ||
+              v2Perms.canRequestSprintLock ||
+              v2Perms.canManageConfig) && (
+              <button
+                onClick={() => setActiveTab('commission')}
+                className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                  activeTab === 'commission'
+                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                }`}
+              >
+                Commission, Locks & Config
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
-            <Button
-              variant="primary"
-              size="sm"
-              icon={PlusCircle}
-              onClick={() => {
-                if (allStaff.length > 0) setTargetUserId(allStaff[0].id)
-                setIsBonusPenaltyModalOpen(true)
-              }}
-            >
-              Issue Bonus / Penalty
-            </Button>
+            {!v2Perms.isReadOnlyAuditor && (isRoot || hasPermission('finance:issue_adjustment')) && (
+              <Button
+                variant="primary"
+                size="sm"
+                icon={PlusCircle}
+                onClick={() => {
+                  if (allStaff.length > 0) setTargetUserId(allStaff[0].id)
+                  setIsBonusPenaltyModalOpen(true)
+                }}
+              >
+                Issue Bonus / Penalty
+              </Button>
+            )}
           </div>
         </div>
 
@@ -595,17 +885,19 @@ export function CfoBudgetPage() {
                   wallets.
                 </p>
               </div>
-              <Button
-                variant="primary"
-                size="sm"
-                icon={PlusCircle}
-                onClick={() => {
-                  if (allStaff.length > 0) setTargetUserId(allStaff[0].id)
-                  setIsBonusPenaltyModalOpen(true)
-                }}
-              >
-                New Adjustment
-              </Button>
+              {!v2Perms.isReadOnlyAuditor && (isRoot || hasPermission('finance:issue_adjustment')) && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  icon={PlusCircle}
+                  onClick={() => {
+                    if (allStaff.length > 0) setTargetUserId(allStaff[0].id)
+                    setIsBonusPenaltyModalOpen(true)
+                  }}
+                >
+                  New Adjustment
+                </Button>
+              )}
             </div>
 
             {/* Recent Adjustments */}
@@ -767,6 +1059,24 @@ export function CfoBudgetPage() {
             </div>
           </div>
         )}
+
+        {/* TAB 5: V2 ACCOUNTS & STATEMENTS */}
+        {activeTab === 'accounts' && <AccountsStatementsTab {...v2SharedProps} />}
+
+        {/* TAB 6: ADD MONEY, TRANSFERS & SPRINT POOL RANKINGS */}
+        {activeTab === 'funding' && <AddMoneyTransferTab {...v2SharedProps} />}
+
+        {/* TAB 7: EXECUTIVE & SQUAD PAYROLL */}
+        {activeTab === 'payroll' && <PayrollTab {...v2SharedProps} />}
+
+        {/* TAB 8: SPRINT BONUSES & POOL CAPS */}
+        {activeTab === 'bonuses' && <BonusTab {...v2SharedProps} />}
+
+        {/* TAB 9: TYPED PENALTIES & SPLITS */}
+        {activeTab === 'penalties' && <PenaltyTab {...v2SharedProps} />}
+
+        {/* TAB 10: CFO COMMISSION, SPRINT LOCKS & CONFIG */}
+        {activeTab === 'commission' && <CommissionSprintTab {...v2SharedProps} />}
       </div>
 
       {/* MODAL 1: Adjust Project Budget */}
