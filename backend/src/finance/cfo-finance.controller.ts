@@ -90,6 +90,7 @@ export class CfoFinanceController {
     'payroll:confirm',
     'bonus_awards:score',
     'penalties:record',
+    'performance:evaluate',
     'wallets:read_own',
   )
   getAccounts(@CurrentUser() actor: AuthenticatedUser) {
@@ -229,6 +230,7 @@ export class CfoFinanceController {
   @Get('money-requests')
   @RequireAnyPermission(
     'finance_ledger:read_all',
+    'performance:evaluate',
     'money_requests:create',
     'money_requests:approve',
     'money_requests:post',

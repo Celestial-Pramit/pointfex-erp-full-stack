@@ -292,8 +292,7 @@ export class FinanceService {
       })
 
       // 5. Audit Log
-      await tx.auditLog.create({
-        data: {
+      await (this.auditLogger ? this.auditLogger.log({
           ipAddress: getCurrentRequestIp(),
           actorId: actor.id,
           actorName: actor.id,
@@ -308,8 +307,22 @@ export class FinanceService {
           description: `Disbursed ৳${allocAmount.toNumber().toLocaleString()} to ${developer.name} for ${project.name}`,
           category: 'finance',
           badgeColor: 'emerald',
-        },
-      })
+        } as any, tx) : tx.auditLog.create({ data: {
+          ipAddress: getCurrentRequestIp(),
+          actorId: actor.id,
+          actorName: actor.id,
+          actorEmail: actor.email || '',
+          actorRole: actor.role.toUpperCase(),
+          action: 'BUDGET_DISBURSED',
+          actionCode: 'BUDGET_DISBURSED',
+          severity: 'INFO',
+          entityType: 'project',
+          entityId: dto.projectId,
+          entityTitle: project.name,
+          description: `Disbursed ৳${allocAmount.toNumber().toLocaleString()} to ${developer.name} for ${project.name}`,
+          category: 'finance',
+          badgeColor: 'emerald',
+        } }))
 
       return {
         message: `Successfully allocated ৳${allocAmount.toNumber().toLocaleString()} to ${developer.name}`,
@@ -375,8 +388,7 @@ export class FinanceService {
       })
 
       // 4. Audit Log
-      await tx.auditLog.create({
-        data: {
+      await (this.auditLogger ? this.auditLogger.log({
           ipAddress: getCurrentRequestIp(),
           actorId: actor.id,
           actorName: actor.id,
@@ -391,8 +403,22 @@ export class FinanceService {
           description: `Adjusted budget pool for ${project.name} to ৳${newBudgetDecimal.toNumber().toLocaleString()} (${delta.greaterThanOrEqualTo(0) ? '+' : ''}৳${delta.toNumber().toLocaleString()})`,
           category: 'finance',
           badgeColor: 'emerald',
-        },
-      })
+        } as any, tx) : tx.auditLog.create({ data: {
+          ipAddress: getCurrentRequestIp(),
+          actorId: actor.id,
+          actorName: actor.id,
+          actorEmail: actor.email || '',
+          actorRole: actor.role.toUpperCase(),
+          action: 'PROJECT_BUDGET_ADJUSTED',
+          actionCode: 'CAPITAL_ALLOCATION_UPDATED',
+          severity: 'INFO',
+          entityType: 'project',
+          entityId: dto.projectId,
+          entityTitle: project.name,
+          description: `Adjusted budget pool for ${project.name} to ৳${newBudgetDecimal.toNumber().toLocaleString()} (${delta.greaterThanOrEqualTo(0) ? '+' : ''}৳${delta.toNumber().toLocaleString()})`,
+          category: 'finance',
+          badgeColor: 'emerald',
+        } }))
 
       return updatedProject
     })
@@ -417,8 +443,7 @@ export class FinanceService {
         include: { project: true },
       })
 
-      await tx.auditLog.create({
-        data: {
+      await (this.auditLogger ? this.auditLogger.log({
           ipAddress: getCurrentRequestIp(),
           actorId: actor.id,
           actorName: actor.id,
@@ -433,8 +458,22 @@ export class FinanceService {
           description: `PM requested budget increase of ৳${requestedAmount.toNumber().toLocaleString()} for ${project.name}`,
           category: 'finance',
           badgeColor: 'amber',
-        },
-      })
+        } as any, tx) : tx.auditLog.create({ data: {
+          ipAddress: getCurrentRequestIp(),
+          actorId: actor.id,
+          actorName: actor.id,
+          actorEmail: actor.email || '',
+          actorRole: actor.role.toUpperCase(),
+          action: 'BUDGET_REQUEST_LOGGED',
+          actionCode: 'BUDGET_REQUEST_LOGGED',
+          severity: 'INFO',
+          entityType: 'project',
+          entityId: dto.projectId,
+          entityTitle: project.name,
+          description: `PM requested budget increase of ৳${requestedAmount.toNumber().toLocaleString()} for ${project.name}`,
+          category: 'finance',
+          badgeColor: 'amber',
+        } }))
 
       return budgetReq
     })
@@ -505,8 +544,7 @@ export class FinanceService {
       })
 
       // 4. Audit Log
-      await tx.auditLog.create({
-        data: {
+      await (this.auditLogger ? this.auditLogger.log({
           ipAddress: getCurrentRequestIp(),
           actorId: actor.id,
           actorName: actor.id,
@@ -521,8 +559,22 @@ export class FinanceService {
           description: `CFO approved +৳${approvedAmount.toNumber().toLocaleString()} budget increase for ${req.project.name}`,
           category: 'finance',
           badgeColor: 'emerald',
-        },
-      })
+        } as any, tx) : tx.auditLog.create({ data: {
+          ipAddress: getCurrentRequestIp(),
+          actorId: actor.id,
+          actorName: actor.id,
+          actorEmail: actor.email || '',
+          actorRole: actor.role.toUpperCase(),
+          action: 'BUDGET_REQUEST_APPROVED',
+          actionCode: 'BUDGET_REQUEST_GRANTED',
+          severity: 'SUCCESS',
+          entityType: 'project',
+          entityId: req.projectId,
+          entityTitle: req.project.name,
+          description: `CFO approved +৳${approvedAmount.toNumber().toLocaleString()} budget increase for ${req.project.name}`,
+          category: 'finance',
+          badgeColor: 'emerald',
+        } }))
 
       return updatedReq
     })
@@ -554,8 +606,7 @@ export class FinanceService {
         },
       })
 
-      await tx.auditLog.create({
-        data: {
+      await (this.auditLogger ? this.auditLogger.log({
           ipAddress: getCurrentRequestIp(),
           actorId: actor.id,
           actorName: actor.id,
@@ -569,8 +620,21 @@ export class FinanceService {
           description: `CFO rejected budget request: "${dto.feedback}"`,
           category: 'finance',
           badgeColor: 'rose',
-        },
-      })
+        } as any, tx) : tx.auditLog.create({ data: {
+          ipAddress: getCurrentRequestIp(),
+          actorId: actor.id,
+          actorName: actor.id,
+          actorEmail: actor.email || '',
+          actorRole: actor.role.toUpperCase(),
+          action: 'BUDGET_REQUEST_REJECTED',
+          actionCode: 'BUDGET_REQUEST_DENIED',
+          severity: 'WARNING',
+          entityType: 'project',
+          entityId: req.projectId,
+          description: `CFO rejected budget request: "${dto.feedback}"`,
+          category: 'finance',
+          badgeColor: 'rose',
+        } }))
 
       return updatedReq
     })
@@ -659,8 +723,7 @@ export class FinanceService {
       })
 
       // Audit Log
-      await tx.auditLog.create({
-        data: {
+      await (this.auditLogger ? this.auditLogger.log({
           ipAddress: getCurrentRequestIp(),
           actorId: actor.id,
           actorName: actor.id,
@@ -676,8 +739,23 @@ export class FinanceService {
           description: `${dto.type.toUpperCase()}: ৳${amountDecimal.toNumber().toLocaleString()} to ${user.name} (${dto.reason})`,
           category: 'finance',
           badgeColor: dto.type === 'bonus' ? 'emerald' : 'amber',
-        },
-      })
+        } as any, tx) : tx.auditLog.create({ data: {
+          ipAddress: getCurrentRequestIp(),
+          actorId: actor.id,
+          actorName: actor.id,
+          actorEmail: actor.email || '',
+          actorRole: actor.role.toUpperCase(),
+          action: dto.type === 'bonus' ? 'BONUS_ISSUED' : 'PENALTY_ISSUED',
+          actionCode:
+            dto.type === 'bonus' ? 'PERFORMANCE_BONUS_DISBURSED' : 'DISCIPLINARY_DEDUCTION_APPLIED',
+          severity: dto.type === 'bonus' ? 'SUCCESS' : 'WARNING',
+          entityType: 'user',
+          entityId: dto.userId,
+          entityTitle: user.name,
+          description: `${dto.type.toUpperCase()}: ৳${amountDecimal.toNumber().toLocaleString()} to ${user.name} (${dto.reason})`,
+          category: 'finance',
+          badgeColor: dto.type === 'bonus' ? 'emerald' : 'amber',
+        } }))
 
       return {
         message: `Issued ৳${amountDecimal.toNumber().toLocaleString()} ${dto.type} to ${user.name}`,
@@ -796,8 +874,7 @@ export class FinanceService {
       })
 
       // 4. Audit Log
-      await tx.auditLog.create({
-        data: {
+      await (this.auditLogger ? this.auditLogger.log({
           ipAddress: getCurrentRequestIp(),
           actorId: actor.id,
           actorName: actor.id,
@@ -812,8 +889,22 @@ export class FinanceService {
           description: `Disbursed ৳${totalRev.toNumber().toLocaleString()} client revenue: 50% to ${acquirer.name}, 50% to ${squadDevelopers.length} developers`,
           category: 'finance',
           badgeColor: 'emerald',
-        },
-      })
+        } as any, tx) : tx.auditLog.create({ data: {
+          ipAddress: getCurrentRequestIp(),
+          actorId: actor.id,
+          actorName: actor.id,
+          actorEmail: actor.email || '',
+          actorRole: actor.role.toUpperCase(),
+          action: 'CLIENT_REVENUE_SHARED',
+          actionCode: 'REVENUE_SHARE_DISBURSED',
+          severity: 'SUCCESS',
+          entityType: 'project',
+          entityId: dto.projectId,
+          entityTitle: project.name,
+          description: `Disbursed ৳${totalRev.toNumber().toLocaleString()} client revenue: 50% to ${acquirer.name}, 50% to ${squadDevelopers.length} developers`,
+          category: 'finance',
+          badgeColor: 'emerald',
+        } }))
 
       return {
         message: `Client revenue share processed successfully for ${project.name}`,

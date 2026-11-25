@@ -384,6 +384,9 @@ FOR EACH ROW EXECUTE FUNCTION prevent_append_only_mutation();
 DROP TRIGGER IF EXISTS trg_ledger_transactions_no_truncate ON "ledger_transactions";
 CREATE TRIGGER trg_ledger_transactions_no_truncate
 BEFORE TRUNCATE ON "ledger_transactions"
-FOR EACH ROW EXECUTE FUNCTION prevent_append_only_mutation();
+FOR EACH STATEMENT EXECUTE FUNCTION prevent_append_only_mutation();
 
 REVOKE TRUNCATE ON "ledger_transactions" FROM PUBLIC;
+
+-- Sync missing tasks.projectPercentage column for clean DB deployments
+ALTER TABLE "tasks" ADD COLUMN IF NOT EXISTS "projectPercentage" DECIMAL(5,2) DEFAULT 0;

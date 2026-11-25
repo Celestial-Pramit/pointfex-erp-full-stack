@@ -125,7 +125,7 @@ export async function findActiveEmployeesForRole(
       where: {
         isActive: true,
         position: { roleCategory: slug },
-        employee: { status: 'active' },
+        employee: { isSuspended: false },
       },
       include: {
         employee: { select: { id: true, name: true, status: true } },
@@ -151,7 +151,7 @@ export async function findActiveEmployeesForRole(
       where: {
         isActive: true,
         role: { slug, isActive: true },
-        employee: { status: 'active' },
+        employee: { isSuspended: false },
       },
       include: {
         employee: { select: { id: true, name: true, status: true } },
