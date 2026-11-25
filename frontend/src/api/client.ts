@@ -476,7 +476,7 @@ export const erpApi = {
             'X-MFA-Target': requestId,
           }
         : undefined,
-      body: JSON.stringify({ feedback, reason: feedback }),
+      body: JSON.stringify({ feedback }),
     }),
   issueFinancialAdjustment: (
     body: {

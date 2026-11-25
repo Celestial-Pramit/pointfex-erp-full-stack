@@ -60,7 +60,7 @@ export function AddMoneyTransferTab({
     setErrorMsg(null)
     try {
       const [reqRaw, rankRaw] = await Promise.all([
-        erpApi.getFinanceMoneyRequests(),
+        erpApi.getFinanceMoneyRequests().catch(() => []),
         erpApi.getFinanceSprintRankings().catch(() => []),
       ])
       setRequests((reqRaw || []).map(mapFinanceV2MoneyRequest))
@@ -75,7 +75,7 @@ export function AddMoneyTransferTab({
     ;(async () => {
       try {
         const [reqRaw, rankRaw] = await Promise.all([
-          erpApi.getFinanceMoneyRequests(),
+          erpApi.getFinanceMoneyRequests().catch(() => []),
           erpApi.getFinanceSprintRankings().catch(() => []),
         ])
         if (active) {

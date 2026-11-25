@@ -89,9 +89,8 @@ export function CfoBudgetPage() {
     const canExportCsv = isRoot || hasPermission('finance_reports:export')
     const canSubmitRanking =
       isRoot ||
-      currentRoleLower === 'chro' ||
-      currentRoleLower === 'cpo' ||
-      currentRoleLower === 'ceo'
+      hasPermission('performance:evaluate') ||
+      hasPermission('money_requests:approve')
 
     const hasAnyMutationPerm =
       canCreateRequest ||

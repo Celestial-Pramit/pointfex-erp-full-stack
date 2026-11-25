@@ -1965,9 +1965,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   )
 
   const handleRejectBudgetRequest = useCallback(
-    (reportId: string, feedback: string) => {
+    (reportId: string, feedback: string, mfaCode?: string) => {
       void runApiMutation(
-        () => erpApi.rejectBudgetRequest(reportId, feedback || 'Budget request dismissed by CFO.'),
+        () => erpApi.rejectBudgetRequest(reportId, feedback || 'Budget request dismissed by CFO.', mfaCode),
         'Budget request dismissed',
       )
     },
